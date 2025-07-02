@@ -7,11 +7,12 @@ local formatter = require("docker.formatter")
 
 -- Create floating windows with separate header, content, and footer
 local function create_windows(title, item_count, content_width)
-	-- Calculate optimal dimensions with proper proportions
-	local max_container_rows = 10 -- Maximum rows for containers
+	-- Calculate optimal dimensions based on content and terminal size
+	local max_items_displayable = math.floor(vim.o.lines * 0.6) - 4 -- Reserve space for header/footer and some padding
+	local actual_content_rows = item_count and math.min(item_count, math.max(10, max_items_displayable)) or 10
 	local header_height = 2 -- Header + separator (no extra padding)
 	local footer_height = 2 -- Footer content (minimal height)
-	local content_height = max_container_rows + 2 -- Content + small padding
+	local content_height = actual_content_rows + 2 -- Content + small padding
 
 	-- Use content-based width, but limit to 80% of terminal width
 	local max_width = math.floor(vim.o.columns * 0.8)
@@ -99,6 +100,13 @@ end
 
 -- Render containers to windows
 function M.render_containers(windows, containers)
+	-- Update stored data for auto-resize functionality
+	local actions = require("docker.actions")
+	if actions._current_data then
+		actions._current_data.containers = containers
+		actions._current_data.window_type = "containers"
+	end
+
 	-- Get the calculated max widths from formatter
 	local max_image_width = formatter._max_image_width or 30
 	local max_status_width = formatter._max_status_width or 25
@@ -157,6 +165,13 @@ end
 
 -- Render images to windows
 function M.render_images(windows, images)
+	-- Update stored data for auto-resize functionality
+	local actions = require("docker.actions")
+	if actions._current_data then
+		actions._current_data.images = images
+		actions._current_data.window_type = "images"
+	end
+
 	local header_lines = formatter.format_images_header()
 	local content_lines = formatter.format_images_table(images)
 
@@ -233,6 +248,10 @@ function M.show_containers()
 			actions.set_current_windows(windows)
 			actions.setup_container_keymaps(windows.main_buf)
 
+			-- Store data for auto-resize functionality
+			actions._current_data.containers = containers
+			actions._current_data.window_type = "containers"
+
 			-- Render containers immediately
 			M.render_containers(windows, containers)
 		end)
@@ -265,6 +284,10 @@ function M.show_images()
 			local actions = require("docker.actions")
 			actions.set_current_windows(windows)
 			actions.setup_image_keymaps(windows.main_buf)
+
+			-- Store data for auto-resize functionality
+			actions._current_data.images = images
+			actions._current_data.window_type = "images"
 
 			-- Render images immediately
 			M.render_images(windows, images)

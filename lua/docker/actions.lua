@@ -334,6 +334,13 @@ end
 -- Store current windows for refresh operations
 M._current_windows = nil
 
+-- Store current data for auto-resize functionality
+M._current_data = {
+	containers = nil,
+	images = nil,
+	window_type = nil, -- "containers" or "images"
+}
+
 -- Refresh containers in buffer
 function M.refresh_containers(buf)
 	vim.schedule(function()
@@ -447,12 +454,109 @@ function M.close_current_windows()
 			end
 			M._current_windows = nil
 		end
+
+		-- Clear current data
+		M._current_data.containers = nil
+		M._current_data.images = nil
+		M._current_data.window_type = nil
+
+		-- Clean up autocmd if no windows are open
+		if M._resize_autocmd_id then
+			vim.api.nvim_del_autocmd(M._resize_autocmd_id)
+			M._resize_autocmd_id = nil
+		end
+	end)
+end
+
+-- Auto-resize floating windows when terminal is resized
+function M.auto_resize_windows()
+	if not M._current_windows or not M._current_data.window_type then
+		return
+	end
+
+	vim.schedule(function()
+		-- Check if all windows are still valid
+		if
+			not vim.api.nvim_win_is_valid(M._current_windows.header_win)
+			or not vim.api.nvim_win_is_valid(M._current_windows.main_win)
+			or not vim.api.nvim_win_is_valid(M._current_windows.footer_win)
+		then
+			-- Windows are no longer valid, cleanup
+			M._current_windows = nil
+			M._current_data.window_type = nil
+			return
+		end
+
+		local formatter = require("docker.formatter")
+
+		-- Calculate new dimensions based on current terminal size and content
+		local content_width
+		local item_count = 0
+		if M._current_data.window_type == "containers" and M._current_data.containers then
+			content_width = formatter.calculate_containers_width(M._current_data.containers)
+			item_count = #M._current_data.containers
+		elseif M._current_data.window_type == "images" and M._current_data.images then
+			content_width = formatter.calculate_images_width(M._current_data.images)
+			item_count = #M._current_data.images
+		else
+			-- Fallback to default width
+			content_width = math.floor(vim.o.columns * 0.8)
+		end
+
+		-- Calculate dimensions based on content and terminal size
+		local max_items_displayable = math.floor(vim.o.lines * 0.6) - 4 -- Reserve space for header/footer and some padding
+		local actual_content_rows = math.min(item_count, math.max(10, max_items_displayable)) -- At least 10 rows, but adapt to content and terminal size
+		local header_height = 2
+		local footer_height = 2
+		local content_height = actual_content_rows + 2
+
+		local max_width = math.floor(vim.o.columns * 0.8)
+		local total_width = content_width and math.min(content_width, max_width) or max_width
+		local start_col = math.floor((vim.o.columns - total_width) / 2)
+
+		local total_height = header_height + content_height + footer_height
+		local start_row = math.floor((vim.o.lines - total_height) / 2)
+
+		-- Update window configurations
+		vim.api.nvim_win_set_config(M._current_windows.header_win, {
+			relative = "editor",
+			width = total_width,
+			height = header_height,
+			col = start_col,
+			row = start_row,
+		})
+
+		vim.api.nvim_win_set_config(M._current_windows.main_win, {
+			relative = "editor",
+			width = total_width,
+			height = content_height,
+			col = start_col,
+			row = start_row + header_height,
+		})
+
+		vim.api.nvim_win_set_config(M._current_windows.footer_win, {
+			relative = "editor",
+			width = total_width,
+			height = footer_height,
+			col = start_col,
+			row = start_row + header_height + content_height,
+		})
 	end)
 end
 
 -- Set current windows for actions
 function M.set_current_windows(windows)
 	M._current_windows = windows
+
+	-- Setup auto-resize if not already done
+	if not M._resize_autocmd_id then
+		M._resize_autocmd_id = vim.api.nvim_create_autocmd("VimResized", {
+			callback = function()
+				M.auto_resize_windows()
+			end,
+			desc = "Auto-resize docker.nvim floating windows",
+		})
+	end
 end
 
 return M
