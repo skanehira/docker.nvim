@@ -125,7 +125,7 @@ helper.describe("docker.actions auto-resize functionality", {
 
 		-- Mock vim.api.nvim_win_is_valid to return false (invalid windows)
 		local original_win_is_valid = vim.api.nvim_win_is_valid
-		vim.api.nvim_win_is_valid = function(win)
+		vim.api.nvim_win_is_valid = function(_)
 			return false -- All windows are invalid
 		end
 

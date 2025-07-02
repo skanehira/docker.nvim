@@ -36,16 +36,18 @@ helper.describe("docker.actions integration", {
 
 		-- Mock vim.schedule to execute immediately for testing
 		local original_schedule = vim.schedule
-		vim.schedule = function(func)
+		local schedule_mock = function(func)
 			func() -- Execute immediately for testing
 		end
+		vim.schedule = schedule_mock
 
 		-- Mock ui.show_containers to verify it gets called
 		local show_containers_called = false
 		local original_show_containers = ui.show_containers
-		ui.show_containers = function()
+		local show_containers_mock = function()
 			show_containers_called = true
 		end
+		ui.show_containers = show_containers_mock
 
 		-- Try to refresh without windows - should create new ones
 		actions.refresh_containers(1)

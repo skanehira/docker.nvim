@@ -36,7 +36,7 @@ helper.describe("docker.api attach functionality", {
 		end
 
 		-- Test attach_container
-		api.attach_container(container_id, function(err, data)
+		api.attach_container(container_id, function(err, _)
 			callback_called = true
 			callback_err = err
 		end)

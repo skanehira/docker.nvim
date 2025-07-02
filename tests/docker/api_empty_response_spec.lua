@@ -10,7 +10,7 @@ helper.describe("docker.api empty response handling", {
 		local original_system = vim.system
 
 		-- Mock a successful empty response
-		vim.system = function(cmd, opts, callback)
+		vim.system = function(_, _, callback)
 			callback({
 				code = 0,
 				stdout = "", -- Empty response like 204 No Content
@@ -43,7 +43,7 @@ helper.describe("docker.api empty response handling", {
 		-- Mock vim.system to simulate empty response
 		local original_system = vim.system
 
-		vim.system = function(cmd, opts, callback)
+		vim.system = function(_, _, callback)
 			callback({
 				code = 0,
 				stdout = "", -- Empty response
@@ -76,7 +76,7 @@ helper.describe("docker.api empty response handling", {
 		-- Mock vim.system to simulate nil stdout
 		local original_system = vim.system
 
-		vim.system = function(cmd, opts, callback)
+		vim.system = function(_, _, callback)
 			callback({
 				code = 0,
 				stdout = nil, -- nil response
@@ -109,7 +109,7 @@ helper.describe("docker.api empty response handling", {
 		-- Mock vim.system to simulate JSON response
 		local original_system = vim.system
 
-		vim.system = function(cmd, opts, callback)
+		vim.system = function(_, _, callback)
 			callback({
 				code = 0,
 				stdout = '[{"Id":"abc123","Names":["/test"],"Image":"nginx:latest"}]',
@@ -144,7 +144,7 @@ helper.describe("docker.api empty response handling", {
 		-- Mock vim.system to simulate invalid JSON response
 		local original_system = vim.system
 
-		vim.system = function(cmd, opts, callback)
+		vim.system = function(_, _, callback)
 			callback({
 				code = 0,
 				stdout = "invalid json {",

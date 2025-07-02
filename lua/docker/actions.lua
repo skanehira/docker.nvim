@@ -3,6 +3,8 @@ local M = {}
 
 local api = require("docker.api")
 local config = require("docker.config")
+local formatter = require("docker.formatter")
+local ui = require("docker.ui")
 
 -- Get container data from current cursor position using buffer-stored data
 function M.get_current_container_data()
@@ -93,7 +95,7 @@ end
 
 -- Helper function to create container actions with common pattern
 local function create_container_action(action_name, api_func, success_message_format)
-	return function(buf)
+	return function()
 		local container_data = M.get_current_container_data()
 		if not container_data then
 			vim.notify("No container selected", vim.log.levels.WARN)
@@ -108,7 +110,7 @@ local function create_container_action(action_name, api_func, success_message_fo
 			vim.log.levels.INFO
 		)
 
-		api_func(container_id, function(err, data)
+		api_func(container_id, function(err, _)
 			vim.schedule(function()
 				if err then
 					vim.notify(
@@ -124,7 +126,7 @@ local function create_container_action(action_name, api_func, success_message_fo
 			end)
 
 			-- Refresh container list
-			M.refresh_containers(buf)
+			M.refresh_containers()
 		end)
 	end
 end
@@ -143,7 +145,7 @@ M.restart_container =
 M.kill_container = create_container_action("Killing", api.kill_container, "Container %s killed successfully")
 
 -- Attach to container action
-function M.attach_container(buf)
+function M.attach_container()
 	local container_data = M.get_current_container_data()
 	if not container_data then
 		vim.notify("No container selected", vim.log.levels.WARN)
@@ -196,7 +198,7 @@ local function display_content(inspect_buf, container_id, lines)
 end
 
 -- Inspect container action
-function M.inspect_container(buf)
+function M.inspect_container()
 	local container_data = M.get_current_container_data()
 	if not container_data then
 		vim.notify("No container selected", vim.log.levels.WARN)
@@ -267,11 +269,7 @@ M._current_data = {
 }
 
 -- Refresh containers in buffer
-function M.refresh_containers(buf)
-	local api = require("docker.api")
-	local formatter = require("docker.formatter")
-	local ui = require("docker.ui")
-
+function M.refresh_containers()
 	ui.refresh_window_content({
 		type = "containers",
 		data_key = "containers",
@@ -289,37 +287,37 @@ function M.setup_container_keymaps(buf)
 
 	-- Start container
 	vim.keymap.set("n", keymaps.start, function()
-		M.start_container(buf)
+		M.start_container()
 	end, { buffer = buf, desc = "Start container" })
 
 	-- Stop container
 	vim.keymap.set("n", keymaps.stop, function()
-		M.stop_container(buf)
+		M.stop_container()
 	end, { buffer = buf, desc = "Stop container" })
 
 	-- Restart container
 	vim.keymap.set("n", keymaps.restart, function()
-		M.restart_container(buf)
+		M.restart_container()
 	end, { buffer = buf, desc = "Restart container" })
 
 	-- Kill container
 	vim.keymap.set("n", keymaps.kill, function()
-		M.kill_container(buf)
+		M.kill_container()
 	end, { buffer = buf, desc = "Kill container" })
 
 	-- Attach to container
 	vim.keymap.set("n", keymaps.attach, function()
-		M.attach_container(buf)
+		M.attach_container()
 	end, { buffer = buf, desc = "Attach to container" })
 
 	-- Inspect container
 	vim.keymap.set("n", keymaps.inspect, function()
-		M.inspect_container(buf)
+		M.inspect_container()
 	end, { buffer = buf, desc = "Inspect container" })
 
 	-- Remove container
 	vim.keymap.set("n", keymaps.remove, function()
-		M.remove_container(buf)
+		M.remove_container()
 	end, { buffer = buf, desc = "Remove container" })
 
 	-- Quit window
@@ -329,7 +327,7 @@ function M.setup_container_keymaps(buf)
 
 	-- Refresh
 	vim.keymap.set("n", "R", function()
-		M.refresh_containers(buf)
+		M.refresh_containers()
 	end, { buffer = buf, desc = "Refresh containers" })
 end
 
@@ -350,9 +348,6 @@ end
 
 -- Refresh images in buffer
 function M.refresh_images()
-	local api = require("docker.api")
-	local formatter = require("docker.formatter")
-	local ui = require("docker.ui")
 
 	ui.refresh_window_content({
 		type = "images",
@@ -412,8 +407,6 @@ function M.auto_resize_windows()
 			M._current_data.window_type = nil
 			return
 		end
-
-		local formatter = require("docker.formatter")
 
 		-- Calculate new dimensions based on current terminal size and content
 		local content_width
