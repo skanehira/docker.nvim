@@ -46,8 +46,8 @@ helper.describe("docker.actions inspect functionality", {
 		actions.get_current_container_data = function()
 			return {
 				Id = "abc123456789abcdef",
-				Names = {"/test-container"},
-				Status = "Up 1 hour"
+				Names = { "/test-container" },
+				Status = "Up 1 hour",
 			}
 		end
 
@@ -170,8 +170,8 @@ helper.describe("docker.actions inspect functionality", {
 		actions.get_current_container_data = function()
 			return {
 				Id = "abc123456789abcdef",
-				Names = {"/test-container"},
-				Status = "Up 1 hour"
+				Names = { "/test-container" },
+				Status = "Up 1 hour",
 			}
 		end
 

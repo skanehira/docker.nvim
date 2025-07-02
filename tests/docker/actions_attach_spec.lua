@@ -46,8 +46,8 @@ helper.describe("docker.actions attach functionality", {
 		actions.get_current_container_data = function()
 			return {
 				Id = "abc123456789abcdef",
-				Names = {"/test-container"},
-				Status = "Exited (0) 1 hour ago" -- Not running
+				Names = { "/test-container" },
+				Status = "Exited (0) 1 hour ago", -- Not running
 			}
 		end
 
@@ -87,8 +87,8 @@ helper.describe("docker.actions attach functionality", {
 		actions.get_current_container_data = function()
 			return {
 				Id = "abc123456789abcdef",
-				Names = {"/test-container"},
-				Status = "Up 2 hours" -- Running
+				Names = { "/test-container" },
+				Status = "Up 2 hours", -- Running
 			}
 		end
 

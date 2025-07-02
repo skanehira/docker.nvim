@@ -20,7 +20,6 @@ local function create_windows(title, item_count, content_width)
 	local start_col = math.floor((vim.o.columns - total_width) / 2)
 
 	-- Calculate vertical positioning (center all windows as a group with minimal gaps)
-	local gap = 0 -- No gap between windows for unified appearance
 	local total_height = header_height + content_height + footer_height
 	local start_row = math.floor((vim.o.lines - total_height) / 2)
 

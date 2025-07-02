@@ -8,23 +8,23 @@ local config = require("docker.config")
 function M.get_current_container_data()
 	local buf = vim.api.nvim_get_current_buf()
 	local containers = vim.b[buf].docker_containers
-	
+
 	if not containers or #containers == 0 then
 		return nil
 	end
 
 	-- Get current cursor line (1-indexed)
 	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
-	
+
 	-- In the new UI design, the main window contains only container data
 	-- No header in main window, so line 1 = container index 1, line 2 = container index 2, etc.
 	local data_index = cursor_line
-	
+
 	-- Validate index bounds (Lua arrays are 1-indexed)
 	if data_index < 1 or data_index > #containers then
 		return nil
 	end
-	
+
 	return containers[data_index]
 end
 
@@ -38,23 +38,23 @@ end
 function M.get_current_image_data()
 	local buf = vim.api.nvim_get_current_buf()
 	local images = vim.b[buf].docker_images
-	
+
 	if not images or #images == 0 then
 		return nil
 	end
 
 	-- Get current cursor line (1-indexed)
 	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
-	
+
 	-- In the new UI design, the main window contains only image data
 	-- No header in main window, so line 1 = image index 1, line 2 = image index 2, etc.
 	local data_index = cursor_line
-	
+
 	-- Validate index bounds (Lua arrays are 1-indexed)
 	if data_index < 1 or data_index > #images then
 		return nil
 	end
-	
+
 	return images[data_index]
 end
 
@@ -207,7 +207,10 @@ function M.attach_container(buf)
 		return
 	end
 
-	vim.notify("Attaching to container " .. container_data.Names[1]:sub(2) .. " (" .. container_id .. ")...", vim.log.levels.INFO)
+	vim.notify(
+		"Attaching to container " .. container_data.Names[1]:sub(2) .. " (" .. container_id .. ")...",
+		vim.log.levels.INFO
+	)
 
 	-- Close current floating windows before opening terminal
 	M.close_current_windows()
@@ -255,10 +258,10 @@ function M.inspect_container(buf)
 
 			-- Check if jq is available
 			local jq_available = vim.fn.executable("jq") == 1
+			local json_string = vim.json.encode(data)
 
 			if jq_available then
 				-- Use jq for better JSON formatting
-				local json_string = vim.json.encode(data)
 				vim.system({ "jq", "." }, {
 					stdin = json_string,
 					text = true,
@@ -269,7 +272,7 @@ function M.inspect_container(buf)
 							formatted_lines = vim.split(vim.trim(result.stdout), "\n")
 						else
 							-- Fallback to manual formatting if jq fails
-							formatted_lines = M._format_json_manually(data)
+							formatted_lines = json_string
 						end
 
 						-- Set the buffer content
@@ -290,24 +293,24 @@ function M.inspect_container(buf)
 			else
 				-- Fallback to manual formatting when jq is not available
 				local formatted_lines = M._format_json_manually(data)
-
-				-- Set the buffer content
-				vim.api.nvim_buf_set_lines(inspect_buf, 0, -1, false, formatted_lines)
-				vim.bo[inspect_buf].modifiable = false
-
-				-- Close container list and open the buffer in a new window
-				M.close_current_windows()
-				vim.cmd("rightbelow vsplit")
-				vim.api.nvim_win_set_buf(0, inspect_buf)
-
-				-- Set window title
-				vim.api.nvim_buf_set_name(inspect_buf, "Container Inspect: " .. container_id)
-
-				vim.notify(
-					"Container inspection opened in new window (jq not available, using fallback formatting)",
-					vim.log.levels.INFO
-				)
 			end
+
+			-- Set the buffer content
+			vim.api.nvim_buf_set_lines(inspect_buf, 0, -1, false, formatted_lines)
+			vim.bo[inspect_buf].modifiable = false
+
+			-- Close container list and open the buffer in a new window
+			M.close_current_windows()
+			vim.cmd("rightbelow vsplit")
+			vim.api.nvim_win_set_buf(0, inspect_buf)
+
+			-- Set window title
+			vim.api.nvim_buf_set_name(inspect_buf, "Container Inspect: " .. container_id)
+
+			vim.notify("Container inspection opened in new window", vim.log.levels.INFO)
+			vim.keymap.set("n", "q", function()
+				vim.api.nvim_win_close(0, true)
+			end, { buffer = inspect_buf, desc = "Close container inspect window" })
 		end)
 	end)
 end

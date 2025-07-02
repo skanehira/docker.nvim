@@ -26,13 +26,13 @@ helper.describe("docker.actions buffer data functionality", {
 		end
 
 		vim.api.nvim_win_get_cursor = function()
-			return {3, 0} -- line 3, column 0
+			return { 3, 0 } -- line 3, column 0
 		end
 
 		-- Mock vim.b to return no data
 		local original_vim_b = vim.b
 		vim.b = {
-			[1] = {} -- empty buffer data
+			[1] = {}, -- empty buffer data
 		}
 
 		local container_data = actions.get_current_container_data()
@@ -52,9 +52,9 @@ helper.describe("docker.actions buffer data functionality", {
 
 		-- Mock container data
 		local mock_containers = {
-			{ Id = "container1abc123", Names = {"/test-container-1"}, Status = "Up 1 hour" },
-			{ Id = "container2def456", Names = {"/test-container-2"}, Status = "Up 2 hours" },
-			{ Id = "container3ghi789", Names = {"/test-container-3"}, Status = "Exited (0)" },
+			{ Id = "container1abc123", Names = { "/test-container-1" }, Status = "Up 1 hour" },
+			{ Id = "container2def456", Names = { "/test-container-2" }, Status = "Up 2 hours" },
+			{ Id = "container3ghi789", Names = { "/test-container-3" }, Status = "Exited (0)" },
 		}
 
 		-- Mock vim.api functions
@@ -66,15 +66,15 @@ helper.describe("docker.actions buffer data functionality", {
 		end
 
 		vim.api.nvim_win_get_cursor = function()
-			return {2, 0} -- line 2 (should get container at index 2)
+			return { 2, 0 } -- line 2 (should get container at index 2)
 		end
 
 		-- Mock vim.b with container data
 		local original_vim_b = vim.b
 		vim.b = {
 			[1] = {
-				docker_containers = mock_containers
-			}
+				docker_containers = mock_containers,
+			},
 		}
 
 		local container_data = actions.get_current_container_data()
@@ -94,7 +94,7 @@ helper.describe("docker.actions buffer data functionality", {
 
 		-- Mock container data
 		local mock_containers = {
-			{ Id = "container1abc123", Names = {"/test-container-1"}, Status = "Up 1 hour" },
+			{ Id = "container1abc123", Names = { "/test-container-1" }, Status = "Up 1 hour" },
 		}
 
 		-- Mock vim.api functions
@@ -109,19 +109,19 @@ helper.describe("docker.actions buffer data functionality", {
 		local original_vim_b = vim.b
 		vim.b = {
 			[1] = {
-				docker_containers = mock_containers
-			}
+				docker_containers = mock_containers,
+			},
 		}
 
 		-- Test out of bounds line (line 0, invalid)
 		vim.api.nvim_win_get_cursor = function()
-			return {0, 0} -- line 0 (invalid)
+			return { 0, 0 } -- line 0 (invalid)
 		end
 		local container_data_invalid = actions.get_current_container_data()
 
 		-- Test out of bounds line (line 2, but only 1 container)
 		vim.api.nvim_win_get_cursor = function()
-			return {2, 0} -- line 2 (out of bounds, only 1 container)
+			return { 2, 0 } -- line 2 (out of bounds, only 1 container)
 		end
 		local container_data_oob = actions.get_current_container_data()
 
@@ -139,7 +139,7 @@ helper.describe("docker.actions buffer data functionality", {
 
 		-- Mock container data with proper 12+ character ID
 		local mock_containers = {
-			{ Id = "container1abc123456789abcdef", Names = {"/test-container-1"}, Status = "Up 1 hour" },
+			{ Id = "container1abc123456789abcdef", Names = { "/test-container-1" }, Status = "Up 1 hour" },
 		}
 
 		-- Mock vim.api functions
@@ -151,15 +151,15 @@ helper.describe("docker.actions buffer data functionality", {
 		end
 
 		vim.api.nvim_win_get_cursor = function()
-			return {1, 0} -- line 1 (first data line in main window)
+			return { 1, 0 } -- line 1 (first data line in main window)
 		end
 
 		-- Mock vim.b with container data
 		local original_vim_b = vim.b
 		vim.b = {
 			[1] = {
-				docker_containers = mock_containers
-			}
+				docker_containers = mock_containers,
+			},
 		}
 
 		local container_id = actions.get_current_container()
