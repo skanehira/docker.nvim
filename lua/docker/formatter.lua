@@ -73,20 +73,28 @@ local function is_container_running(status)
 end
 
 -- Format container header for display
-function M.format_containers_header()
+function M.format_containers_header(max_image_width, max_status_width)
 	local lines = {}
 
-	-- Header with new column layout (including space for indicator)
-	local header =
-		string.format("  %-12s %-38s %-25s %-20s %-15s %s", "ID", "NAME", "IMAGE", "STATUS", "CREATED", "PORTS")
+	-- Use dynamic widths for IMAGE and STATUS columns
+	max_image_width = max_image_width or 30
+	max_status_width = max_status_width or 25
+
+	-- Build format string with dynamic widths
+	local format_str = string.format("  %%-12s %%-38s %%-%ds %%-%ds %%-15s %%s", max_image_width, max_status_width)
+	local header = string.format(format_str, "ID", "NAME", "IMAGE", "STATUS", "CREATED", "PORTS")
 	table.insert(lines, header)
 
 	return lines
 end
 
 -- Format container table for display (content only)
-function M.format_containers_table(containers)
+function M.format_containers_table(containers, max_image_width, max_status_width)
 	local lines = {}
+
+	-- Use provided widths or defaults
+	max_image_width = max_image_width or 30
+	max_status_width = max_status_width or 25
 
 	-- Data rows with new column layout
 	for _, container in ipairs(containers) do
@@ -98,27 +106,58 @@ function M.format_containers_table(containers)
 		local created_short = M.format_created_short(container.Created)
 		local ports = M.format_ports(container.Ports)
 
-		-- Truncate long values to fit columns
+		-- Only truncate ID and NAME columns as requested
 		name = name:sub(1, 38) -- Reduced to make room for indicator
-		image = image:sub(1, 25)
-		status = status:sub(1, 20)
-		ports = ports ~= "" and ports:sub(1, 15) or "-"
+		-- IMAGE, STATUS, and PORTS should display fully without truncation
 
-		-- Format: "● abc123456789 nginx-container             nginx:latest             Up 2 hours           2h              8080->80/tcp"
+		-- Build format string with dynamic widths
+		local format_str =
+			string.format("%%s %%-12s %%-38s %%-%ds %%-%ds %%-15s %%s", max_image_width, max_status_width)
 		local line = string.format(
-			"%s %-12s %-38s %-25s %-20s %-15s %s",
+			format_str,
 			running_indicator,
 			id,
 			name,
 			image,
 			status,
 			created_short,
-			ports
+			ports ~= "" and ports or "-"
 		)
 		table.insert(lines, line)
 	end
 
 	return lines
+end
+
+-- Calculate optimal width for containers table
+function M.calculate_containers_width(containers)
+	-- Base width for fixed columns: indicator(2) + ID(13) + NAME(39) + CREATED(16) + spaces(6) = 76
+	local base_width = 76
+	local max_image_width = 5 -- Minimum width for "IMAGE" header
+	local max_status_width = 6 -- Minimum width for "STATUS" header
+	local max_ports_width = 5 -- Minimum width for "PORTS" header
+
+	-- Find the longest strings for each dynamic column
+	for _, container in ipairs(containers or {}) do
+		local image = container.Image
+		local status = container.Status
+		local ports = M.format_ports(container.Ports)
+		local ports_display = ports ~= "" and ports or "-"
+
+		max_image_width = math.max(max_image_width, #image)
+		max_status_width = math.max(max_status_width, #status)
+		max_ports_width = math.max(max_ports_width, #ports_display)
+	end
+
+	-- Add padding for each column
+	local total_width = base_width + max_image_width + max_status_width + max_ports_width + 3
+
+	-- Store the calculated widths for later use
+	M._max_image_width = max_image_width
+	M._max_status_width = max_status_width
+
+	-- Ensure minimum width for readability
+	return math.max(total_width, 140)
 end
 
 -- Format image header for display
@@ -153,6 +192,25 @@ function M.format_images_table(images)
 	end
 
 	return lines
+end
+
+-- Calculate optimal width for images table
+function M.calculate_images_width(images)
+	-- Base width for images: REPOSITORY(20) + TAG(12) + CREATED(19) + SIZE = 51 + separators
+	local base_width = 60
+	local max_size_width = 0
+
+	-- Find the longest SIZE string
+	for _, image in ipairs(images or {}) do
+		local size = M.format_size(image.Size)
+		max_size_width = math.max(max_size_width, #size)
+	end
+
+	-- Add padding
+	local total_width = base_width + max_size_width + 2
+
+	-- Ensure minimum width for readability
+	return math.max(total_width, 80)
 end
 
 -- Format file size in human readable format

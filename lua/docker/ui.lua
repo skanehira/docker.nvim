@@ -6,14 +6,16 @@ local config = require("docker.config")
 local formatter = require("docker.formatter")
 
 -- Create floating windows with separate header, content, and footer
-local function create_windows(title, item_count)
+local function create_windows(title, item_count, content_width)
 	-- Calculate optimal dimensions with proper proportions
 	local max_container_rows = 10 -- Maximum rows for containers
 	local header_height = 2 -- Header + separator (no extra padding)
 	local footer_height = 2 -- Footer content (minimal height)
 	local content_height = max_container_rows + 2 -- Content + small padding
 
-	local total_width = math.min(math.floor(vim.o.columns * 0.95), 140) -- Wider for more columns, max 140 chars
+	-- Use content-based width, but limit to 80% of terminal width
+	local max_width = math.floor(vim.o.columns * 0.8)
+	local total_width = content_width and math.min(content_width, max_width) or max_width
 	local start_col = math.floor((vim.o.columns - total_width) / 2)
 
 	-- Calculate vertical positioning (center all windows as a group with minimal gaps)
@@ -97,8 +99,12 @@ end
 
 -- Render containers to windows
 function M.render_containers(windows, containers)
-	local header_lines = formatter.format_containers_header()
-	local content_lines = formatter.format_containers_table(containers)
+	-- Get the calculated max widths from formatter
+	local max_image_width = formatter._max_image_width or 30
+	local max_status_width = formatter._max_status_width or 25
+
+	local header_lines = formatter.format_containers_header(max_image_width, max_status_width)
+	local content_lines = formatter.format_containers_table(containers, max_image_width, max_status_width)
 
 	-- Generate footer content from configuration
 	local keymaps = config.get("keymaps").containers
@@ -120,20 +126,31 @@ function M.render_containers(windows, containers)
 
 	-- Schedule to avoid fast event context error
 	vim.schedule(function()
+		-- Validate windows and buffers exist
+		if not windows or not windows.header_buf or not windows.main_buf or not windows.footer_buf then
+			return
+		end
+
 		-- Render header
-		vim.bo[windows.header_buf].modifiable = true
-		vim.api.nvim_buf_set_lines(windows.header_buf, 0, -1, false, header_lines)
-		vim.bo[windows.header_buf].modifiable = false
+		if vim.api.nvim_buf_is_valid(windows.header_buf) then
+			vim.bo[windows.header_buf].modifiable = true
+			vim.api.nvim_buf_set_lines(windows.header_buf, 0, -1, false, header_lines)
+			vim.bo[windows.header_buf].modifiable = false
+		end
 
 		-- Render main content
-		vim.bo[windows.main_buf].modifiable = true
-		vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, content_lines)
-		vim.bo[windows.main_buf].modifiable = false
+		if vim.api.nvim_buf_is_valid(windows.main_buf) then
+			vim.bo[windows.main_buf].modifiable = true
+			vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, content_lines)
+			vim.bo[windows.main_buf].modifiable = false
+		end
 
 		-- Render footer
-		vim.bo[windows.footer_buf].modifiable = true
-		vim.api.nvim_buf_set_lines(windows.footer_buf, 0, -1, false, footer_lines)
-		vim.bo[windows.footer_buf].modifiable = false
+		if vim.api.nvim_buf_is_valid(windows.footer_buf) then
+			vim.bo[windows.footer_buf].modifiable = true
+			vim.api.nvim_buf_set_lines(windows.footer_buf, 0, -1, false, footer_lines)
+			vim.bo[windows.footer_buf].modifiable = false
+		end
 	end)
 end
 
@@ -160,90 +177,97 @@ function M.render_images(windows, images)
 
 	-- Schedule to avoid fast event context error
 	vim.schedule(function()
+		-- Validate windows and buffers exist
+		if not windows or not windows.header_buf or not windows.main_buf or not windows.footer_buf then
+			return
+		end
+
 		-- Render header
-		vim.bo[windows.header_buf].modifiable = true
-		vim.api.nvim_buf_set_lines(windows.header_buf, 0, -1, false, header_lines)
-		vim.bo[windows.header_buf].modifiable = false
+		if vim.api.nvim_buf_is_valid(windows.header_buf) then
+			vim.bo[windows.header_buf].modifiable = true
+			vim.api.nvim_buf_set_lines(windows.header_buf, 0, -1, false, header_lines)
+			vim.bo[windows.header_buf].modifiable = false
+		end
 
 		-- Render main content
-		vim.bo[windows.main_buf].modifiable = true
-		vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, content_lines)
-		vim.bo[windows.main_buf].modifiable = false
+		if vim.api.nvim_buf_is_valid(windows.main_buf) then
+			vim.bo[windows.main_buf].modifiable = true
+			vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, content_lines)
+			vim.bo[windows.main_buf].modifiable = false
+		end
 
 		-- Render footer
-		vim.bo[windows.footer_buf].modifiable = true
-		vim.api.nvim_buf_set_lines(windows.footer_buf, 0, -1, false, footer_lines)
-		vim.bo[windows.footer_buf].modifiable = false
+		if vim.api.nvim_buf_is_valid(windows.footer_buf) then
+			vim.bo[windows.footer_buf].modifiable = true
+			vim.api.nvim_buf_set_lines(windows.footer_buf, 0, -1, false, footer_lines)
+			vim.bo[windows.footer_buf].modifiable = false
+		end
 	end)
 end
 
 -- Show containers window
 function M.show_containers()
-	local windows = create_windows("Docker Containers")
-
-	-- Setup keymaps on main buffer
-	local actions = require("docker.actions")
-	actions.set_current_windows(windows)
-	actions.setup_container_keymaps(windows.main_buf)
-
-	-- Set initial content
-	vim.bo[windows.main_buf].modifiable = true
-	vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, { "Loading containers..." })
-	vim.bo[windows.main_buf].modifiable = false
-
-	-- Load containers data
+	-- Load containers data first to calculate optimal width
 	api.list_containers(function(err, containers)
-		if err then
-			vim.schedule(function()
+		vim.schedule(function()
+			if err then
+				-- Show error with default width
+				local windows = create_windows("Docker Containers")
+				local actions = require("docker.actions")
+				actions.set_current_windows(windows)
+				actions.setup_container_keymaps(windows.main_buf)
+
 				vim.bo[windows.main_buf].modifiable = true
 				vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, { "Error: " .. err })
 				vim.bo[windows.main_buf].modifiable = false
-			end)
-			return
-		end
+				return
+			end
 
-		-- Update header window title with item count
-		vim.schedule(function()
-			local win_title = string.format(" Docker Containers [%d items] ", #containers)
-			vim.api.nvim_win_set_config(windows.header_win, { title = win_title })
+			-- Calculate optimal width based on content
+			local content_width = formatter.calculate_containers_width(containers)
+			local windows = create_windows("Docker Containers", #containers, content_width)
+
+			-- Setup keymaps on main buffer
+			local actions = require("docker.actions")
+			actions.set_current_windows(windows)
+			actions.setup_container_keymaps(windows.main_buf)
+
+			-- Render containers immediately
+			M.render_containers(windows, containers)
 		end)
-
-		M.render_containers(windows, containers)
 	end, true) -- Show all containers
 end
 
 -- Show images window
 function M.show_images()
-	local windows = create_windows("Docker Images")
-
-	-- Setup keymaps on main buffer
-	local actions = require("docker.actions")
-	actions.set_current_windows(windows)
-	actions.setup_image_keymaps(windows.main_buf)
-
-	-- Set initial content
-	vim.bo[windows.main_buf].modifiable = true
-	vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, { "Loading images..." })
-	vim.bo[windows.main_buf].modifiable = false
-
-	-- Load images data
+	-- Load images data first to calculate optimal width
 	api.list_images(function(err, images)
-		if err then
-			vim.schedule(function()
+		vim.schedule(function()
+			if err then
+				-- Show error with default width
+				local windows = create_windows("Docker Images")
+				local actions = require("docker.actions")
+				actions.set_current_windows(windows)
+				actions.setup_image_keymaps(windows.main_buf)
+
 				vim.bo[windows.main_buf].modifiable = true
 				vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, { "Error: " .. err })
 				vim.bo[windows.main_buf].modifiable = false
-			end)
-			return
-		end
+				return
+			end
 
-		-- Update header window title with item count
-		vim.schedule(function()
-			local win_title = string.format(" Docker Images [%d items] ", #images)
-			vim.api.nvim_win_set_config(windows.header_win, { title = win_title })
+			-- Calculate optimal width based on content
+			local content_width = formatter.calculate_images_width(images)
+			local windows = create_windows("Docker Images", #images, content_width)
+
+			-- Setup keymaps on main buffer
+			local actions = require("docker.actions")
+			actions.set_current_windows(windows)
+			actions.setup_image_keymaps(windows.main_buf)
+
+			-- Render images immediately
+			M.render_images(windows, images)
 		end)
-
-		M.render_images(windows, images)
 	end)
 end
 

@@ -224,23 +224,14 @@ M._current_windows = nil
 
 -- Refresh containers in buffer
 function M.refresh_containers(buf)
-	if not M._current_windows then
-		vim.notify("No active windows to refresh", vim.log.levels.WARN)
-		return
-	end
+	vim.schedule(function()
+		-- Close current windows and recreate them with proper width
+		M.close_current_windows()
 
-	local ui = require("docker.ui")
-
-	api.list_containers(function(err, containers)
-		if err then
-			vim.schedule(function()
-				vim.notify("Failed to refresh containers: " .. err, vim.log.levels.ERROR)
-			end)
-			return
-		end
-
-		ui.render_containers(M._current_windows, containers)
-	end, true)
+		-- Re-open containers window which will recalculate width dynamically
+		local ui = require("docker.ui")
+		ui.show_containers()
+	end)
 end
 
 -- Setup keymaps for container buffer
@@ -279,21 +270,7 @@ function M.setup_container_keymaps(buf)
 
 	-- Quit window
 	vim.keymap.set("n", keymaps.quit, function()
-		-- Close all windows in the current window set
-		if M._current_windows then
-			if vim.api.nvim_win_is_valid(M._current_windows.header_win) then
-				vim.api.nvim_win_close(M._current_windows.header_win, false)
-			end
-			if vim.api.nvim_win_is_valid(M._current_windows.main_win) then
-				vim.api.nvim_win_close(M._current_windows.main_win, false)
-			end
-			if vim.api.nvim_win_is_valid(M._current_windows.footer_win) then
-				vim.api.nvim_win_close(M._current_windows.footer_win, false)
-			end
-			M._current_windows = nil
-		else
-			vim.api.nvim_win_close(0, false)
-		end
+		M.close_current_windows()
 	end, { buffer = buf, desc = "Quit window" })
 
 	-- Refresh
@@ -308,21 +285,7 @@ function M.setup_image_keymaps(buf)
 
 	-- Quit window
 	vim.keymap.set("n", keymaps.quit, function()
-		-- Close all windows in the current window set
-		if M._current_windows then
-			if vim.api.nvim_win_is_valid(M._current_windows.header_win) then
-				vim.api.nvim_win_close(M._current_windows.header_win, false)
-			end
-			if vim.api.nvim_win_is_valid(M._current_windows.main_win) then
-				vim.api.nvim_win_close(M._current_windows.main_win, false)
-			end
-			if vim.api.nvim_win_is_valid(M._current_windows.footer_win) then
-				vim.api.nvim_win_close(M._current_windows.footer_win, false)
-			end
-			M._current_windows = nil
-		else
-			vim.api.nvim_win_close(0, false)
-		end
+		M.close_current_windows()
 	end, { buffer = buf, desc = "Quit window" })
 
 	-- Refresh
@@ -354,18 +317,20 @@ end
 
 -- Close current floating windows
 function M.close_current_windows()
-	if M._current_windows then
-		if vim.api.nvim_win_is_valid(M._current_windows.header_win) then
-			vim.api.nvim_win_close(M._current_windows.header_win, false)
+	vim.schedule(function()
+		if M._current_windows then
+			if vim.api.nvim_win_is_valid(M._current_windows.header_win) then
+				vim.api.nvim_win_close(M._current_windows.header_win, false)
+			end
+			if vim.api.nvim_win_is_valid(M._current_windows.main_win) then
+				vim.api.nvim_win_close(M._current_windows.main_win, false)
+			end
+			if vim.api.nvim_win_is_valid(M._current_windows.footer_win) then
+				vim.api.nvim_win_close(M._current_windows.footer_win, false)
+			end
+			M._current_windows = nil
 		end
-		if vim.api.nvim_win_is_valid(M._current_windows.main_win) then
-			vim.api.nvim_win_close(M._current_windows.main_win, false)
-		end
-		if vim.api.nvim_win_is_valid(M._current_windows.footer_win) then
-			vim.api.nvim_win_close(M._current_windows.footer_win, false)
-		end
-		M._current_windows = nil
-	end
+	end)
 end
 
 -- Set current windows for actions
