@@ -268,97 +268,19 @@ M._current_data = {
 
 -- Refresh containers in buffer
 function M.refresh_containers(buf)
-	vim.schedule(function()
-		-- If we have current windows, try to refresh without closing
-		if M._current_windows and M._current_windows.main_buf then
-			local api = require("docker.api")
-			api.list_containers(function(err, containers)
-				vim.schedule(function()
-					if err then
-						-- On error, show error in current window instead of recreating
-						vim.bo[M._current_windows.main_buf].modifiable = true
-						vim.api.nvim_buf_set_lines(
-							M._current_windows.main_buf,
-							0,
-							-1,
-							false,
-							{ "Error refreshing containers: " .. tostring(err) }
-						)
-						vim.bo[M._current_windows.main_buf].modifiable = false
-						vim.notify("Failed to refresh containers: " .. tostring(err), vim.log.levels.ERROR)
-						return
-					end
+	local api = require("docker.api")
+	local formatter = require("docker.formatter")
+	local ui = require("docker.ui")
 
-					-- Update stored data
-					M._current_data.containers = containers
-
-					-- Save cursor position
-					local cursor_pos = vim.api.nvim_win_get_cursor(M._current_windows.main_win)
-
-					-- Calculate width first to ensure formatter state is updated
-					local formatter = require("docker.formatter")
-					local new_width = formatter.calculate_containers_width(containers)
-					local current_width = vim.api.nvim_win_get_config(M._current_windows.main_win).width
-
-					-- Disable redraw during update to prevent flickering
-					vim.o.lazyredraw = true
-
-					-- If width difference is significant, resize windows before rendering
-					if math.abs(new_width - current_width) > 10 then -- Lower threshold for better responsiveness
-						local max_width = math.floor(vim.o.columns * 0.8)
-						local total_width = math.min(new_width, max_width)
-						local start_col = math.floor((vim.o.columns - total_width) / 2)
-
-						-- Get current window configurations
-						local header_config = vim.api.nvim_win_get_config(M._current_windows.header_win)
-						local main_config = vim.api.nvim_win_get_config(M._current_windows.main_win)
-						local footer_config = vim.api.nvim_win_get_config(M._current_windows.footer_win)
-
-						-- Update window sizes without closing them
-						vim.api.nvim_win_set_config(M._current_windows.header_win, {
-							relative = header_config.relative,
-							width = total_width,
-							height = header_config.height,
-							col = start_col,
-							row = header_config.row,
-						})
-
-						vim.api.nvim_win_set_config(M._current_windows.main_win, {
-							relative = main_config.relative,
-							width = total_width,
-							height = main_config.height,
-							col = start_col,
-							row = main_config.row,
-						})
-
-						vim.api.nvim_win_set_config(M._current_windows.footer_win, {
-							relative = footer_config.relative,
-							width = total_width,
-							height = footer_config.height,
-							col = start_col,
-							row = footer_config.row,
-						})
-					end
-
-					-- Render with updated window sizes and formatter state
-					local ui = require("docker.ui")
-					ui.render_containers(M._current_windows, containers)
-
-					-- Restore cursor position (within bounds)
-					local line_count = vim.api.nvim_buf_line_count(M._current_windows.main_buf)
-					local safe_line = math.min(cursor_pos[1], line_count)
-					vim.api.nvim_win_set_cursor(M._current_windows.main_win, { safe_line, cursor_pos[2] })
-
-					vim.o.lazyredraw = false
-					vim.cmd("redraw")
-				end)
-			end, true)
-		else
-			-- No current windows, use normal flow
-			local ui = require("docker.ui")
-			ui.show_containers()
-		end
-	end)
+	ui.refresh_window_content({
+		type = "containers",
+		data_key = "containers",
+		api_call = api.list_containers,
+		api_args = true, -- show all containers
+		calculate_width = formatter.calculate_containers_width,
+		render_function = ui.render_containers,
+		fallback_function = ui.show_containers,
+	})
 end
 
 -- Setup keymaps for container buffer
@@ -422,102 +344,25 @@ function M.setup_image_keymaps(buf)
 
 	-- Refresh
 	vim.keymap.set("n", "R", function()
-		M.refresh_images(buf)
+		M.refresh_images()
 	end, { buffer = buf, desc = "Refresh images" })
 end
 
 -- Refresh images in buffer
-function M.refresh_images(buf)
-	vim.schedule(function()
-		-- If we have current windows, try to refresh without closing
-		if M._current_windows and M._current_windows.main_buf then
-			api.list_images(function(err, images)
-				vim.schedule(function()
-					if err then
-						-- On error, show error in current window instead of recreating
-						vim.bo[M._current_windows.main_buf].modifiable = true
-						vim.api.nvim_buf_set_lines(
-							M._current_windows.main_buf,
-							0,
-							-1,
-							false,
-							{ "Error refreshing images: " .. tostring(err) }
-						)
-						vim.bo[M._current_windows.main_buf].modifiable = false
-						vim.notify("Failed to refresh images: " .. tostring(err), vim.log.levels.ERROR)
-						return
-					end
+function M.refresh_images()
+	local api = require("docker.api")
+	local formatter = require("docker.formatter")
+	local ui = require("docker.ui")
 
-					-- Update stored data
-					M._current_data.images = images
-
-					-- Save cursor position
-					local cursor_pos = vim.api.nvim_win_get_cursor(M._current_windows.main_win)
-
-					-- Calculate width first to ensure formatter state is updated
-					local formatter = require("docker.formatter")
-					local new_width = formatter.calculate_images_width(images)
-					local current_width = vim.api.nvim_win_get_config(M._current_windows.main_win).width
-
-					-- Disable redraw during update to prevent flickering
-					vim.o.lazyredraw = true
-
-					-- If width difference is significant, resize windows before rendering
-					if math.abs(new_width - current_width) > 10 then -- Lower threshold for better responsiveness
-						local max_width = math.floor(vim.o.columns * 0.8)
-						local total_width = math.min(new_width, max_width)
-						local start_col = math.floor((vim.o.columns - total_width) / 2)
-
-						-- Get current window configurations
-						local header_config = vim.api.nvim_win_get_config(M._current_windows.header_win)
-						local main_config = vim.api.nvim_win_get_config(M._current_windows.main_win)
-						local footer_config = vim.api.nvim_win_get_config(M._current_windows.footer_win)
-
-						-- Update window sizes without closing them
-						vim.api.nvim_win_set_config(M._current_windows.header_win, {
-							relative = header_config.relative,
-							width = total_width,
-							height = header_config.height,
-							col = start_col,
-							row = header_config.row,
-						})
-
-						vim.api.nvim_win_set_config(M._current_windows.main_win, {
-							relative = main_config.relative,
-							width = total_width,
-							height = main_config.height,
-							col = start_col,
-							row = main_config.row,
-						})
-
-						vim.api.nvim_win_set_config(M._current_windows.footer_win, {
-							relative = footer_config.relative,
-							width = total_width,
-							height = footer_config.height,
-							col = start_col,
-							row = footer_config.row,
-						})
-					end
-
-					-- Render with updated window sizes
-					local ui = require("docker.ui")
-					ui.render_images(M._current_windows, images)
-
-					-- Restore cursor position (within bounds)
-					local line_count = vim.api.nvim_buf_line_count(M._current_windows.main_buf)
-					local safe_line = math.min(cursor_pos[1], line_count)
-					vim.api.nvim_win_set_cursor(M._current_windows.main_win, { safe_line, cursor_pos[2] })
-
-					vim.o.lazyredraw = false
-					vim.cmd("redraw")
-				end)
-			end)
-		else
-			-- No current windows, use normal flow
-			local ui = require("docker.ui")
-			ui.show_images()
-		end
-	end)
+	ui.refresh_window_content({
+		type = "images",
+		data_key = "images",
+		api_call = api.list_images,
+		api_args = nil, -- no additional args for list_images
+		calculate_width = formatter.calculate_images_width,
+		render_function = ui.render_images,
+		fallback_function = ui.show_images,
+	})
 end
 
 -- Close current floating windows

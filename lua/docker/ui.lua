@@ -293,4 +293,100 @@ function M.show_images()
 	end)
 end
 
+-- Generic refresh function for window content (UI responsibility)
+function M.refresh_window_content(config)
+	vim.schedule(function()
+		-- Get current windows from actions module
+		local actions = require("docker.actions")
+		local current_windows = actions._current_windows
+
+		-- If we have current windows, try to refresh without closing
+		if current_windows and current_windows.main_buf then
+			config.api_call(function(err, data)
+				vim.schedule(function()
+					if err then
+						-- On error, show error in current window instead of recreating
+						vim.bo[current_windows.main_buf].modifiable = true
+						vim.api.nvim_buf_set_lines(
+							current_windows.main_buf,
+							0,
+							-1,
+							false,
+							{ "Error refreshing " .. config.type .. ": " .. tostring(err) }
+						)
+						vim.bo[current_windows.main_buf].modifiable = false
+						vim.notify("Failed to refresh " .. config.type .. ": " .. tostring(err), vim.log.levels.ERROR)
+						return
+					end
+
+					-- Update stored data
+					actions._current_data[config.data_key] = data
+					actions._current_data.window_type = config.type
+
+					-- Save cursor position
+					local cursor_pos = vim.api.nvim_win_get_cursor(current_windows.main_win)
+
+					-- Calculate width first to ensure formatter state is updated
+					local new_width, layout_info = config.calculate_width(data)
+					local current_width = vim.api.nvim_win_get_config(current_windows.main_win).width
+
+					-- Disable redraw during update to prevent flickering
+					vim.o.lazyredraw = true
+
+					-- If width difference is significant, resize windows before rendering
+					if math.abs(new_width - current_width) > 10 then -- Lower threshold for better responsiveness
+						local max_width = math.floor(vim.o.columns * 0.8)
+						local total_width = math.min(new_width, max_width)
+						local start_col = math.floor((vim.o.columns - total_width) / 2)
+
+						-- Get current window configurations
+						local header_config = vim.api.nvim_win_get_config(current_windows.header_win)
+						local main_config = vim.api.nvim_win_get_config(current_windows.main_win)
+						local footer_config = vim.api.nvim_win_get_config(current_windows.footer_win)
+
+						-- Update window sizes without closing them
+						vim.api.nvim_win_set_config(current_windows.header_win, {
+							relative = header_config.relative,
+							width = total_width,
+							height = header_config.height,
+							col = start_col,
+							row = header_config.row,
+						})
+
+						vim.api.nvim_win_set_config(current_windows.main_win, {
+							relative = main_config.relative,
+							width = total_width,
+							height = main_config.height,
+							col = start_col,
+							row = main_config.row,
+						})
+
+						vim.api.nvim_win_set_config(current_windows.footer_win, {
+							relative = footer_config.relative,
+							width = total_width,
+							height = footer_config.height,
+							col = start_col,
+							row = footer_config.row,
+						})
+					end
+
+					-- Render with updated window sizes and formatter state
+					config.render_function(current_windows, data)
+
+					-- Restore cursor position (within bounds)
+					local line_count = vim.api.nvim_buf_line_count(current_windows.main_buf)
+					local safe_line = math.min(cursor_pos[1], line_count)
+					vim.api.nvim_win_set_cursor(current_windows.main_win, { safe_line, cursor_pos[2] })
+
+					vim.o.lazyredraw = false
+					vim.cmd("redraw")
+				end)
+			end, config.api_args)
+		else
+			-- No current windows, use normal flow
+			config.fallback_function()
+		end
+	end)
+end
+
 return M

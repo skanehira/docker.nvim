@@ -153,12 +153,20 @@ function M.calculate_containers_width(containers)
 	-- Add dynamic column widths
 	local total_width = base_width + max_image_width + max_status_width + max_ports_width
 
-	-- Store the calculated widths for later use
+	-- Store the calculated widths for later use (backward compatibility)
 	M._max_image_width = max_image_width
 	M._max_status_width = max_status_width
 
 	-- Ensure minimum width for readability
-	return math.max(total_width, 140)
+	local final_width = math.max(total_width, 140)
+
+	-- Return width and layout information
+	return final_width,
+		{
+			max_image_width = max_image_width,
+			max_status_width = max_status_width,
+			max_ports_width = max_ports_width,
+		}
 end
 
 -- Format image header for display
@@ -211,7 +219,12 @@ function M.calculate_images_width(images)
 	local total_width = base_width + max_size_width + 2
 
 	-- Ensure minimum width for readability
-	return math.max(total_width, 80)
+	local final_width = math.max(total_width, 80)
+
+	-- Return width and layout information
+	return final_width, {
+		max_size_width = max_size_width,
+	}
 end
 
 -- Format file size in human readable format
