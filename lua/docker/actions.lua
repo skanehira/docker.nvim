@@ -91,105 +91,49 @@ function M.parse_container_id_from_line(line)
 	return nil
 end
 
--- Start container action
-function M.start_container(buf)
-	local container_id = M.get_current_container()
-	if not container_id then
-		vim.notify("No container selected", vim.log.levels.WARN)
-		return
-	end
+-- Helper function to create container actions with common pattern
+local function create_container_action(action_name, api_func, success_message_format)
+	return function(buf)
+		local container_data = M.get_current_container_data()
+		if not container_data then
+			vim.notify("No container selected", vim.log.levels.WARN)
+			return
+		end
 
-	vim.notify("Starting container " .. container_id .. "...", vim.log.levels.INFO)
+		local container_id = container_data.Id:sub(1, 12)
+		local container_name = container_data.Names[1]:sub(2) -- Remove leading "/"
 
-	api.start_container(container_id, function(err, data)
-		vim.schedule(function()
-			if err then
-				vim.notify("Failed to start container: " .. tostring(err), vim.log.levels.ERROR)
-				return
-			end
+		vim.notify(action_name .. " container " .. container_name .. " (" .. container_id .. ")...", vim.log.levels.INFO)
 
-			vim.notify("Container " .. container_id .. " started successfully", vim.log.levels.INFO)
+		api_func(container_id, function(err, data)
+			vim.schedule(function()
+				if err then
+					vim.notify("Failed to " .. action_name:lower() .. " container: " .. tostring(err), vim.log.levels.ERROR)
+					return
+				end
+
+				local message = success_message_format and string.format(success_message_format, container_name)
+					or ("Container " .. container_name .. " " .. action_name:lower() .. "ed successfully")
+				vim.notify(message, vim.log.levels.INFO)
+			end)
+
+			-- Refresh container list
+			M.refresh_containers(buf)
 		end)
-
-		-- Refresh container list
-		M.refresh_containers(buf)
-	end)
+	end
 end
+
+-- Start container action
+M.start_container = create_container_action("Starting", api.start_container, "Container %s started successfully")
 
 -- Stop container action
-function M.stop_container(buf)
-	local container_id = M.get_current_container()
-	if not container_id then
-		vim.notify("No container selected", vim.log.levels.WARN)
-		return
-	end
-
-	vim.notify("Stopping container " .. container_id .. "...", vim.log.levels.INFO)
-
-	api.stop_container(container_id, function(err)
-		vim.schedule(function()
-			if err then
-				vim.notify("Failed to stop container: " .. err, vim.log.levels.ERROR)
-				return
-			end
-
-			vim.notify("Container " .. container_id .. " stopped successfully", vim.log.levels.INFO)
-		end)
-
-		-- Refresh container list
-		M.refresh_containers(buf)
-	end)
-end
+M.stop_container = create_container_action("Stopping", api.stop_container, "Container %s stopped successfully")
 
 -- Restart container action
-function M.restart_container(buf)
-	local container_id = M.get_current_container()
-	if not container_id then
-		vim.notify("No container selected", vim.log.levels.WARN)
-		return
-	end
-
-	vim.notify("Restarting container " .. container_id .. "...", vim.log.levels.INFO)
-
-	api.restart_container(container_id, function(err)
-		vim.schedule(function()
-			if err then
-				vim.notify("Failed to restart container: " .. err, vim.log.levels.ERROR)
-				return
-			end
-
-			vim.notify("Container " .. container_id .. " restarted successfully", vim.log.levels.INFO)
-		end)
-
-		-- Refresh container list
-		M.refresh_containers(buf)
-	end)
-end
+M.restart_container = create_container_action("Restarting", api.restart_container, "Container %s restarted successfully")
 
 -- Kill container action
-function M.kill_container(buf)
-	local container_id = M.get_current_container()
-	if not container_id then
-		vim.notify("No container selected", vim.log.levels.WARN)
-		return
-	end
-
-	vim.notify("Killing container " .. container_id .. "...", vim.log.levels.INFO)
-
-	api.kill_container(container_id, function(err)
-		vim.schedule(function()
-			if err then
-				vim.notify("Failed to kill container: " .. err, vim.log.levels.ERROR)
-				return
-			end
-
-			vim.notify("Container " .. container_id .. " killed successfully", vim.log.levels.INFO)
-		end)
-
-		-- Refresh container list
-		M.refresh_containers(buf)
-	end)
-end
+M.kill_container = create_container_action("Killing", api.kill_container, "Container %s killed successfully")
 
 -- Attach to container action
 function M.attach_container(buf)
@@ -224,6 +168,26 @@ function M.attach_container(buf)
 	end)
 end
 
+-- Function to display the formatted content
+local function display_content(inspect_buf, container_id, lines)
+	-- Set the buffer content
+	vim.api.nvim_buf_set_lines(inspect_buf, 0, -1, false, lines)
+	vim.bo[inspect_buf].modifiable = false
+
+	-- Close container list and open the buffer in a new window
+	M.close_current_windows()
+	vim.cmd("rightbelow vsplit")
+	vim.api.nvim_win_set_buf(0, inspect_buf)
+
+	-- Set window title
+	vim.api.nvim_buf_set_name(inspect_buf, "Container Inspect: " .. tostring(container_id))
+
+	vim.notify("Container inspection opened in new window", vim.log.levels.INFO)
+	vim.keymap.set("n", "q", function()
+		vim.api.nvim_win_close(0, true)
+	end, { buffer = inspect_buf, desc = "Close container inspect window" })
+end
+
 -- Inspect container action
 function M.inspect_container(buf)
 	local container_data = M.get_current_container_data()
@@ -255,114 +219,35 @@ function M.inspect_container(buf)
 			vim.bo[inspect_buf].swapfile = false
 			vim.bo[inspect_buf].bufhidden = "wipe"
 			vim.bo[inspect_buf].filetype = "json"
+			vim.bo[inspect_buf].modifiable = true
 
-			-- Check if jq is available
-			local jq_available = vim.fn.executable("jq") == 1
 			local json_string = vim.json.encode(data)
+			local jq_available = vim.fn.executable("jq") == 1
 
 			if jq_available then
-				-- Use jq for better JSON formatting
 				vim.system({ "jq", "." }, {
 					stdin = json_string,
 					text = true,
 				}, function(result)
 					vim.schedule(function()
-						local formatted_lines
 						if result.code == 0 and result.stdout then
-							formatted_lines = vim.split(vim.trim(result.stdout), "\n")
+							local formatted_lines = vim.split(vim.trim(result.stdout), "\n")
+							display_content(inspect_buf, container_id, formatted_lines)
 						else
-							-- Fallback to manual formatting if jq fails
-							formatted_lines = json_string
+							-- Fallback to basic formatting if jq fails
+							display_content(inspect_buf, container_id,{ json_string })
 						end
-
-						-- Set the buffer content
-						vim.api.nvim_buf_set_lines(inspect_buf, 0, -1, false, formatted_lines)
-						vim.bo[inspect_buf].modifiable = false
-
-						-- Close container list and open the buffer in a new window
-						M.close_current_windows()
-						vim.cmd("rightbelow vsplit")
-						vim.api.nvim_win_set_buf(0, inspect_buf)
-
-						-- Set window title
-						vim.api.nvim_buf_set_name(inspect_buf, "Container Inspect: " .. container_id)
-
-						vim.notify("Container inspection opened in new window", vim.log.levels.INFO)
 					end)
 				end)
 			else
-				-- Fallback to manual formatting when jq is not available
-				local formatted_lines = M._format_json_manually(data)
+				display_content({ json_string })
 			end
-
-			-- Set the buffer content
-			vim.api.nvim_buf_set_lines(inspect_buf, 0, -1, false, formatted_lines)
-			vim.bo[inspect_buf].modifiable = false
-
-			-- Close container list and open the buffer in a new window
-			M.close_current_windows()
-			vim.cmd("rightbelow vsplit")
-			vim.api.nvim_win_set_buf(0, inspect_buf)
-
-			-- Set window title
-			vim.api.nvim_buf_set_name(inspect_buf, "Container Inspect: " .. container_id)
-
-			vim.notify("Container inspection opened in new window", vim.log.levels.INFO)
-			vim.keymap.set("n", "q", function()
-				vim.api.nvim_win_close(0, true)
-			end, { buffer = inspect_buf, desc = "Close container inspect window" })
 		end)
 	end)
-end
-
--- Helper function for manual JSON formatting (fallback when jq is not available)
-function M._format_json_manually(data)
-	local json_lines = vim.split(vim.json.encode(data), "\n")
-
-	-- Pretty format JSON with proper indentation
-	local formatted_json = {}
-	local indent_level = 0
-	for _, line in ipairs(json_lines) do
-		local trimmed = vim.trim(line)
-		if trimmed:match("^[}%]]") then
-			indent_level = math.max(0, indent_level - 1)
-		end
-
-		local indented_line = string.rep("  ", indent_level) .. trimmed
-		table.insert(formatted_json, indented_line)
-
-		if trimmed:match("[{%[]$") then
-			indent_level = indent_level + 1
-		end
-	end
-
-	return formatted_json
 end
 
 -- Remove container action
-function M.remove_container(buf)
-	local container_id = M.get_current_container()
-	if not container_id then
-		vim.notify("No container selected", vim.log.levels.WARN)
-		return
-	end
-
-	vim.notify("Removing container " .. container_id .. "...", vim.log.levels.INFO)
-
-	api.remove_container(container_id, function(err)
-		vim.schedule(function()
-			if err then
-				vim.notify("Failed to remove container: " .. err, vim.log.levels.ERROR)
-				return
-			end
-
-			vim.notify("Container " .. container_id .. " removed successfully", vim.log.levels.INFO)
-		end)
-
-		-- Refresh container list
-		M.refresh_containers(buf)
-	end)
-end
+M.remove_container = create_container_action("Removing", api.remove_container, "Container %s removed successfully")
 
 -- Store current windows for refresh operations
 M._current_windows = nil

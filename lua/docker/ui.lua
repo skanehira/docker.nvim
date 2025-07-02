@@ -5,6 +5,24 @@ local api = require("docker.api")
 local config = require("docker.config")
 local formatter = require("docker.formatter")
 
+-- Helper function to set buffer options
+local function setup_buffer_options(buf, options)
+	vim.bo[buf].modifiable = options.modifiable ~= false -- default true
+	vim.bo[buf].buftype = options.buftype or "nofile"
+	vim.bo[buf].swapfile = false
+	vim.bo[buf].bufhidden = options.bufhidden or "wipe"
+	if options.filetype then
+		vim.bo[buf].filetype = options.filetype
+	end
+end
+
+-- Helper function to update buffer content
+local function update_buffer_content(buf, lines, start_line, end_line)
+	vim.bo[buf].modifiable = true
+	vim.api.nvim_buf_set_lines(buf, start_line or 0, end_line or -1, false, lines)
+	vim.bo[buf].modifiable = false
+end
+
 -- Create floating windows with separate header, content, and footer
 local function create_windows(title, item_count, content_width)
 	-- Calculate optimal dimensions based on content and terminal size
@@ -67,25 +85,10 @@ local function create_windows(title, item_count, content_width)
 		border = { "├", "─", "┤", "│", "┘", "─", "└", "│" },
 	})
 
-	-- Set buffer options for header window
-	vim.bo[header_buf].modifiable = false
-	vim.bo[header_buf].buftype = "nofile"
-	vim.bo[header_buf].swapfile = false
-	vim.bo[header_buf].bufhidden = "wipe"
-	vim.bo[header_buf].filetype = "docker-containers"
-
-	-- Set buffer options for main window (no readonly to avoid warnings)
-	vim.bo[main_buf].modifiable = false
-	vim.bo[main_buf].buftype = "nofile"
-	vim.bo[main_buf].swapfile = false
-	vim.bo[main_buf].bufhidden = "wipe"
-	vim.bo[main_buf].filetype = "docker-containers"
-
-	-- Set buffer options for footer window
-	vim.bo[footer_buf].modifiable = false
-	vim.bo[footer_buf].buftype = "nofile"
-	vim.bo[footer_buf].swapfile = false
-	vim.bo[footer_buf].bufhidden = "wipe"
+	-- Set buffer options
+	setup_buffer_options(header_buf, { modifiable = false, filetype = "docker-containers" })
+	setup_buffer_options(main_buf, { modifiable = false, filetype = "docker-containers" })
+	setup_buffer_options(footer_buf, { modifiable = false })
 
 	return {
 		header_buf = header_buf,
@@ -147,23 +150,17 @@ function M.render_containers(windows, containers)
 
 		-- Render header
 		if vim.api.nvim_buf_is_valid(windows.header_buf) then
-			vim.bo[windows.header_buf].modifiable = true
-			vim.api.nvim_buf_set_lines(windows.header_buf, 0, -1, false, header_lines)
-			vim.bo[windows.header_buf].modifiable = false
+			update_buffer_content(windows.header_buf, header_lines)
 		end
 
 		-- Render main content
 		if vim.api.nvim_buf_is_valid(windows.main_buf) then
-			vim.bo[windows.main_buf].modifiable = true
-			vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, content_lines)
-			vim.bo[windows.main_buf].modifiable = false
+			update_buffer_content(windows.main_buf, content_lines)
 		end
 
 		-- Render footer
 		if vim.api.nvim_buf_is_valid(windows.footer_buf) then
-			vim.bo[windows.footer_buf].modifiable = true
-			vim.api.nvim_buf_set_lines(windows.footer_buf, 0, -1, false, footer_lines)
-			vim.bo[windows.footer_buf].modifiable = false
+			update_buffer_content(windows.footer_buf, footer_lines)
 		end
 	end)
 end
@@ -211,23 +208,17 @@ function M.render_images(windows, images)
 
 		-- Render header
 		if vim.api.nvim_buf_is_valid(windows.header_buf) then
-			vim.bo[windows.header_buf].modifiable = true
-			vim.api.nvim_buf_set_lines(windows.header_buf, 0, -1, false, header_lines)
-			vim.bo[windows.header_buf].modifiable = false
+			update_buffer_content(windows.header_buf, header_lines)
 		end
 
 		-- Render main content
 		if vim.api.nvim_buf_is_valid(windows.main_buf) then
-			vim.bo[windows.main_buf].modifiable = true
-			vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, content_lines)
-			vim.bo[windows.main_buf].modifiable = false
+			update_buffer_content(windows.main_buf, content_lines)
 		end
 
 		-- Render footer
 		if vim.api.nvim_buf_is_valid(windows.footer_buf) then
-			vim.bo[windows.footer_buf].modifiable = true
-			vim.api.nvim_buf_set_lines(windows.footer_buf, 0, -1, false, footer_lines)
-			vim.bo[windows.footer_buf].modifiable = false
+			update_buffer_content(windows.footer_buf, footer_lines)
 		end
 	end)
 end
@@ -244,9 +235,7 @@ function M.show_containers()
 				actions.set_current_windows(windows)
 				actions.setup_container_keymaps(windows.main_buf)
 
-				vim.bo[windows.main_buf].modifiable = true
-				vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, { "Error: " .. err })
-				vim.bo[windows.main_buf].modifiable = false
+				update_buffer_content(windows.main_buf, { "Error: " .. err })
 				return
 			end
 
@@ -281,9 +270,7 @@ function M.show_images()
 				actions.set_current_windows(windows)
 				actions.setup_image_keymaps(windows.main_buf)
 
-				vim.bo[windows.main_buf].modifiable = true
-				vim.api.nvim_buf_set_lines(windows.main_buf, 0, -1, false, { "Error: " .. err })
-				vim.bo[windows.main_buf].modifiable = false
+				update_buffer_content(windows.main_buf, { "Error: " .. err })
 				return
 			end
 
