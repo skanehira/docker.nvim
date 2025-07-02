@@ -131,8 +131,9 @@ end
 
 -- Calculate optimal width for containers table
 function M.calculate_containers_width(containers)
-	-- Base width for fixed columns: indicator(2) + ID(13) + NAME(39) + CREATED(16) + spaces(6) = 76
-	local base_width = 76
+	-- Base width for fixed columns: indicator(1) + space(1) + ID(12) + space(1) + NAME(38) + space(1) + CREATED(15) + space(1) = 70
+	-- Plus 2 spaces for IMAGE and STATUS columns = 72
+	local base_width = 72
 	local max_image_width = 5 -- Minimum width for "IMAGE" header
 	local max_status_width = 6 -- Minimum width for "STATUS" header
 	local max_ports_width = 5 -- Minimum width for "PORTS" header
@@ -149,8 +150,8 @@ function M.calculate_containers_width(containers)
 		max_ports_width = math.max(max_ports_width, #ports_display)
 	end
 
-	-- Add padding for each column
-	local total_width = base_width + max_image_width + max_status_width + max_ports_width + 3
+	-- Add dynamic column widths
+	local total_width = base_width + max_image_width + max_status_width + max_ports_width
 
 	-- Store the calculated widths for later use
 	M._max_image_width = max_image_width
