@@ -20,6 +20,7 @@ M.defaults = {
 			remove = "x",
 			logs = "l",
 			exec = "e",
+			inspect = "i",
 			quit = "q",
 		},
 		images = {

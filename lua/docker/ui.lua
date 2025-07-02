@@ -109,12 +109,13 @@ function M.render_containers(windows, containers)
 	-- Generate footer content from configuration
 	local keymaps = config.get("keymaps").containers
 	local footer_content = string.format(
-		"%s:start %s:stop %s:restart %s:kill %s:attach %s:remove R:refresh %s:quit",
+		"%s:start %s:stop %s:restart %s:kill %s:attach %s:inspect %s:remove R:refresh %s:quit",
 		keymaps.start,
 		keymaps.stop,
 		keymaps.restart,
 		keymaps.kill,
 		keymaps.attach,
+		keymaps.inspect,
 		keymaps.remove,
 		keymaps.quit
 	)

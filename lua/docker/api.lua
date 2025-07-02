@@ -105,6 +105,11 @@ function M.attach_container(container_id, callback)
 	end)
 end
 
+-- Inspect container
+function M.inspect_container(container_id, callback)
+	M.request("GET", "/containers/" .. container_id .. "/json", callback)
+end
+
 -- List images
 function M.list_images(callback)
 	M.request("GET", "/images/json", callback)

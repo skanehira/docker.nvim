@@ -194,6 +194,118 @@ function M.attach_container(buf)
 	end)
 end
 
+-- Inspect container action
+function M.inspect_container(buf)
+	local container_id = M.get_current_container()
+	if not container_id then
+		vim.notify("No container selected", vim.log.levels.WARN)
+		return
+	end
+
+	vim.notify("Inspecting container " .. container_id .. "...", vim.log.levels.INFO)
+
+	api.inspect_container(container_id, function(err, data)
+		vim.schedule(function()
+			if err then
+				vim.notify("Failed to inspect container: " .. err, vim.log.levels.ERROR)
+				return
+			end
+
+			if not data then
+				vim.notify("No inspection data received", vim.log.levels.WARN)
+				return
+			end
+
+			-- Create a new buffer to show the inspection data
+			local inspect_buf = vim.api.nvim_create_buf(false, true)
+			vim.bo[inspect_buf].buftype = "nofile"
+			vim.bo[inspect_buf].swapfile = false
+			vim.bo[inspect_buf].bufhidden = "wipe"
+			vim.bo[inspect_buf].filetype = "json"
+
+			-- Check if jq is available
+			local jq_available = vim.fn.executable("jq") == 1
+
+			if jq_available then
+				-- Use jq for better JSON formatting
+				local json_string = vim.json.encode(data)
+				vim.system({ "jq", "." }, {
+					stdin = json_string,
+					text = true,
+				}, function(result)
+					vim.schedule(function()
+						local formatted_lines
+						if result.code == 0 and result.stdout then
+							formatted_lines = vim.split(vim.trim(result.stdout), "\n")
+						else
+							-- Fallback to manual formatting if jq fails
+							formatted_lines = M._format_json_manually(data)
+						end
+
+						-- Set the buffer content
+						vim.api.nvim_buf_set_lines(inspect_buf, 0, -1, false, formatted_lines)
+						vim.bo[inspect_buf].modifiable = false
+
+						-- Close container list and open the buffer in a new window
+						M.close_current_windows()
+						vim.cmd("rightbelow vsplit")
+						vim.api.nvim_win_set_buf(0, inspect_buf)
+
+						-- Set window title
+						vim.api.nvim_buf_set_name(inspect_buf, "Container Inspect: " .. container_id)
+
+						vim.notify("Container inspection opened in new window", vim.log.levels.INFO)
+					end)
+				end)
+			else
+				-- Fallback to manual formatting when jq is not available
+				local formatted_lines = M._format_json_manually(data)
+
+				-- Set the buffer content
+				vim.api.nvim_buf_set_lines(inspect_buf, 0, -1, false, formatted_lines)
+				vim.bo[inspect_buf].modifiable = false
+
+				-- Close container list and open the buffer in a new window
+				M.close_current_windows()
+				vim.cmd("rightbelow vsplit")
+				vim.api.nvim_win_set_buf(0, inspect_buf)
+
+				-- Set window title
+				vim.api.nvim_buf_set_name(inspect_buf, "Container Inspect: " .. container_id)
+
+				vim.notify(
+					"Container inspection opened in new window (jq not available, using fallback formatting)",
+					vim.log.levels.INFO
+				)
+			end
+		end)
+	end)
+end
+
+-- Helper function for manual JSON formatting (fallback when jq is not available)
+function M._format_json_manually(data)
+	local json_lines = vim.split(vim.json.encode(data), "\n")
+
+	-- Pretty format JSON with proper indentation
+	local formatted_json = {}
+	local indent_level = 0
+	for _, line in ipairs(json_lines) do
+		local trimmed = vim.trim(line)
+		if trimmed:match("^[}%]]") then
+			indent_level = math.max(0, indent_level - 1)
+		end
+
+		local indented_line = string.rep("  ", indent_level) .. trimmed
+		table.insert(formatted_json, indented_line)
+
+		if trimmed:match("[{%[]$") then
+			indent_level = indent_level + 1
+		end
+	end
+
+	return formatted_json
+end
+
 -- Remove container action
 function M.remove_container(buf)
 	local container_id = M.get_current_container()
@@ -262,6 +374,11 @@ function M.setup_container_keymaps(buf)
 	vim.keymap.set("n", keymaps.attach, function()
 		M.attach_container(buf)
 	end, { buffer = buf, desc = "Attach to container" })
+
+	-- Inspect container
+	vim.keymap.set("n", keymaps.inspect, function()
+		M.inspect_container(buf)
+	end, { buffer = buf, desc = "Inspect container" })
 
 	-- Remove container
 	vim.keymap.set("n", keymaps.remove, function()
