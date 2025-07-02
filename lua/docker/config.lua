@@ -3,25 +3,19 @@ local M = {}
 
 -- Default configuration
 M.defaults = {
-  -- Window settings
-  window = {
-    width = 0.8,
-    height = 0.8,
-    border = 'rounded',
-  },
-  
   -- Docker settings
   docker = {
     socket_path = '/var/run/docker.sock',
-    timeout = 5000, -- milliseconds
+    timeout = 60000, -- milliseconds (1 minute)
   },
-  
+
   -- Keymaps
   keymaps = {
     containers = {
       start = 'u',
-      stop = 'd', 
+      stop = 'd',
       restart = 'r',
+      kill = '<C-k>',
       remove = 'x',
       logs = 'l',
       exec = 'e',

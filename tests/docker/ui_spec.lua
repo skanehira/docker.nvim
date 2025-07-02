@@ -30,14 +30,14 @@ helper.describe('docker.ui', {
     helper.assert_not_nil(lines)
     helper.assert_true(#lines > 0)
     
-    -- Check running indicator exists
-    local indicator_found = false
+    -- Check container data format (indicator + ID)
+    local container_found = false
     for _, line in ipairs(lines) do
-      if string.find(line, '●') then
-        indicator_found = true
+      if string.match(line, '^[● ] [a-f0-9]+') then
+        container_found = true
         break
       end
     end
-    helper.assert_true(indicator_found)
+    helper.assert_true(container_found)
   end
 })

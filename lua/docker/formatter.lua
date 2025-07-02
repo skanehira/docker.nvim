@@ -81,9 +81,9 @@ end
 function M.format_containers_header()
   local lines = {}
 
-  -- Header
-  local header = string.format('  %-15s %-12s %-12s %-8s %s',
-    'NAME', 'TAG', 'ID', 'PORTS', 'AGE'
+  -- Header with new column layout (including space for indicator)
+  local header = string.format('  %-12s %-38s %-25s %-20s %-15s %s',
+    'ID', 'NAME', 'IMAGE', 'STATUS', 'CREATED', 'PORTS'
   )
   table.insert(lines, header)
 
@@ -94,25 +94,31 @@ end
 function M.format_containers_table(containers)
   local lines = {}
 
-  -- Data rows (modern compact format)
+  -- Data rows with new column layout
   for _, container in ipairs(containers) do
     local running_indicator = is_container_running(container.Status) and '●' or ' '
-    local name = M.format_container_name(container.Names[1])
-    local image_parts = vim.split(container.Image, ':')
-    local image_name = image_parts[1] or container.Image
-    local image_tag = image_parts[2] or 'latest'
     local id = M.format_container_id(container.Id)
-    local ports = M.format_ports(container.Ports)
+    local name = M.format_container_name(container.Names[1])
+    local image = container.Image
+    local status = container.Status
     local created_short = M.format_created_short(container.Created)
+    local ports = M.format_ports(container.Ports)
+    
+    -- Truncate long values to fit columns
+    name = name:sub(1, 38)  -- Reduced to make room for indicator
+    image = image:sub(1, 25)
+    status = status:sub(1, 20)
+    ports = ports ~= '' and ports:sub(1, 15) or '-'
 
-    -- Format: "● nginx           latest    abc123    PORTS   2d"
-    local line = string.format('%s %-15s %-12s %-12s %-8s %s',
+    -- Format: "● abc123456789 nginx-container             nginx:latest             Up 2 hours           2h              8080->80/tcp"
+    local line = string.format('%s %-12s %-38s %-25s %-20s %-15s %s',
       running_indicator,
-      name:sub(1, 15),      -- Truncate name to 15 chars
-      image_tag:sub(1, 12), -- Truncate tag to 12 chars
       id,
-      ports ~= '' and 'PORTS' or '-',
-      created_short
+      name,
+      image,
+      status,
+      created_short,
+      ports
     )
     table.insert(lines, line)
   end

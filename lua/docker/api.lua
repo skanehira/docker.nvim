@@ -21,11 +21,17 @@ function M.request(method, path, callback)
     text = true
   }, function(result)
     if result.code == 0 then
-      local ok, data = pcall(vim.json.decode, result.stdout)
-      if ok then
-        callback(nil, data)
+      -- Handle empty responses (common for successful operations like container start/stop)
+      local stdout_trimmed = result.stdout and vim.trim(result.stdout) or ''
+      if stdout_trimmed == '' then
+        callback(nil, nil)
       else
-        callback('Failed to parse JSON response: ' .. result.stdout, nil)
+        local ok, data = pcall(vim.json.decode, stdout_trimmed)
+        if ok then
+          callback(nil, data)
+        else
+          callback('Failed to parse JSON response: ' .. tostring(stdout_trimmed), nil)
+        end
       end
     else
       callback('Docker API request failed: ' .. (result.stderr or 'Unknown error'), nil)
@@ -58,6 +64,11 @@ function M.restart_container(container_id, callback)
   M.request('POST', '/containers/' .. container_id .. '/restart', callback)
 end
 
+-- Kill container
+function M.kill_container(container_id, callback)
+  M.request('POST', '/containers/' .. container_id .. '/kill', callback)
+end
+
 -- Remove container
 function M.remove_container(container_id, callback)
   M.request('DELETE', '/containers/' .. container_id, callback)
@@ -69,4 +80,3 @@ function M.list_images(callback)
 end
 
 return M
-

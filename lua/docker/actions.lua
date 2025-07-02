@@ -10,8 +10,13 @@ function M.parse_container_id_from_line(line)
     return nil
   end
 
-  -- New format: "● nginx-app       latest       abc123456789 -        2h"
-  --          or "  postgres        14           def456789012 -        1h"
+  -- Skip header and separator lines
+  if string.find(line, 'ID') or string.find(line, 'NAME') or string.find(line, '─') then
+    return nil
+  end
+
+  -- New format: "● abc123456789 nginx-container             nginx:latest             Up 2 hours           2h              8080->80/tcp"
+  --          or "  abc123456789 nginx-container             nginx:latest             Exited (0) 2 hours   2h              -"
   -- Handle both running (●) and stopped (space) containers
   local trimmed
   if line:sub(1, 1) == ' ' then
@@ -22,8 +27,8 @@ function M.parse_container_id_from_line(line)
     trimmed = line:sub(5) -- Skip "● " (UTF-8 bullet + space)
   end
 
-  local pattern = '^([%w%-_]+) +(%S+) +([a-f0-9]+)'
-  local name, tag, container_id = string.match(trimmed, pattern)
+  -- Container ID is the first field after the indicator
+  local container_id = string.match(trimmed, '^([a-f0-9]+)')
 
   if container_id and #container_id == 12 then
     return container_id
@@ -48,10 +53,10 @@ function M.start_container(buf)
 
   vim.notify('Starting container ' .. container_id .. '...', vim.log.levels.INFO)
 
-  api.start_container(container_id, function(err)
+  api.start_container(container_id, function(err, data)
     vim.schedule(function()
       if err then
-        vim.notify('Failed to start container: ' .. err, vim.log.levels.ERROR)
+        vim.notify('Failed to start container: ' .. tostring(err), vim.log.levels.ERROR)
         return
       end
 
@@ -106,6 +111,31 @@ function M.restart_container(buf)
       end
 
       vim.notify('Container ' .. container_id .. ' restarted successfully', vim.log.levels.INFO)
+    end)
+
+    -- Refresh container list
+    M.refresh_containers(buf)
+  end)
+end
+
+-- Kill container action
+function M.kill_container(buf)
+  local container_id = M.get_current_container()
+  if not container_id then
+    vim.notify('No container selected', vim.log.levels.WARN)
+    return
+  end
+
+  vim.notify('Killing container ' .. container_id .. '...', vim.log.levels.INFO)
+
+  api.kill_container(container_id, function(err)
+    vim.schedule(function()
+      if err then
+        vim.notify('Failed to kill container: ' .. err, vim.log.levels.ERROR)
+        return
+      end
+
+      vim.notify('Container ' .. container_id .. ' killed successfully', vim.log.levels.INFO)
     end)
 
     -- Refresh container list
@@ -180,6 +210,11 @@ function M.setup_container_keymaps(buf)
   vim.keymap.set('n', keymaps.restart, function()
     M.restart_container(buf)
   end, { buffer = buf, desc = 'Restart container' })
+
+  -- Kill container
+  vim.keymap.set('n', keymaps.kill, function()
+    M.kill_container(buf)
+  end, { buffer = buf, desc = 'Kill container' })
 
   -- Remove container
   vim.keymap.set('n', keymaps.remove, function()
@@ -267,4 +302,3 @@ function M.set_current_windows(windows)
 end
 
 return M
-

@@ -19,8 +19,8 @@ helper.describe('docker.actions', {
   ['should parse container from current line'] = function()
     local actions = require('docker.actions')
     
-    -- Mock container line (new format: [●| ] name tag id ports age)
-    local container_line = '● nginx           latest       abc123456789 PORTS    2d'
+    -- Mock container line (new format with indicator: ● ID NAME IMAGE STATUS CREATED PORTS)
+    local container_line = '● abc123456789 nginx-container           nginx:latest             Up 2 hours           2h              8080->80/tcp'
     
     local container_id = actions.parse_container_id_from_line(container_line)
     helper.assert_equal(container_id, 'abc123456789')
@@ -29,8 +29,8 @@ helper.describe('docker.actions', {
   ['should return nil for invalid container line'] = function()
     local actions = require('docker.actions')
     
-    -- Test header line
-    local header_line = '  NAME           TAG          ID           PORTS    AGE'
+    -- Test header line  
+    local header_line = '  ID           NAME                                     IMAGE                   STATUS                   CREATED             PORTS'
     local container_id = actions.parse_container_id_from_line(header_line)
     helper.assert_nil(container_id)
     

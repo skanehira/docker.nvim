@@ -10,27 +10,29 @@ helper.describe('docker.formatter', {
     
     helper.assert_not_nil(result)
     helper.assert_equal(type(result), 'table')
-    helper.assert_true(#result > 1) -- Header + separator + container rows
+    helper.assert_true(#result >= 1) -- Container rows
     
-    -- Check header exists
-    local has_header = false
+    -- Check that container data is formatted correctly
+    local has_container_data = false
     for _, line in ipairs(result) do
-      if string.find(line, 'NAME') and string.find(line, 'TAG') then
-        has_header = true
+      -- Look for indicator + container ID pattern
+      if string.match(line, '^[● ] [a-f0-9]+') then
+        has_container_data = true
         break
       end
     end
-    helper.assert_true(has_header)
+    helper.assert_true(has_container_data)
     
-    -- Check that running containers have indicator
-    local has_running_indicator = false
-    for _, line in ipairs(result) do
-      if string.find(line, '●') then
-        has_running_indicator = true
-        break
-      end
-    end
-    helper.assert_true(has_running_indicator)
+    -- Test header separately
+    local header_result = formatter.format_containers_header()
+    helper.assert_not_nil(header_result)
+    helper.assert_true(#header_result >= 1)
+    
+    -- Check new header format
+    local header_line = header_result[1]
+    helper.assert_true(string.find(header_line, 'ID') ~= nil)
+    helper.assert_true(string.find(header_line, 'NAME') ~= nil)
+    helper.assert_true(string.find(header_line, 'IMAGE') ~= nil)
   end,
   
   ['should format container ID correctly'] = function()

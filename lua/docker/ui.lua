@@ -7,15 +7,13 @@ local formatter = require('docker.formatter')
 
 -- Create floating windows with separate header, content, and footer
 local function create_windows(title, item_count)
-  local win_config = config.get('window')
-
   -- Calculate optimal dimensions with proper proportions
-  local max_container_rows = 10                 -- Maximum rows for containers
-  local header_height = 2                       -- Header + separator (no extra padding)
-  local footer_height = 2                       -- Footer content (minimal height)
-  local content_height = max_container_rows + 2 -- Content + small padding
+  local max_container_rows = 10                                       -- Maximum rows for containers
+  local header_height = 2                                             -- Header + separator (no extra padding)
+  local footer_height = 2                                             -- Footer content (minimal height)
+  local content_height = max_container_rows + 2                       -- Content + small padding
 
-  local total_width = math.floor(vim.o.columns * 0.8)
+  local total_width = math.min(math.floor(vim.o.columns * 0.95), 140) -- Wider for more columns, max 140 chars
   local start_col = math.floor((vim.o.columns - total_width) / 2)
 
   -- Calculate vertical positioning (center all windows as a group with minimal gaps)
@@ -74,12 +72,14 @@ local function create_windows(title, item_count)
   vim.bo[header_buf].buftype = 'nofile'
   vim.bo[header_buf].swapfile = false
   vim.bo[header_buf].bufhidden = 'wipe'
+  vim.bo[header_buf].filetype = 'docker-containers'
 
   -- Set buffer options for main window (no readonly to avoid warnings)
   vim.bo[main_buf].modifiable = false
   vim.bo[main_buf].buftype = 'nofile'
   vim.bo[main_buf].swapfile = false
   vim.bo[main_buf].bufhidden = 'wipe'
+  vim.bo[main_buf].filetype = 'docker-containers'
 
   -- Set buffer options for footer window
   vim.bo[footer_buf].modifiable = false
@@ -102,10 +102,14 @@ function M.render_containers(windows, containers)
   local header_lines = formatter.format_containers_header()
   local content_lines = formatter.format_containers_table(containers)
 
-  -- Footer content
+  -- Generate footer content from configuration
+  local keymaps = config.get('keymaps').containers
+  local footer_content = string.format('%s:start %s:stop %s:restart %s:kill %s:remove R:refresh %s:quit',
+    keymaps.start, keymaps.stop, keymaps.restart, keymaps.kill, keymaps.remove, keymaps.quit)
+
   local footer_lines = {
     '',
-    'u:start d:stop r:restart x:remove R:refresh q:quit'
+    footer_content
   }
 
   -- Schedule to avoid fast event context error
@@ -132,10 +136,14 @@ function M.render_images(windows, images)
   local header_lines = formatter.format_images_header()
   local content_lines = formatter.format_images_table(images)
 
-  -- Footer content
+  -- Generate footer content from configuration
+  local keymaps = config.get('keymaps').images
+  local footer_content = string.format('%s:run %s:remove %s:pull %s:inspect R:refresh %s:quit',
+    keymaps.run, keymaps.remove, keymaps.pull, keymaps.inspect, keymaps.quit)
+
   local footer_lines = {
     '',
-    'Enter:run x:remove p:pull i:inspect R:refresh q:quit'
+    footer_content
   }
 
   -- Schedule to avoid fast event context error
@@ -228,4 +236,3 @@ function M.show_images()
 end
 
 return M
-

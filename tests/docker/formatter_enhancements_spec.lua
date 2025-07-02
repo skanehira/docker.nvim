@@ -28,7 +28,7 @@ helper.describe('docker.formatter enhancements', {
     helper.assert_equal(result4, '3d')
   end,
   
-  ['should detect running containers correctly'] = function()
+  ['should display container status with indicators correctly'] = function()
     local formatter = require('docker.formatter')
     
     local running_container = {
@@ -51,15 +51,15 @@ helper.describe('docker.formatter enhancements', {
     
     local result = formatter.format_containers_table({running_container, stopped_container})
     
-    -- Check that running container has indicator
+    -- Check that running container has indicator and status
     local has_running_indicator = false
     local has_stopped_space = false
     
     for _, line in ipairs(result) do
-      if string.find(line, '●') and string.find(line, 'nginx') then
+      if string.find(line, '^●') and string.find(line, 'nginx%-app') then
         has_running_indicator = true
       end
-      if string.find(line, '^  postgres') then -- Starts with space (not ●)
+      if string.find(line, '^  ') and string.find(line, 'postgres%-db') then
         has_stopped_space = true
       end
     end
@@ -72,25 +72,22 @@ helper.describe('docker.formatter enhancements', {
     local formatter = require('docker.formatter')
     
     local containers = helper.mock_containers
-    local result = formatter.format_containers_table(containers)
+    local header_result = formatter.format_containers_header()
     
     -- Should have header line
-    helper.assert_true(#result >= 2) -- At least header + separator
+    helper.assert_true(#header_result >= 1)
     
-    -- Check header content
-    local header_line = result[1]
-    helper.assert_true(string.find(header_line, 'NAME') ~= nil)
-    helper.assert_true(string.find(header_line, 'TAG') ~= nil)
+    -- Check header content with new column layout (with space for indicator)
+    local header_line = header_result[1]
     helper.assert_true(string.find(header_line, 'ID') ~= nil)
+    helper.assert_true(string.find(header_line, 'NAME') ~= nil)
+    helper.assert_true(string.find(header_line, 'IMAGE') ~= nil)
+    helper.assert_true(string.find(header_line, 'STATUS') ~= nil)
+    helper.assert_true(string.find(header_line, 'CREATED') ~= nil)
     helper.assert_true(string.find(header_line, 'PORTS') ~= nil)
-    helper.assert_true(string.find(header_line, 'AGE') ~= nil)
-    
-    -- Check separator line
-    local separator_line = result[2]
-    helper.assert_true(string.find(separator_line, '─') ~= nil)
   end,
   
-  ['should format image tags correctly'] = function()
+  ['should format images correctly'] = function()
     local formatter = require('docker.formatter')
     
     local container_with_tag = {
@@ -113,7 +110,7 @@ helper.describe('docker.formatter enhancements', {
     
     local result = formatter.format_containers_table({container_with_tag, container_without_tag})
     
-    -- Find the nginx line and check tag
+    -- Find the nginx line and check image
     local nginx_line = nil
     local postgres_line = nil
     
@@ -128,14 +125,14 @@ helper.describe('docker.formatter enhancements', {
     helper.assert_not_nil(nginx_line)
     helper.assert_not_nil(postgres_line)
     
-    -- Nginx should have the tag "1.21-alpine" (or truncated version)
-    helper.assert_true(string.find(nginx_line, '1%.21') ~= nil or string.find(nginx_line, 'alpine') ~= nil)
+    -- Nginx should have the full image name "nginx:1.21-alpine"
+    helper.assert_true(string.find(nginx_line, 'nginx:1%.21%-alpine') ~= nil)
     
-    -- Postgres should default to "latest"
-    helper.assert_true(string.find(postgres_line, 'latest') ~= nil)
+    -- Postgres should have full image name "postgres"
+    helper.assert_true(string.find(postgres_line, 'postgres') ~= nil)
   end,
   
-  ['should truncate long names and tags'] = function()
+  ['should truncate long names and images'] = function()
     local formatter = require('docker.formatter')
     
     local container_with_long_name = {
@@ -149,10 +146,10 @@ helper.describe('docker.formatter enhancements', {
     
     local result = formatter.format_containers_table({container_with_long_name})
     
-    -- Find the container line
+    -- Find the container line - look for the container ID
     local container_line = nil
     for _, line in ipairs(result) do
-      if string.find(line, 'very%-very%-long') then
+      if string.find(line, 'abc123456789') then
         container_line = line
         break
       end
@@ -160,8 +157,8 @@ helper.describe('docker.formatter enhancements', {
     
     helper.assert_not_nil(container_line)
     
-    -- Names and tags should be truncated to fit format
-    -- The line should not be excessively long
-    helper.assert_true(#container_line < 100) -- Reasonable line length
+    -- Names and images should be truncated to fit format
+    -- The line should be within reasonable length
+    helper.assert_true(#container_line <= 150) -- Reasonable line length for new format
   end
 })
