@@ -5,7 +5,6 @@ helper.describe('docker.config', {
   ['should have default configuration'] = function()
     local config = require('docker.config')
     helper.assert_not_nil(config.defaults)
-    helper.assert_not_nil(config.defaults.window)
     helper.assert_not_nil(config.defaults.docker)
     helper.assert_not_nil(config.defaults.keymaps)
   end,
@@ -26,24 +25,21 @@ helper.describe('docker.config', {
     local config = require('docker.config')
     config.setup({}) -- Reset to defaults
     
-    local window_config = config.get('window')
-    helper.assert_equal(window_config.width, 0.8)
-    helper.assert_equal(window_config.height, 0.8)
-    helper.assert_equal(window_config.border, 'rounded')
+    local docker_config = config.get('docker')
+    helper.assert_equal(docker_config.timeout, 60000)
+    helper.assert_equal(docker_config.socket_path, '/var/run/docker.sock')
   end,
   
   ['should merge user configuration'] = function()
     local config = require('docker.config')
     config.setup({
-      window = {
-        width = 0.9,
-        border = 'single'
+      docker = {
+        timeout = 30000
       }
     })
     
-    local window_config = config.get('window')
-    helper.assert_equal(window_config.width, 0.9)
-    helper.assert_equal(window_config.height, 0.8) -- default
-    helper.assert_equal(window_config.border, 'single')
+    local docker_config = config.get('docker')
+    helper.assert_equal(docker_config.timeout, 30000)
+    helper.assert_equal(docker_config.socket_path, '/var/run/docker.sock') -- default
   end
 })
