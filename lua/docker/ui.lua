@@ -107,6 +107,12 @@ function M.render_containers(windows, containers)
 		actions._current_data.window_type = "containers"
 	end
 
+	-- Store container data in the main buffer for easy access by line number
+	if windows.main_buf and vim.api.nvim_buf_is_valid(windows.main_buf) then
+		-- Store containers data as buffer variable
+		vim.b[windows.main_buf].docker_containers = containers or {}
+	end
+
 	-- Get the calculated max widths from formatter
 	local max_image_width = formatter._max_image_width or 30
 	local max_status_width = formatter._max_status_width or 25
@@ -170,6 +176,12 @@ function M.render_images(windows, images)
 	if actions._current_data then
 		actions._current_data.images = images
 		actions._current_data.window_type = "images"
+	end
+
+	-- Store image data in the main buffer for easy access by line number
+	if windows.main_buf and vim.api.nvim_buf_is_valid(windows.main_buf) then
+		-- Store images data as buffer variable
+		vim.b[windows.main_buf].docker_images = images or {}
 	end
 
 	local header_lines = formatter.format_images_header()

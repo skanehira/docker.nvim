@@ -11,9 +11,9 @@ helper.describe("docker.actions inspect functionality", {
 	["should warn when no container selected for inspect"] = function()
 		local actions = require("docker.actions")
 
-		-- Mock get_current_container to return nil
-		local original_get_current = actions.get_current_container
-		actions.get_current_container = function()
+		-- Mock get_current_container_data to return nil
+		local original_get_current_data = actions.get_current_container_data
+		actions.get_current_container_data = function()
 			return nil
 		end
 
@@ -30,7 +30,7 @@ helper.describe("docker.actions inspect functionality", {
 		actions.inspect_container(1)
 
 		-- Restore original functions
-		actions.get_current_container = original_get_current
+		actions.get_current_container_data = original_get_current_data
 		vim.notify = original_notify
 
 		helper.assert_true(notify_called)
@@ -41,10 +41,14 @@ helper.describe("docker.actions inspect functionality", {
 		local actions = require("docker.actions")
 		local api = require("docker.api")
 
-		-- Mock get_current_container to return a container ID
-		local original_get_current = actions.get_current_container
-		actions.get_current_container = function()
-			return "abc123456789"
+		-- Mock get_current_container_data to return container data
+		local original_get_current_data = actions.get_current_container_data
+		actions.get_current_container_data = function()
+			return {
+				Id = "abc123456789abcdef",
+				Names = {"/test-container"},
+				Status = "Up 1 hour"
+			}
 		end
 
 		-- Mock vim.schedule to execute immediately for testing
@@ -124,7 +128,7 @@ helper.describe("docker.actions inspect functionality", {
 		actions.inspect_container(1)
 
 		-- Restore original functions
-		actions.get_current_container = original_get_current
+		actions.get_current_container_data = original_get_current_data
 		api.inspect_container = original_inspect_container
 		vim.schedule = original_schedule
 		vim.fn.executable = original_executable
@@ -137,7 +141,7 @@ helper.describe("docker.actions inspect functionality", {
 		vim.notify = original_notify
 
 		helper.assert_true(inspect_called)
-		helper.assert_equal(inspect_container_id, "abc123456789")
+		helper.assert_equal(inspect_container_id, "abc123456789") -- First 12 chars
 		helper.assert_true(buf_created)
 		helper.assert_true(lines_set)
 		helper.assert_true(window_created)
@@ -161,10 +165,14 @@ helper.describe("docker.actions inspect functionality", {
 		local actions = require("docker.actions")
 		local api = require("docker.api")
 
-		-- Mock get_current_container to return a container ID
-		local original_get_current = actions.get_current_container
-		actions.get_current_container = function()
-			return "abc123456789"
+		-- Mock get_current_container_data to return container data
+		local original_get_current_data = actions.get_current_container_data
+		actions.get_current_container_data = function()
+			return {
+				Id = "abc123456789abcdef",
+				Names = {"/test-container"},
+				Status = "Up 1 hour"
+			}
 		end
 
 		-- Mock vim.schedule to execute immediately for testing
@@ -232,7 +240,7 @@ helper.describe("docker.actions inspect functionality", {
 		actions.inspect_container(1)
 
 		-- Restore original functions
-		actions.get_current_container = original_get_current
+		actions.get_current_container_data = original_get_current_data
 		api.inspect_container = original_inspect_container
 		vim.schedule = original_schedule
 		vim.fn.executable = original_executable

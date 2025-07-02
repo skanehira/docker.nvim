@@ -4,7 +4,61 @@ local M = {}
 local api = require("docker.api")
 local config = require("docker.config")
 
--- Parse container ID from table line
+-- Get container data from current cursor position using buffer-stored data
+function M.get_current_container_data()
+	local buf = vim.api.nvim_get_current_buf()
+	local containers = vim.b[buf].docker_containers
+	
+	if not containers or #containers == 0 then
+		return nil
+	end
+
+	-- Get current cursor line (1-indexed)
+	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+	
+	-- In the new UI design, the main window contains only container data
+	-- No header in main window, so line 1 = container index 1, line 2 = container index 2, etc.
+	local data_index = cursor_line
+	
+	-- Validate index bounds (Lua arrays are 1-indexed)
+	if data_index < 1 or data_index > #containers then
+		return nil
+	end
+	
+	return containers[data_index]
+end
+
+-- Get container ID from current cursor position (backward compatibility)
+function M.get_current_container()
+	local container_data = M.get_current_container_data()
+	return container_data and container_data.Id:sub(1, 12) or nil
+end
+
+-- Get image data from current cursor position using buffer-stored data
+function M.get_current_image_data()
+	local buf = vim.api.nvim_get_current_buf()
+	local images = vim.b[buf].docker_images
+	
+	if not images or #images == 0 then
+		return nil
+	end
+
+	-- Get current cursor line (1-indexed)
+	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+	
+	-- In the new UI design, the main window contains only image data
+	-- No header in main window, so line 1 = image index 1, line 2 = image index 2, etc.
+	local data_index = cursor_line
+	
+	-- Validate index bounds (Lua arrays are 1-indexed)
+	if data_index < 1 or data_index > #images then
+		return nil
+	end
+	
+	return images[data_index]
+end
+
+-- DEPRECATED: Parse container ID from table line (kept for backward compatibility)
 function M.parse_container_id_from_line(line)
 	if not line or line == "" then
 		return nil
@@ -35,12 +89,6 @@ function M.parse_container_id_from_line(line)
 	end
 
 	return nil
-end
-
--- Get container ID from current cursor position
-function M.get_current_container()
-	local line = vim.api.nvim_get_current_line()
-	return M.parse_container_id_from_line(line)
 end
 
 -- Start container action
@@ -145,64 +193,46 @@ end
 
 -- Attach to container action
 function M.attach_container(buf)
-	local container_id = M.get_current_container()
-	if not container_id then
+	local container_data = M.get_current_container_data()
+	if not container_data then
 		vim.notify("No container selected", vim.log.levels.WARN)
 		return
 	end
 
-	-- Check if container is running
-	api.list_containers(function(err, containers)
-		vim.schedule(function()
-			if err then
-				vim.notify("Failed to check container status: " .. err, vim.log.levels.ERROR)
-				return
-			end
+	local container_id = container_data.Id:sub(1, 12)
 
-			local container = nil
-			for _, c in ipairs(containers or {}) do
-				if c.Id:sub(1, 12) == container_id then
-					container = c
-					break
-				end
-			end
+	-- Check if container is running using the stored data
+	if not string.find(container_data.Status:lower(), "up") then
+		vim.notify("Container is not running. Start it first.", vim.log.levels.WARN)
+		return
+	end
 
-			if not container then
-				vim.notify("Container not found or not running", vim.log.levels.WARN)
-				return
-			end
+	vim.notify("Attaching to container " .. container_data.Names[1]:sub(2) .. " (" .. container_id .. ")...", vim.log.levels.INFO)
 
-			-- Check if container is running
-			if not string.find(container.Status:lower(), "up") then
-				vim.notify("Container is not running. Start it first.", vim.log.levels.WARN)
-				return
-			end
+	-- Close current floating windows before opening terminal
+	M.close_current_windows()
 
-			vim.notify("Attaching to container " .. container_id .. "...", vim.log.levels.INFO)
-
-			-- Close current floating windows before opening terminal
-			M.close_current_windows()
-
-			api.attach_container(container_id, function(err)
-				if err then
-					vim.schedule(function()
-						vim.notify("Failed to attach to container: " .. err, vim.log.levels.ERROR)
-					end)
-				end
+	api.attach_container(container_id, function(err)
+		if err then
+			vim.schedule(function()
+				vim.notify("Failed to attach to container: " .. err, vim.log.levels.ERROR)
 			end)
-		end)
+		end
 	end)
 end
 
 -- Inspect container action
 function M.inspect_container(buf)
-	local container_id = M.get_current_container()
-	if not container_id then
+	local container_data = M.get_current_container_data()
+	if not container_data then
 		vim.notify("No container selected", vim.log.levels.WARN)
 		return
 	end
 
-	vim.notify("Inspecting container " .. container_id .. "...", vim.log.levels.INFO)
+	local container_id = container_data.Id:sub(1, 12)
+	local container_name = container_data.Names[1]:sub(2) -- Remove leading "/"
+
+	vim.notify("Inspecting container " .. container_name .. " (" .. container_id .. ")...", vim.log.levels.INFO)
 
 	api.inspect_container(container_id, function(err, data)
 		vim.schedule(function()

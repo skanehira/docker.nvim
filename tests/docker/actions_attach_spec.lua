@@ -11,9 +11,9 @@ helper.describe("docker.actions attach functionality", {
 	["should warn when no container selected for attach"] = function()
 		local actions = require("docker.actions")
 
-		-- Mock get_current_container to return nil
-		local original_get_current = actions.get_current_container
-		actions.get_current_container = function()
+		-- Mock get_current_container_data to return nil
+		local original_get_current_data = actions.get_current_container_data
+		actions.get_current_container_data = function()
 			return nil
 		end
 
@@ -30,7 +30,7 @@ helper.describe("docker.actions attach functionality", {
 		actions.attach_container(1)
 
 		-- Restore original functions
-		actions.get_current_container = original_get_current
+		actions.get_current_container_data = original_get_current_data
 		vim.notify = original_notify
 
 		helper.assert_true(notify_called)
@@ -41,30 +41,20 @@ helper.describe("docker.actions attach functionality", {
 		local actions = require("docker.actions")
 		local api = require("docker.api")
 
-		-- Mock get_current_container to return a container ID
-		local original_get_current = actions.get_current_container
-		actions.get_current_container = function()
-			return "abc123456789"
+		-- Mock get_current_container_data to return container data
+		local original_get_current_data = actions.get_current_container_data
+		actions.get_current_container_data = function()
+			return {
+				Id = "abc123456789abcdef",
+				Names = {"/test-container"},
+				Status = "Exited (0) 1 hour ago" -- Not running
+			}
 		end
 
 		-- Mock vim.schedule to execute immediately for testing
 		local original_schedule = vim.schedule
 		vim.schedule = function(func)
 			func() -- Execute immediately for testing
-		end
-
-		-- Mock api.list_containers to return a stopped container
-		local original_list_containers = api.list_containers
-		api.list_containers = function(callback)
-			-- Execute callback immediately (synchronously) for testing
-			vim.schedule(function()
-				callback(nil, {
-					{
-						Id = "abc123456789full",
-						Status = "Exited (0) 1 hour ago",
-					},
-				})
-			end)
 		end
 
 		-- Mock vim.notify
@@ -80,8 +70,7 @@ helper.describe("docker.actions attach functionality", {
 		actions.attach_container(1)
 
 		-- Restore original functions
-		actions.get_current_container = original_get_current
-		api.list_containers = original_list_containers
+		actions.get_current_container_data = original_get_current_data
 		vim.schedule = original_schedule
 		vim.notify = original_notify
 
@@ -93,30 +82,20 @@ helper.describe("docker.actions attach functionality", {
 		local actions = require("docker.actions")
 		local api = require("docker.api")
 
-		-- Mock get_current_container to return a container ID
-		local original_get_current = actions.get_current_container
-		actions.get_current_container = function()
-			return "abc123456789"
+		-- Mock get_current_container_data to return running container data
+		local original_get_current_data = actions.get_current_container_data
+		actions.get_current_container_data = function()
+			return {
+				Id = "abc123456789abcdef",
+				Names = {"/test-container"},
+				Status = "Up 2 hours" -- Running
+			}
 		end
 
 		-- Mock vim.schedule to execute immediately for testing
 		local original_schedule = vim.schedule
 		vim.schedule = function(func)
 			func() -- Execute immediately for testing
-		end
-
-		-- Mock api.list_containers to return a running container
-		local original_list_containers = api.list_containers
-		api.list_containers = function(callback)
-			-- Execute callback immediately (synchronously) for testing
-			vim.schedule(function()
-				callback(nil, {
-					{
-						Id = "abc123456789full",
-						Status = "Up 2 hours",
-					},
-				})
-			end)
 		end
 
 		-- Mock api.attach_container
@@ -146,15 +125,14 @@ helper.describe("docker.actions attach functionality", {
 		actions.attach_container(1)
 
 		-- Restore original functions
-		actions.get_current_container = original_get_current
-		api.list_containers = original_list_containers
+		actions.get_current_container_data = original_get_current_data
 		api.attach_container = original_attach_container
 		actions.close_current_windows = original_close_windows
 		vim.schedule = original_schedule
 		vim.notify = original_notify
 
 		helper.assert_true(attach_called)
-		helper.assert_equal(attach_container_id, "abc123456789")
+		helper.assert_equal(attach_container_id, "abc123456789") -- First 12 chars
 
 		-- Should have attaching message
 		local has_attaching_message = false
