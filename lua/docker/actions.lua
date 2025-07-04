@@ -6,6 +6,10 @@ local config = require("docker.config")
 local formatter = require("docker.formatter")
 local ui = require("docker.ui")
 
+-- Auto refresh state
+M._auto_refresh_timer = nil
+M._auto_refresh_active_windows = {}
+
 -- Get container data from current cursor position using buffer-stored data
 function M.get_current_container_data()
 	local buf = vim.api.nvim_get_current_buf()
@@ -348,7 +352,6 @@ end
 
 -- Refresh images in buffer
 function M.refresh_images()
-
 	ui.refresh_window_content({
 		type = "images",
 		data_key = "images",
@@ -362,6 +365,9 @@ end
 
 -- Close current floating windows
 function M.close_current_windows()
+	-- Stop auto refresh when closing windows
+	M.stop_auto_refresh()
+
 	vim.schedule(function()
 		if M._current_windows then
 			if vim.api.nvim_win_is_valid(M._current_windows.header_win) then
@@ -476,6 +482,77 @@ function M.set_current_windows(windows)
 			desc = "Auto-resize docker.nvim floating windows",
 		})
 	end
+end
+
+-- Auto refresh functionality
+function M.start_auto_refresh(window_type, windows)
+	local auto_refresh_config = config.get("auto_refresh")
+
+	if not auto_refresh_config.enabled then
+		return
+	end
+
+	-- Stop existing timer if running
+	M.stop_auto_refresh()
+
+	-- Store active windows info
+	M._auto_refresh_active_windows = {
+		type = window_type, -- "containers" or "images"
+		windows = windows,
+	}
+
+	-- Create and start timer
+	M._auto_refresh_timer = vim.loop.new_timer()
+	M._auto_refresh_timer:start(
+		auto_refresh_config.interval * 1000, -- Convert seconds to milliseconds
+		auto_refresh_config.interval * 1000, -- Repeat interval
+		vim.schedule_wrap(function()
+			M._perform_auto_refresh()
+		end)
+	)
+end
+
+function M.stop_auto_refresh()
+	if M._auto_refresh_timer then
+		M._auto_refresh_timer:stop()
+		M._auto_refresh_timer:close()
+		M._auto_refresh_timer = nil
+	end
+	M._auto_refresh_active_windows = {}
+end
+
+function M._perform_auto_refresh()
+	local auto_refresh_config = config.get("auto_refresh")
+	local active_windows = M._auto_refresh_active_windows
+
+	if not active_windows.type or not active_windows.windows then
+		return
+	end
+
+	-- Check if windows are still valid and visible (if configured)
+	if auto_refresh_config.only_when_visible then
+		local main_win = active_windows.windows.main_win
+		if not main_win or not vim.api.nvim_win_is_valid(main_win) then
+			M.stop_auto_refresh()
+			return
+		end
+	end
+
+	-- Perform refresh based on window type
+	if active_windows.type == "containers" then
+		M.refresh_containers()
+	elseif active_windows.type == "images" then
+		M.refresh_images()
+	end
+end
+
+-- Register auto refresh when windows are created
+function M.register_auto_refresh_for_containers(windows)
+	M.start_auto_refresh("containers", windows)
+end
+
+function M.register_auto_refresh_for_images(windows)
+	M.start_auto_refresh("images", windows)
 end
 
 return M

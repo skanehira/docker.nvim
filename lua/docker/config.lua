@@ -9,6 +9,13 @@ M.defaults = {
 		timeout = 60000, -- milliseconds (1 minute)
 	},
 
+	-- Auto refresh settings
+	auto_refresh = {
+		enabled = true,
+		interval = 5, -- seconds
+		only_when_visible = true, -- Only refresh when windows are visible
+	},
+
 	-- Keymaps
 	keymaps = {
 		containers = {

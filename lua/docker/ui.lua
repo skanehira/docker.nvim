@@ -254,6 +254,9 @@ function M.show_containers()
 
 			-- Render containers immediately
 			M.render_containers(windows, containers)
+
+			-- Register for auto refresh
+			actions.register_auto_refresh_for_containers(windows)
 		end)
 	end, true) -- Show all containers
 end
@@ -289,6 +292,9 @@ function M.show_images()
 
 			-- Render images immediately
 			M.render_images(windows, images)
+
+			-- Register for auto refresh
+			actions.register_auto_refresh_for_images(windows)
 		end)
 	end)
 end
