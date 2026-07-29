@@ -254,10 +254,10 @@ DESIGN_DETAIL_APP.md「9. 検証手順」「10. テスト戦略」に対応。CI
 
 DESIGN_DETAIL_INFRA.md「2.2 バージョニング」「3. CI/CD パイプライン」に対応。宣言的な設定のため TDD サイクルは付けない。
 
-- [ ] `.github/workflows/ci.yml` の作成（`push`（デフォルトブランチ）と `pull_request` をトリガーにする）
-- [ ] `test` ジョブの定義（Neovim 0.10.0 と stable のマトリクス、plenary.nvim を clone して `make test`）
-- [ ] `lint` / `format` / `typecheck` ジョブの定義
-- [ ] `e2e` ジョブの定義（ランナー同梱の docker を使って `make test-e2e`）
+- [x] `.github/workflows/ci.yml` の作成（`push`（デフォルトブランチ）と `pull_request` をトリガーにする）
+- [x] `test` ジョブの定義（Neovim 0.10.0 と stable のマトリクス、plenary.nvim を clone して `make test`）
+- [x] `lint` / `format` / `typecheck` ジョブの定義
+- [x] `e2e` ジョブの定義（ランナー同梱の docker を使って `make test-e2e`）
 - [ ] リポジトリ設定（`main` への直接プッシュ禁止、プルリクエストと全ジョブ成功を必須にするブランチ保護）
 - [ ] 初回タグ `v0.1.0` の付与とリリースノートの作成（INFRA 2.2 のバージョニング方針に従う）
 - [ ] [CHECK] CI-1〜CI-4 の検証（プルリクエストで 5 ジョブが実行され成功する、`test` が 2 バージョンで展開される、失敗コミットでマージがブロックされる、workflow に `GITHUB_TOKEN` 以外の `secrets` 参照が無い）

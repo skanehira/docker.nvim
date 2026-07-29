@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同じブランチで走っている古い実行は打ち切る。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (nvim ${{ matrix.neovim }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 対応する下限 (0.10.0) と最新の安定版の両方で検証する。
+        neovim: ["v0.10.0", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
+
+      - name: plenary.nvim を取得する
+        run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim "$HOME/plenary.nvim"
+
+      - name: 単体・結合テスト
+        run: PLENARY_PATH="$HOME/plenary.nvim" make test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "luajit-2.1"
+
+      - uses: leafo/gh-actions-luarocks@v4
+
+      - name: luacheck を導入する
+        run: luarocks install luacheck
+
+      - run: make lint
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua/ plugin/ tests/
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+
+      - name: plenary.nvim を取得する
+        run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim "$HOME/plenary.nvim"
+
+      - name: lua-language-server を導入する
+        run: |
+          VERSION=3.13.6
+          curl -fsSL -o lls.tar.gz \
+            "https://github.com/LuaLS/lua-language-server/releases/download/${VERSION}/lua-language-server-${VERSION}-linux-x64.tar.gz"
+          mkdir -p "$HOME/lls" && tar -xzf lls.tar.gz -C "$HOME/lls"
+          echo "$HOME/lls/bin" >> "$GITHUB_PATH"
+
+      - name: 型検査
+        run: PLENARY_PATH="$HOME/plenary.nvim" make typecheck
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+
+      - name: plenary.nvim を取得する
+        run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim "$HOME/plenary.nvim"
+
+      - name: docker が使えることを確認する
+        run: docker version
+
+      - name: 検証用イメージを取得する
+        run: docker pull alpine
+
+      - name: 通しシナリオ (実 docker)
+        run: PLENARY_PATH="$HOME/plenary.nvim" make test-e2e
