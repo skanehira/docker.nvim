@@ -27,6 +27,8 @@ local M = {}
 ---@field window docker.Window
 ---@field state docker.ViewState
 ---@field subscription docker.EventSubscription|nil
+---@field cwd string                       ビューを開いた時点の作業ディレクトリ (BR-003)
+---@field project docker.ComposeProject|nil compose サービス一覧のときのみ
 
 --- 種別 -> 開いているビュー
 ---@type table<string, docker.ViewHandle>
@@ -75,7 +77,7 @@ end
 ---@param handle docker.ViewHandle
 ---@param on_done fun()|nil
 local function fetch(handle, on_done)
-  cli.run(handle.def.list_args(), function(result)
+  local function apply(result)
     if not result.ok then
       notify.error(result.error or "一覧の取得に失敗しました")
       if on_done then
@@ -84,13 +86,26 @@ local function fetch(handle, on_done)
       return
     end
 
+    -- サービス一覧は compose の解決結果 (プロジェクト名と作業ディレクトリ) も持ち帰る。
+    if result.project then
+      handle.project = result.project
+    end
     store.replace_all(handle.kind, result.data)
     handle.state = view.with_items(handle.state, store.list(handle.kind))
     redraw(handle)
     if on_done then
       on_done()
     end
-  end, { parse = "ndjson" })
+  end
+
+  local load = handle.def.load
+  if load then
+    load({ cwd = handle.cwd }, apply)
+    return
+  end
+
+  local list_args = assert(handle.def.list_args, "list_args か load のどちらかが必要")
+  cli.run(list_args(), apply, { parse = "ndjson" })
 end
 
 --- 対象が消えたことを示すイベントか。
@@ -104,6 +119,16 @@ end
 ---@param handle docker.ViewHandle
 ---@param event docker.Event
 local function apply_event(handle, event)
+  -- 組み立てが必要な種別 (サービス) は 1 件の取り直しでは表せないので全件やり直す。
+  if handle.def.load then
+    render.request(handle.kind, function()
+      if views[handle.kind] then
+        fetch(views[handle.kind])
+      end
+    end)
+    return
+  end
+
   local function schedule_redraw()
     render.request(handle.kind, function()
       local current = views[handle.kind]
@@ -120,7 +145,12 @@ local function apply_event(handle, event)
     return
   end
 
-  cli.run(handle.def.item_args(event.id), function(result)
+  local item_args = handle.def.item_args
+  if not item_args then
+    return
+  end
+
+  cli.run(item_args(event.id), function(result)
     -- 取得できないのは既に消えた場合が大半。利用者へは通知せず一覧から取り除く。
     if not result.ok or type(result.data) ~= "table" or #result.data == 0 then
       store.remove(handle.kind, event.id)
@@ -187,7 +217,12 @@ local function dispatch(handle, action)
 
   local lnum = vim.api.nvim_win_get_cursor(handle.window.winid)[1]
   handle.state = view.with_cursor(handle.state, lnum)
-  actions.execute(action, { def = handle.def, item = list.item_at(handle.state.items, lnum) })
+  actions.execute(action, {
+    def = handle.def,
+    item = list.item_at(handle.state.items, lnum),
+    cwd = handle.cwd,
+    project = handle.project,
+  })
 end
 
 ---@param handle docker.ViewHandle
@@ -248,19 +283,46 @@ function M.open(kind, on_open)
       return done(nil)
     end
 
-    highlight.setup()
-    local handle = {
-      kind = kind,
-      def = def,
-      window = window.open({ title = def.display_name }),
-      state = view.new(kind),
-    }
-    views[kind] = handle
-    bind_keys(handle)
-    fetch(handle, function()
+    -- compose の解決は開いた時点の作業ディレクトリで固定する (BR-003)。
+    local cwd = vim.fn.getcwd()
+
+    -- 最初の取得が成功してからウィンドウを開く。compose プロジェクト外や
+    -- 取得失敗のときに空のフロートだけが残らないようにする (7.3)。
+    local function present(loaded)
+      highlight.setup()
+      local handle = {
+        kind = kind,
+        def = def,
+        cwd = cwd,
+        project = loaded.project,
+        window = window.open({ title = def.display_name }),
+        state = view.new(kind),
+      }
+      views[kind] = handle
+      bind_keys(handle)
+      store.replace_all(kind, loaded.data)
+      handle.state = view.with_items(handle.state, store.list(kind))
+      redraw(handle)
       subscribe_events(handle)
       done(handle)
-    end)
+    end
+
+    local function on_loaded(loaded)
+      if not loaded.ok then
+        notify.error(loaded.error or "一覧の取得に失敗しました")
+        return done(nil)
+      end
+      present(loaded)
+    end
+
+    local load = def.load
+    if load then
+      load({ cwd = cwd }, on_loaded)
+      return
+    end
+
+    local list_args = assert(def.list_args, "list_args か load のどちらかが必要")
+    cli.run(list_args(), on_loaded, { parse = "ndjson" })
   end)
 end
 

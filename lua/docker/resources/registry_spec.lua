@@ -39,7 +39,7 @@ describe("docker.resources.registry", function()
 
   describe("subcommands", function()
     it("定義済みの種別に対応するExコマンドの引数を返す", function()
-      assert.are.same({ "containers" }, registry.subcommands())
+      assert.are.same({ "containers", "services" }, registry.subcommands())
     end)
   end)
 
@@ -53,28 +53,28 @@ describe("docker.resources.registry", function()
 
     it("一覧取得の引数に停止中を含める-aを付ける", function()
       -- BR-022: 停止中のコンテナも一覧に含める。
-      assert.is_truthy(vim.tbl_contains(def.list_args(), "-a"))
+      assert.is_truthy(vim.tbl_contains(assert(def.list_args)(), "-a"))
     end)
 
     it("一覧取得の引数に切り詰めを防ぐ--no-truncを付ける", function()
       -- 付けないと ID が 12 文字、Command が 20 文字で切り詰められる。
-      assert.is_truthy(vim.tbl_contains(def.list_args(), "--no-trunc"))
+      assert.is_truthy(vim.tbl_contains(assert(def.list_args)(), "--no-trunc"))
     end)
 
     it("一覧取得のサブコマンドはps", function()
-      assert.are.equal("ps", def.list_args()[1])
+      assert.are.equal("ps", assert(def.list_args)()[1])
     end)
 
     it("一覧取得の書式にサイズを含めない", function()
       -- .Size を参照するとサイズ計算が走り実行時間が増える。
-      local args = table.concat(def.list_args(), " ")
+      local args = table.concat(assert(def.list_args)(), " ")
 
       assert.is_nil(args:find(".Size", 1, true))
     end)
 
     it("一覧取得の書式はcomposeラベルをキー名指しで取り出す", function()
       -- `Labels` の分割はラベル値のカンマと偽ラベルの仕込みで誤った値を掴む。
-      local args = table.concat(def.list_args(), " ")
+      local args = table.concat(assert(def.list_args)(), " ")
 
       assert.is_truthy(args:find('(.Label "com.docker.compose.project")', 1, true))
       assert.is_truthy(args:find('(.Label "com.docker.compose.service")', 1, true))
@@ -153,7 +153,7 @@ describe("docker.resources.registry", function()
     end)
 
     it("1件だけ取り直す引数はIDで絞り込む", function()
-      local args = def.item_args("abc123")
+      local args = assert(def.item_args)("abc123")
 
       assert.are.equal("ps", args[1])
       assert.is_truthy(vim.tbl_contains(args, "--filter"))
@@ -164,7 +164,54 @@ describe("docker.resources.registry", function()
 
     it("削除の引数は強制削除を付けない", function()
       -- BR-002: 実行中コンテナの削除は docker に拒否させる。
-      assert.are.same({ "rm", "abc123def456" }, def.delete_args(container()))
+      assert.are.same({ "rm", "abc123def456" }, assert(def.delete_args)(container()))
+    end)
+  end)
+
+  describe("compose サービスの定義", function()
+    ---@type docker.ResourceDefinition
+    local def
+
+    before_each(function()
+      def = assert(registry.get("service"))
+    end)
+
+    it("カラムはSERVICE_STATUS_CONTAINERの順に並ぶ", function()
+      local headers = {}
+      for _, column in ipairs(def.columns) do
+        table.insert(headers, column.header)
+      end
+
+      assert.are.same({ "SERVICE", "STATUS", "CONTAINER" }, headers)
+    end)
+
+    it("状態のカラム位置はSTATUSを指す", function()
+      assert.are.equal(2, def.status_column)
+      assert.are.equal("STATUS", def.columns[def.status_column].header)
+    end)
+
+    it("識別子はプロジェクト名とサービス名の組になる", function()
+      -- 別プロジェクトの同名サービスと衝突させない。
+      assert.are.equal("shop/web", def.id({ project = "shop", name = "web" }))
+    end)
+
+    it("一覧は単一のdockerコマンドではなく組み立てで取る", function()
+      -- compose の定義とコンテナ一覧の突き合わせが必要 (7.3)。
+      assert.is_truthy(def.load)
+      assert.is_nil(def.list_args)
+    end)
+
+    it("コンテナのイベントで更新する", function()
+      -- サービスの状態はコンテナの状態から決まる。
+      assert.are.equal("container", def.event_type)
+    end)
+
+    it("Exコマンドの引数はservices", function()
+      assert.are.equal("services", def.subcommand)
+    end)
+
+    it("キーマップはサービス一覧のものを引く", function()
+      assert.are.equal("service_list", def.view_type)
     end)
   end)
 end)

@@ -2,8 +2,11 @@
 ---
 --- 種別の追加はこのファイルへの定義追加だけで完結させ、ビューとハンドラに
 --- 種別ごとの分岐を増やさない (レジストリパターン)。
+local cli = require("docker.adapters.docker.cli")
+local compose = require("docker.adapters.docker.compose")
 local fields = require("docker.resources.fields")
 local format = require("docker.format")
+local services = require("docker.resources.services")
 
 local M = {}
 
@@ -17,9 +20,10 @@ local M = {}
 ---@field view_type string               キーマップを引くビュー種別 (例: "container_list")
 ---@field display_name string
 ---@field empty_text string              0 件のときに一覧へ出す 1 行
----@field list_args fun(): string[]      一覧取得の docker 引数
----@field delete_args fun(item: table): string[]  削除の docker 引数 (強制削除は付けない)
----@field item_args fun(id: string): string[]     1 件だけ取り直す docker 引数
+---@field list_args? fun(): string[]     一覧取得の docker 引数 (load を持つ種別では省略)
+---@field delete_args? fun(item: table): string[] 削除の docker 引数 (強制削除は付けない)
+---@field item_args? fun(id: string): string[]    1 件だけ取り直す docker 引数
+---@field load? fun(ctx: table, on_done: fun(result: table)) 一覧の取得が docker の単一コマンドで表せない種別用
 ---@field id fun(item: table): string    識別子の取り出し
 ---@field columns docker.ColumnDef[]
 ---@field status_column integer|nil      ハイライト対象のカラム位置 (1 始まり)
@@ -53,8 +57,11 @@ local function plain(key)
   end
 end
 
+-- 先に宣言しておく。サービスの `load` がコンテナ定義を参照するため、
+-- テーブル構築中に `definitions` がローカルとして見えている必要がある。
 ---@type table<string, docker.ResourceDefinition>
-local definitions = {
+local definitions
+definitions = {
   container = {
     kind = "container",
     subcommand = "containers",
@@ -87,10 +94,52 @@ local definitions = {
     status = fields.state,
     event_type = "container",
   },
+  service = {
+    kind = "service",
+    subcommand = "services",
+    view_type = "service_list",
+    display_name = "Services",
+    empty_text = "サービスが定義されていません",
+    -- サービス一覧は docker の単一コマンドで取れない。compose の定義と
+    -- コンテナ一覧を突き合わせて組み立てる (7.3)。
+    load = function(ctx, on_done)
+      compose.resolve_project(ctx.cwd, function(resolved)
+        if not resolved.ok then
+          on_done(resolved)
+          return
+        end
+        cli.run(definitions.container.list_args(), function(containers)
+          if not containers.ok then
+            on_done(containers)
+            return
+          end
+          on_done({
+            ok = true,
+            data = services.assemble(resolved.data, containers.data),
+            error = nil,
+            code = 0,
+            project = resolved.data,
+          })
+        end, { parse = "ndjson" })
+      end)
+    end,
+    id = function(item)
+      return ("%s/%s"):format(tostring(item.project), tostring(item.name))
+    end,
+    columns = {
+      { header = "SERVICE", value = plain("name") },
+      { header = "STATUS", value = plain("status") },
+      { header = "CONTAINER", value = plain("container") },
+    },
+    status_column = 2,
+    status = plain("status"),
+    -- サービスの状態はコンテナの状態から決まるので、コンテナのイベントで更新する。
+    event_type = "container",
+  },
 }
 
 --- `:Docker` のサブコマンドとして受け付ける順序。定義の追加時にここへ足す。
-local ORDER = { "container" }
+local ORDER = { "container", "service" }
 
 ---@param kind string
 ---@return docker.ResourceDefinition|nil

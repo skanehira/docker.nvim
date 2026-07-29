@@ -3,6 +3,7 @@
 --- 前提状態の検査 (BR-007) → 重複要求の排除 (BR-009) → docker 実行 の順で進める。
 --- 失敗しても内部状態は変えない。一覧は docker のイベント経由で更新される。
 local cli = require("docker.adapters.docker.cli")
+local compose = require("docker.adapters.docker.compose")
 local notify = require("docker.notify")
 local operations = require("docker.handlers.operations")
 local terminal = require("docker.handlers.terminal")
@@ -12,6 +13,8 @@ local M = {}
 ---@class docker.ActionContext
 ---@field def docker.ResourceDefinition
 ---@field item table|nil
+---@field cwd string|nil                    compose 操作を実行する作業ディレクトリ (BR-003)
+---@field project docker.ComposeProject|nil compose サービス一覧のときのみ
 
 --- 状態を変えるコンテナ操作。
 --- `requires` を満たさない状態で呼ばれた場合、docker を呼ばずに警告する。
@@ -99,6 +102,46 @@ local function delete(ctx, item, label)
   end)
 end
 
+--- compose のサービス単位の操作。いずれもデタッチで実行する (BR-023)。
+local SERVICE_ACTIONS = {
+  up = { args = { "up", "-d" }, success = "%s を起動しました" },
+  stop = { args = { "stop" }, success = "%s を停止しました" },
+  restart = { args = { "restart" }, success = "%s を再起動しました" },
+}
+
+--- compose のプロジェクト単位の操作。
+local PROJECT_ACTIONS = {
+  project_up = { args = { "up", "-d" }, success = "%s を起動しました" },
+  project_down = {
+    args = { "down" },
+    confirm = "%s を破棄しますか? (y/N): ",
+    success = "%s を破棄しました",
+  },
+}
+
+--- 実行中の印を立てて compose を呼び、完了で解除する。
+---@param target_id string
+---@param label string
+---@param operation string
+---@param args string[]
+---@param cwd string
+---@param success string
+local function run_compose_exclusive(target_id, label, operation, args, cwd, success)
+  if not operations.begin(target_id, operation) then
+    notify.warn(("%s の %s は実行中です"):format(label, operation))
+    return
+  end
+
+  compose.run(args, cwd, function(result)
+    operations.finish(target_id, operation)
+    if result.ok then
+      notify.info(success:format(label))
+    else
+      notify.error(result.error or "docker compose の実行に失敗しました")
+    end
+  end)
+end
+
 --- ターミナルを開く操作。実行中でないコンテナには入れない。
 local TERMINAL_ACTIONS = {
   -- 停止中でもログは読めるので前提を課さない。
@@ -137,7 +180,7 @@ end
 function M.execute(name, ctx)
   local spec = CONTAINER_ACTIONS[name]
   local terminal_spec = TERMINAL_ACTIONS[name]
-  if not spec and not terminal_spec and name ~= "delete" then
+  if ctx.def.kind ~= "service" and not spec and not terminal_spec and name ~= "delete" then
     notify.warn(("未対応の操作です: %s"):format(tostring(name)))
     return
   end
@@ -149,6 +192,49 @@ function M.execute(name, ctx)
   end
 
   local label = label_of(item)
+
+  -- compose サービス一覧の操作は docker compose へ振り分ける。
+  if ctx.def.kind == "service" then
+    local cwd = ctx.cwd or vim.fn.getcwd()
+    local project_name = ctx.project and ctx.project.name or tostring(item.project)
+
+    local project_spec = PROJECT_ACTIONS[name]
+    if project_spec then
+      local args = vim.deepcopy(project_spec.args)
+      if project_spec.confirm then
+        vim.ui.input({ prompt = project_spec.confirm:format(project_name) }, function(answer)
+          if answer ~= "y" and answer ~= "Y" then
+            return
+          end
+          run_compose_exclusive(project_name, project_name, name, args, cwd, project_spec.success)
+        end)
+        return
+      end
+      run_compose_exclusive(project_name, project_name, name, args, cwd, project_spec.success)
+      return
+    end
+
+    local service_spec = SERVICE_ACTIONS[name]
+    if service_spec then
+      local args = vim.deepcopy(service_spec.args)
+      table.insert(args, tostring(item.name))
+      run_compose_exclusive(("%s/%s"):format(project_name, item.name), label, name, args, cwd, service_spec.success)
+      return
+    end
+
+    if name == "logs" then
+      -- コンテナが無いサービスにはログが無い。ターミナルを開かず警告する。
+      if tostring(item.container_id or "") == "" then
+        notify.warn(("%s はコンテナが無いためログを表示できません"):format(label))
+        return
+      end
+      terminal.open_compose_logs(tostring(item.name), label, cwd)
+      return
+    end
+
+    notify.warn(("未対応の操作です: %s"):format(tostring(name)))
+    return
+  end
 
   if name == "delete" then
     delete(ctx, item, label)

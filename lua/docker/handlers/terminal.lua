@@ -15,7 +15,7 @@ local M = {}
 --- コンテナ側で判定するため、シェルのスニペットとして渡す。
 local SHELL_SNIPPET = "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"
 
----@type (fun(cmd: string[]): integer|nil)|nil
+---@type (fun(cmd: string[], cwd: string|nil): integer|nil)|nil
 local job_starter = nil
 
 --- バッファ番号 -> ジョブ ID
@@ -27,7 +27,7 @@ local sequence = 0
 
 --- テスト用の差し替え口。ジョブ起動だけを差し替え、ウィンドウとバッファの
 --- 用意は本番と同じ経路を通す。nil を渡すと実際のジョブ起動に戻る。
----@param fn (fun(cmd: string[]): integer|nil)|nil
+---@param fn (fun(cmd: string[], cwd: string|nil): integer|nil)|nil
 function M._set_job_starter(fn)
   job_starter = fn
   job_of_buffer = {}
@@ -35,21 +35,22 @@ end
 
 ---@param cmd string[]
 ---@return integer|nil job_id
-local function default_job_starter(cmd)
-  return vim.fn.jobstart(cmd, { term = true })
+local function default_job_starter(cmd, cwd)
+  return vim.fn.jobstart(cmd, { term = true, cwd = cwd })
 end
 
 ---@param cmd string[]
 ---@param title string
+---@param cwd string|nil
 ---@return docker.Terminal
-local function open(cmd, title)
+local function open(cmd, title, cwd)
   -- 一覧はフロートウィンドウで、そこにフォーカスがある状態で `enew` すると
   -- bufhidden=wipe の一覧バッファが破棄されてしまう。必ず新しいウィンドウを開く。
   vim.cmd("botright new")
   local bufnr = vim.api.nvim_get_current_buf()
 
   local start = job_starter or default_job_starter
-  local job_id = start(cmd)
+  local job_id = start(cmd, cwd)
 
   if type(job_id) ~= "number" or job_id <= 0 then
     return { bufnr = bufnr, job_id = job_id }
@@ -129,6 +130,15 @@ end
 ---@return docker.Terminal
 function M.open_shell(id, label)
   return open({ "docker", "exec", "-it", id, "sh", "-c", SHELL_SNIPPET }, ("shell/%s"):format(label))
+end
+
+--- compose サービスのログを追従する。
+---@param service string
+---@param label string
+---@param cwd string
+---@return docker.Terminal
+function M.open_compose_logs(service, label, cwd)
+  return open({ "docker", "compose", "logs", "-f", service }, ("logs/%s"):format(label), cwd)
 end
 
 --- コンテナ内でコマンドを実行する。

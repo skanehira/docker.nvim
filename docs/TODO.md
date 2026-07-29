@@ -166,21 +166,21 @@ DESIGN_DETAIL_APP.md「5.2 イベント購読」「7.1 一覧を開いてライ�
 
 DESIGN_DETAIL_APP.md「5.3 compose」「7.3 compose サービス一覧の組み立て」に対応。US-008〜US-010。
 
-- [ ] [RED] compose プロジェクト解決のテストを `lua/docker/adapters/docker/compose_spec.lua` に作成（`config --format json` の出力から名前とサービス全件を取り出す、終了コードと stderr で「compose サブコマンドが使えない」「compose 外」「compose ファイルが不正」の 3 区分を判別する）
-- [ ] [GREEN] `adapters/docker/compose.lua` の `resolve_project` を実装
-- [ ] [RED] サービス一覧の組み立てテストを作成（サービス名とコンテナのラベルの突き合わせ、単発コンテナの除外、対応が無いサービスの状態が `none` になること）
-- [ ] [GREEN] サービスの解決処理を実装
-- [ ] [RED] サービス一覧ビューのテストを作成（SERVICE / STATUS / CONTAINER のカラム、compose プロジェクト外でビューを開かずメッセージを出すこと）
-- [ ] [GREEN] サービス一覧のリソース定義とビューを実装
-- [ ] [RED] サービス操作のテストを `lua/docker/handlers/actions_compose_spec.lua` に作成（up / stop / restart / logs が発行する compose 引数、ビューを開いた時点の作業ディレクトリで実行されること、デタッチで起動すること、コンテナが無いサービスのログでターミナルを開かないこと）
-- [ ] [GREEN] サービス単位のアクションを実装
-- [ ] [RED] プロジェクト操作のテストを同ファイルに追加（`U` が `up -d`、`D` が確認を経て `down` を発行する、実行中の重複要求を拒否する）
-- [ ] [GREEN] プロジェクト単位のアクションを実装
-- [ ] [RED] サービス一覧のライブ更新テストを作成（コンテナのイベントから compose ラベル経由で該当サービスの状態が更新される）
-- [ ] [GREEN] サービス一覧のイベント連動を実装
-- [ ] [REFACTOR] compose 呼び出しの引数組み立てを共通化する
-- [ ] [REVIEW] フェーズ実装の簡易セルフレビューと修正
-- [ ] [CHECK] `make check` の実行と確認
+- [x] [RED] compose プロジェクト解決のテストを `lua/docker/adapters/docker/compose_spec.lua` に作成（`config --format json` の出力から名前とサービス全件を取り出す、終了コードと stderr で「compose サブコマンドが使えない」「compose 外」「compose ファイルが不正」の 3 区分を判別する）
+- [x] [GREEN] `adapters/docker/compose.lua` の `resolve_project` を実装
+- [x] [RED] サービス一覧の組み立てテストを作成（サービス名とコンテナのラベルの突き合わせ、単発コンテナの除外、対応が無いサービスの状態が `none` になること）
+- [x] [GREEN] サービスの解決処理を実装
+- [x] [RED] サービス一覧ビューのテストを作成（SERVICE / STATUS / CONTAINER のカラム、compose プロジェクト外でビューを開かずメッセージを出すこと）
+- [x] [GREEN] サービス一覧のリソース定義とビューを実装
+- [x] [RED] サービス操作のテストを `lua/docker/handlers/actions_compose_spec.lua` に作成（up / stop / restart / logs が発行する compose 引数、ビューを開いた時点の作業ディレクトリで実行されること、デタッチで起動すること、コンテナが無いサービスのログでターミナルを開かないこと）
+- [x] [GREEN] サービス単位のアクションを実装
+- [x] [RED] プロジェクト操作のテストを同ファイルに追加（`U` が `up -d`、`D` が確認を経て `down` を発行する、実行中の重複要求を拒否する）
+- [x] [GREEN] プロジェクト単位のアクションを実装
+- [x] [RED] サービス一覧のライブ更新テストを作成（コンテナのイベントから compose ラベル経由で該当サービスの状態が更新される）
+- [x] [GREEN] サービス一覧のイベント連動を実装
+- [x] [REFACTOR] compose 呼び出しの引数組み立てを共通化する
+- [x] [REVIEW] フェーズ実装の簡易セルフレビューと修正
+- [x] [CHECK] `make check` の実行と確認
 
 ### フェーズ8: 詳細ビューと残りのリソース種別の実装 <!-- deps: 1,2,3,4,5,6,7 -->
 
