@@ -144,14 +144,14 @@ DESIGN_DETAIL_APP.md「3.1 公開 API」「6.2 キーマップ」「7.2 コン�
 
 DESIGN_DETAIL_APP.md「5.2 イベント購読」「7.1 一覧を開いてライブ更新が始まるまで」「7.4 イベント購読の切断と回復」に対応。US-011、US-012。
 
-- [ ] [RED] イベント解析のテストを `lua/docker/adapters/docker/events_spec.lua` に作成（行の途中で分割されたチャンク列から完全なイベントを組み立てる、複数行が 1 チャンクで届く場合、巨大な 1 行、volume の名前が `Actor.ID` から取れること、`timeNano` を使わないこと）
-- [ ] [GREEN] `adapters/docker/events.lua` の受信・組み立て・解析を実装
-- [ ] [RED] 購読の開始と停止のテストを作成（意図的な停止でジョブが登録解除される、停止フラグにより切断と区別される）
-- [ ] [GREEN] 購読の開始・停止の実装
+- [x] [RED] イベント解析のテストを `lua/docker/adapters/docker/events_spec.lua` に作成（行の途中で分割されたチャンク列から完全なイベントを組み立てる、複数行が 1 チャンクで届く場合、巨大な 1 行、volume の名前が `Actor.ID` から取れること、`timeNano` を使わないこと）
+- [x] [GREEN] `adapters/docker/events.lua` の受信・組み立て・解析を実装
+- [x] [RED] 購読の開始と停止のテストを作成（意図的な停止でジョブが登録解除される、停止フラグにより切断と区別される）
+- [x] [GREEN] 購読の開始・停止の実装
 - [ ] [RED] イベントからストア更新までのテストを作成（create / start / stop / destroy が追加・更新・削除に対応する、既に消えた対象の取得失敗を通知しない）
 - [ ] [GREEN] イベント受信時のストア更新を実装
-- [ ] [RED] 描画デバウンスのテストを `lua/docker/handlers/render_spec.lua` に作成（連続する更新要求が 1 回にまとめられる、再描画後にカーソル位置が保持される、偽の時計でイベント受信から 1 秒以内に描画要求が出ることを検査する）
-- [ ] [GREEN] `handlers/render.lua` の実装
+- [x] [RED] 描画デバウンスのテストを `lua/docker/handlers/render_spec.lua` に作成（連続する更新要求が 1 回にまとめられる、再描画後にカーソル位置が保持される、偽の時計でイベント受信から 1 秒以内に描画要求が出ることを検査する）
+- [x] [GREEN] `handlers/render.lua` の実装
 - [ ] [RED] 切断と再購読のテストを `lua/docker/adapters/docker/events_reconnect_spec.lua` に作成（切断を検知して通知する、待機時間を延ばしながら最大 5 回再試行する、成功時に全件再取得で整合させる、5 回失敗で手動更新を促す）
 - [ ] [GREEN] 再購読処理の実装
 - [ ] [RED] 手動再取得のテストを `lua/docker/handlers/actions_refresh_spec.lua` に作成（`R` で再取得と再描画が行われカーソル位置が保たれる、購読が停止していれば再開される）
