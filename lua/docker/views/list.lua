@@ -25,18 +25,28 @@ local function headers_of(def)
   return headers
 end
 
+--- 実行中の操作があることを示す印。
+--- 新しい列は足さず状態カラムへ添える (カラム構成は G1 が固定している)。
+local BUSY_SUFFIX = " (実行中)"
+
 --- リソース集合からバッファ行と見出しを組み立てる。
 ---@param def docker.ResourceDefinition
 ---@param items table[]
+---@param opts { busy: fun(item: table): boolean }|nil 実行中の操作があるかの判定
 ---@return docker.ListBuild
-function M.build(def, items)
+function M.build(def, items, opts)
   local headers = headers_of(def)
+  local busy = opts and opts.busy
 
   local rows = {}
   for _, item in ipairs(items) do
     local values = {}
-    for _, column in ipairs(def.columns) do
-      table.insert(values, column.value(item))
+    for index, column in ipairs(def.columns) do
+      local value = column.value(item)
+      if busy and index == def.status_column and busy(item) then
+        value = value .. BUSY_SUFFIX
+      end
+      table.insert(values, value)
     end
     table.insert(rows, values)
   end
@@ -79,9 +89,10 @@ end
 ---@param handle docker.Window
 ---@param def docker.ResourceDefinition
 ---@param items table[]
+---@param opts { busy: fun(item: table): boolean }|nil
 ---@return docker.ListBuild
-function M.render(handle, def, items)
-  local built = M.build(def, items)
+function M.render(handle, def, items, opts)
+  local built = M.build(def, items, opts)
 
   window.set_lines(handle, built.lines)
   if vim.api.nvim_win_is_valid(handle.winid) then

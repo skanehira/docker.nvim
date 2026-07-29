@@ -1,4 +1,5 @@
 local highlight = require("docker.ui.highlight")
+local operations = require("docker.handlers.operations")
 local list = require("docker.views.list")
 local registry = require("docker.resources.registry")
 local store = require("docker.state.store")
@@ -29,6 +30,7 @@ describe("一覧ビューの状態表示", function()
 
   before_each(function()
     store._reset()
+    operations._reset()
     def = assert(registry.get("container"))
     handle = window.open({ title = "Containers" })
   end)
@@ -117,5 +119,59 @@ describe("一覧ビューの状態表示", function()
     list.render(handle, def, store.list("container"))
 
     assert.are.equal(1, #marks())
+  end)
+
+  describe("実行中表示", function()
+    ---@return fun(item: table): boolean
+    local function busy_from_ledger()
+      return function(item)
+        return operations.has_any(tostring(item.id))
+      end
+    end
+
+    it("操作を開始すると対象行に実行中の印が現れる", function()
+      store.replace_all("container", { container({ id = "abc123", status = "Up 5 days" }) })
+      list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
+      assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+
+      operations.begin("abc123", "stop")
+      list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
+
+      assert.is_truthy(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+    end)
+
+    it("操作が完了すると実行中の印が消える", function()
+      store.replace_all("container", { container({ id = "abc123" }) })
+      operations.begin("abc123", "stop")
+      list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
+
+      operations.finish("abc123", "stop")
+      list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
+
+      assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+    end)
+
+    it("実行中でない行には印が付かない", function()
+      store.replace_all("container", {
+        container({ id = "a", name = "busy-one" }),
+        container({ id = "b", name = "idle-one" }),
+      })
+      operations.begin("a", "stop")
+
+      list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
+
+      local lines = vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false)
+      assert.is_truthy(lines[1]:find("実行中", 1, true), lines[1])
+      assert.is_nil(lines[2]:find("実行中", 1, true), lines[2])
+    end)
+
+    it("実行中の判定を渡さないときは印を付けない", function()
+      store.replace_all("container", { container({ id = "abc123" }) })
+      operations.begin("abc123", "stop")
+
+      list.render(handle, def, store.list("container"))
+
+      assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+    end)
   end)
 end)

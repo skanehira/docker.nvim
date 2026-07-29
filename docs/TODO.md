@@ -112,33 +112,33 @@ DESIGN_DETAIL_APP.md「2. ディレクトリ構造」の `ui/` と `views/list.l
 
 DESIGN_DETAIL_APP.md「3.1 公開 API」「6.2 キーマップ」「7.2 コンテナ操作」に対応。US-002〜US-005、US-015、US-016、US-025、US-026。
 
-- [ ] [RED] 設定合成のテストを `lua/docker/config_spec.lua` に作成（デフォルトと利用者設定の深い合成、一部ビューのみ指定したとき他はデフォルト、未知のビュー種別・アクション名を無視して通知する、`debug` オプションの既定が false であること、キーマップがバッファローカルに設定されること）
-- [ ] [GREEN] `config.lua` の実装（デフォルトのキーマップ定義と `debug` オプションを含む）
-- [ ] [RED] Neovim バージョン検査のテストを作成（0.10 未満では対応バージョンを示すメッセージが出て、コマンドとキーマップが登録されない）
-- [ ] [GREEN] `setup()` でのバージョン検査と機能無効化を実装
-- [ ] [RED] Ex コマンドのテストを作成（`:Docker containers` などが対応するビューを開く、未知のサブコマンドと引数なしで使い方のメッセージを出す）
-- [ ] [GREEN] `plugin/docker.lua` の実装（`:Docker` の定義と `<Plug>` マッピングの公開）
-- [ ] [RED] キーマップ解決のテストを作成（ビュー種別ごとに有効なアクションのみ解決される、同じキーがビューごとに別アクションへ割り当てられる）
-- [ ] [GREEN] `views/keymaps.lua` の実装
-- [ ] [RED] ビューを開く処理のテストを作成（同じリソース種別のビューが既にある場合は新規バッファを作らず既存へ移動する、キーマップがバッファローカルに設定される）
-- [ ] [GREEN] `init.lua` の `setup` / `open` / `close` と `handlers/lifecycle.lua` の実装
-- [ ] [RED] 実行中操作の台帳のテストを `lua/docker/handlers/operations_spec.lua` に作成（同一対象・同一操作の二重受け付けを拒否する、完了で解除される）
-- [ ] [GREEN] `handlers/operations.lua` の実装
-- [ ] [RED] 実行中表示のテストを `lua/docker/views/list_status_spec.lua` に追加（操作の開始で対象行に実行中を示す印が現れ、完了で消える）
-- [ ] [GREEN] 一覧ビューへの実行中表示を実装
-- [ ] [RED] ジョブ台帳のテストを `lua/docker/handlers/jobs_spec.lua` に作成（起動したジョブが登録される、`VimLeavePre` で全ジョブが停止する）
-- [ ] [GREEN] `handlers/jobs.lua` の実装
-- [ ] [RED] コンテナ操作のテストを `lua/docker/handlers/actions_spec.lua` に作成（start / stop / restart / kill が発行する docker 引数、前提を満たさない操作で docker を呼ばずに警告する、失敗時に内部状態を変更しない）
-- [ ] [GREEN] `handlers/actions.lua` にコンテナのライフサイクル操作を実装
-- [ ] [RED] 削除操作のテストを `lua/docker/handlers/actions_delete_spec.lua` に作成（確認プロンプトで `y` のときのみ削除コマンドが発行される、強制削除オプションを付けない）
-- [ ] [GREEN] 削除アクションの実装
-- [ ] [RED] ターミナル起動のテストを `lua/docker/handlers/terminal_spec.lua` に作成（ログ追従・シェル起動・コマンド実行が発行する引数、バッファ破棄でジョブ台帳から消えること）
-- [ ] [GREEN] `handlers/terminal.lua` の実装（シェルは bash があれば bash、なければ sh）
-- [ ] [RED] ヘルプビューのテストを `lua/docker/views/help_spec.lua` に作成（キーマップ定義から一覧が生成される、そのビューで無効な操作が載らない、`q` で直前のビューへ戻る）
-- [ ] [GREEN] `views/help.lua` の実装
-- [ ] [REFACTOR] アクションの前提検査と実行の流れを共通化する
-- [ ] [REVIEW] フェーズ実装の簡易セルフレビューと修正
-- [ ] [CHECK] `make check` の実行と確認
+- [x] [RED] 設定合成のテストを `lua/docker/config_spec.lua` に作成（デフォルトと利用者設定の深い合成、一部ビューのみ指定したとき他はデフォルト、未知のビュー種別・アクション名を無視して通知する、`debug` オプションの既定が false であること、キーマップがバッファローカルに設定されること）
+- [x] [GREEN] `config.lua` の実装（デフォルトのキーマップ定義と `debug` オプションを含む）
+- [x] [RED] Neovim バージョン検査のテストを作成（0.10 未満では対応バージョンを示すメッセージが出て、コマンドとキーマップが登録されない）
+- [x] [GREEN] `setup()` でのバージョン検査と機能無効化を実装
+- [x] [RED] Ex コマンドのテストを作成（`:Docker containers` などが対応するビューを開く、未知のサブコマンドと引数なしで使い方のメッセージを出す）
+- [x] [GREEN] `plugin/docker.lua` の実装（`:Docker` の定義と `<Plug>` マッピングの公開）
+- [x] [RED] キーマップ解決のテストを作成（ビュー種別ごとに有効なアクションのみ解決される、同じキーがビューごとに別アクションへ割り当てられる）
+- [x] [GREEN] `views/keymaps.lua` の実装
+- [x] [RED] ビューを開く処理のテストを作成（同じリソース種別のビューが既にある場合は新規バッファを作らず既存へ移動する、キーマップがバッファローカルに設定される）
+- [x] [GREEN] `init.lua` の `setup` / `open` / `close` と `handlers/lifecycle.lua` の実装
+- [x] [RED] 実行中操作の台帳のテストを `lua/docker/handlers/operations_spec.lua` に作成（同一対象・同一操作の二重受け付けを拒否する、完了で解除される）
+- [x] [GREEN] `handlers/operations.lua` の実装
+- [x] [RED] 実行中表示のテストを `lua/docker/views/list_status_spec.lua` に追加（操作の開始で対象行に実行中を示す印が現れ、完了で消える）
+- [x] [GREEN] 一覧ビューへの実行中表示を実装
+- [x] [RED] ジョブ台帳のテストを `lua/docker/handlers/jobs_spec.lua` に作成（起動したジョブが登録される、`VimLeavePre` で全ジョブが停止する）
+- [x] [GREEN] `handlers/jobs.lua` の実装
+- [x] [RED] コンテナ操作のテストを `lua/docker/handlers/actions_spec.lua` に作成（start / stop / restart / kill が発行する docker 引数、前提を満たさない操作で docker を呼ばずに警告する、失敗時に内部状態を変更しない）
+- [x] [GREEN] `handlers/actions.lua` にコンテナのライフサイクル操作を実装
+- [x] [RED] 削除操作のテストを `lua/docker/handlers/actions_delete_spec.lua` に作成（確認プロンプトで `y` のときのみ削除コマンドが発行される、強制削除オプションを付けない）
+- [x] [GREEN] 削除アクションの実装
+- [x] [RED] ターミナル起動のテストを `lua/docker/handlers/terminal_spec.lua` に作成（ログ追従・シェル起動・コマンド実行が発行する引数、バッファ破棄でジョブ台帳から消えること）
+- [x] [GREEN] `handlers/terminal.lua` の実装（シェルは bash があれば bash、なければ sh）
+- [x] [RED] ヘルプビューのテストを `lua/docker/views/help_spec.lua` に作成（キーマップ定義から一覧が生成される、そのビューで無効な操作が載らない、`q` で直前のビューへ戻る）
+- [x] [GREEN] `views/help.lua` の実装
+- [x] [REFACTOR] アクションの前提検査と実行の流れを共通化する
+- [x] [REVIEW] フェーズ実装の簡易セルフレビューと修正
+- [x] [CHECK] `make check` の実行と確認
 
 ### フェーズ6: ライブ更新と手動再取得の実装 <!-- deps: 1,2,3,4,5 -->
 

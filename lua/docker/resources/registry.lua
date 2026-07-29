@@ -14,9 +14,11 @@ local M = {}
 ---@class docker.ResourceDefinition
 ---@field kind string                    "container" | "image" | "volume" | "network" | "service"
 ---@field subcommand string              `:Docker` に渡す引数 (例: "containers")
+---@field view_type string               キーマップを引くビュー種別 (例: "container_list")
 ---@field display_name string
 ---@field empty_text string              0 件のときに一覧へ出す 1 行
 ---@field list_args fun(): string[]      一覧取得の docker 引数
+---@field delete_args fun(item: table): string[]  削除の docker 引数 (強制削除は付けない)
 ---@field id fun(item: table): string    識別子の取り出し
 ---@field columns docker.ColumnDef[]
 ---@field status_column integer|nil      ハイライト対象のカラム位置 (1 始まり)
@@ -55,12 +57,17 @@ local definitions = {
   container = {
     kind = "container",
     subcommand = "containers",
+    view_type = "container_list",
     display_name = "Containers",
     empty_text = "コンテナがありません",
     -- `-a` は停止中のコンテナも一覧に含めるため (BR-022)。
     -- `--no-trunc` が無いと ID が 12 文字、Command が 20 文字で切り詰められる。
     list_args = function()
       return { "ps", "-a", "--no-trunc", "--format", format.template(CONTAINER_FIELDS) }
+    end,
+    -- 強制削除 (-f) は付けない。実行中コンテナの削除は docker に拒否させる (BR-002)。
+    delete_args = function(item)
+      return { "rm", tostring(item.id) }
     end,
     id = plain("id"),
     columns = {
@@ -84,6 +91,18 @@ local ORDER = { "container" }
 ---@return docker.ResourceDefinition|nil
 function M.get(kind)
   return definitions[kind]
+end
+
+--- `:Docker` の引数から定義を引く。
+---@param subcommand string
+---@return docker.ResourceDefinition|nil
+function M.by_subcommand(subcommand)
+  for _, kind in ipairs(ORDER) do
+    if definitions[kind].subcommand == subcommand then
+      return definitions[kind]
+    end
+  end
+  return nil
 end
 
 ---@return string[] `:Docker` のサブコマンド名一覧
