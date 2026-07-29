@@ -33,6 +33,13 @@ jobs:
       - name: plenary.nvim を取得する
         run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim "$HOME/plenary.nvim"
 
+      - name: spec の配置検査
+        run: make spec-layout-check
+
+      - name: plugin/*.lua の読み込み検査
+        # テストからは require されないため、他のどのゲートにも掛からない。
+        run: PLENARY_PATH="$HOME/plenary.nvim" make plugin-check
+
       - name: 単体・結合テスト
         run: PLENARY_PATH="$HOME/plenary.nvim" make test
 

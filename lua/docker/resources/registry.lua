@@ -24,6 +24,7 @@ local M = {}
 ---@field delete_args? fun(item: table): string[] 削除の docker 引数 (強制削除は付けない)
 ---@field item_args? fun(id: string): string[]    1 件だけ取り直す docker 引数
 ---@field load? fun(ctx: table, on_done: fun(result: table)) 一覧の取得が docker の単一コマンドで表せない種別用
+---@field event_reload? boolean イベント時に 1 件ではなく全件を取り直す種別 (識別子がイベントの ID と対応しない場合)
 ---@field id fun(item: table): string    識別子の取り出し
 ---@field columns docker.ColumnDef[]
 ---@field status_column integer|nil      ハイライト対象のカラム位置 (1 始まり)
@@ -126,13 +127,30 @@ definitions = {
     list_args = function()
       return { "image", "ls", "--no-trunc", "--format", format.template(IMAGE_FIELDS) }
     end,
-    item_args = function(id)
-      return { "image", "ls", "--no-trunc", "--filter", "id=" .. id, "--format", format.template(IMAGE_FIELDS) }
-    end,
+    -- イベントの Actor.ID はイメージの sha で、こちらの識別子 (タグ参照) と対応しない。
+    -- 同じ sha に複数のタグが付くため 1 件だけの取り直しでは表せず、全件取り直す。
+    -- イメージの一覧は件数が多くても数ミリ秒で描けるので実害が無い。
+    event_reload = true,
+    -- 同じイメージに複数のタグが付いていることがある。ID で消すとイメージ本体が
+    -- 対象になり、他のタグで使われていると削除できない。タグがあればタグ参照で消す。
     delete_args = function(item)
+      local repository = tostring(item.repository or "")
+      local tag = tostring(item.tag or "")
+      if repository ~= "" and repository ~= "<none>" and tag ~= "" and tag ~= "<none>" then
+        return { "rmi", ("%s:%s"):format(repository, tag) }
+      end
       return { "rmi", tostring(item.id) }
     end,
-    id = plain("id"),
+    -- 同じイメージに複数のタグが付くため、ID だと別々の行が 1 件に潰れる。
+    -- 利用者が見て操作する単位 (タグ参照) を識別子にする。
+    id = function(item)
+      local repository = tostring(item.repository or "")
+      local tag = tostring(item.tag or "")
+      if repository ~= "" and repository ~= "<none>" and tag ~= "" and tag ~= "<none>" then
+        return ("%s:%s"):format(repository, tag)
+      end
+      return tostring(item.id)
+    end,
     columns = {
       { header = "REPOSITORY", value = plain("repository") },
       { header = "TAG", value = plain("tag") },

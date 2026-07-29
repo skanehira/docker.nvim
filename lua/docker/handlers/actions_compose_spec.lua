@@ -87,6 +87,20 @@ describe("compose のサービス操作とプロジェクト操作", function()
       assert.are.same({ "docker", "compose", "logs", "-f", "web" }, opened[1])
     end)
 
+    it("logsもプロジェクトの作業ディレクトリで実行する", function()
+      -- cwd を渡さないと、別のディレクトリの compose プロジェクトのログを見てしまう。
+      local cwds = {}
+      terminal._set_job_starter(function(cmd, cwd)
+        table.insert(opened, cmd)
+        table.insert(cwds, cwd)
+        return 100 + #opened
+      end)
+
+      actions.execute("logs", ctx(service()))
+
+      assert.are.same({ "/work/shop" }, cwds)
+    end)
+
     it("コンテナが無いサービスのログではターミナルを開かない", function()
       actions.execute("logs", ctx(service({ status = "none", container = "", container_id = "" })))
 

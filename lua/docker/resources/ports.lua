@@ -18,7 +18,9 @@ function M.published(value)
   for _, entry in ipairs(vim.split(text, ",", { plain = true, trimempty = true })) do
     -- 公開されているものだけを対象にする (`->` が無い項目はホストへ出ていない)。
     local mapping = vim.trim(entry)
-    local host, port, protocol = mapping:match("^(.*):(%d+)%->%d+/(%a+)$")
+    -- `0.0.0.0:8080->80/tcp` のほか、範囲公開の
+    -- `0.0.0.0:8000-8002->8000-8002/tcp` も対象にする (範囲の先頭を代表にする)。
+    local host, port, protocol = mapping:match("^(.*):(%d+)%-?%d*%->[%d%-]+/(%a+)$")
     if host and protocol == "tcp" then
       if WILDCARDS[host] then
         host = "localhost"

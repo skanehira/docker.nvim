@@ -75,6 +75,27 @@ describe("docker.resources.services", function()
       assert.are.equal("running", items[1].status)
     end)
 
+    it("同じサービスに複数のコンテナがあるとき稼働中を代表にする", function()
+      -- scale したサービスで、先頭が停止していると稼働レプリカがあっても
+      -- 停止として見えてしまう。
+      local items = services.assemble(project({ "web" }), {
+        container({ id = "1", name = "shop-web-1", state = "exited" }),
+        container({ id = "2", name = "shop-web-2", state = "running" }),
+      })
+
+      assert.are.equal("running", items[1].status)
+      assert.are.equal("shop-web-2", items[1].container)
+    end)
+
+    it("すべて停止しているときはその状態を出す", function()
+      local items = services.assemble(project({ "web" }), {
+        container({ id = "1", name = "shop-web-1", state = "exited" }),
+        container({ id = "2", name = "shop-web-2", state = "exited" }),
+      })
+
+      assert.are.equal("exited", items[1].status)
+    end)
+
     it("別プロジェクトのコンテナは紐付けない", function()
       local items = services.assemble(project({ "web" }), {
         container({ compose_project = "other", name = "other-web-1" }),

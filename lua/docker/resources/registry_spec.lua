@@ -224,23 +224,75 @@ describe("docker.resources.registry", function()
       assert.is_truthy(vim.tbl_contains(args, "--no-trunc"))
       -- `docker image ls` は .Label を扱えない。
       assert.is_nil(table.concat(args, " "):find(".Label", 1, true))
-      assert.are.same({ "rmi", "img1" }, assert(def.delete_args)({ id = "img1" }))
+
+      -- イベントの Actor.ID (sha) は識別子 (タグ参照) と対応しないので全件取り直す。
+      -- `docker image ls` は id フィルタも受け付けない (invalid filter 'id')。
+      assert.is_nil(def.item_args, "1 件だけの取り直しは使わない")
+      assert.is_true(def.event_reload)
+
+      -- 同じイメージに複数タグが付くため、識別子はタグ参照にする。
+      assert.are.equal("alpine:3.20", def.id({ id = "i1", repository = "alpine", tag = "3.20" }))
+      assert.are.equal("i1", def.id({ id = "i1", repository = "<none>", tag = "<none>" }))
+      -- 同じイメージに複数タグがあるとき、ID で消すとイメージ本体が対象になり
+      -- 他のタグで使われていると削除できない。タグがあればタグ参照を使う。
+      assert.are.same(
+        { "rmi", "alpine:3.20" },
+        assert(def.delete_args)({ id = "img1", repository = "alpine", tag = "3.20" })
+      )
+      assert.are.same(
+        { "rmi", "img1" },
+        assert(def.delete_args)({ id = "img1", repository = "<none>", tag = "<none>" }),
+        "タグが無いイメージは ID で消す"
+      )
     end)
 
-    it("イメージのカラム構成", function()
-      local headers = {}
-      for _, column in ipairs(assert(registry.get("image")).columns) do
-        table.insert(headers, column.header)
+    it("イメージのカラム構成と値", function()
+      local def = assert(registry.get("image"))
+      local item = { id = "i1", repository = "alpine", tag = "3.20", size = "5MB", created_since = "2 days ago" }
+
+      local values = {}
+      for _, column in ipairs(def.columns) do
+        table.insert(values, { column.header, column.value(item) })
       end
 
-      assert.are.same({ "REPOSITORY", "TAG", "SIZE", "CREATED" }, headers)
+      assert.are.same({
+        { "REPOSITORY", "alpine" },
+        { "TAG", "3.20" },
+        { "SIZE", "5MB" },
+        { "CREATED", "2 days ago" },
+      }, values)
+    end)
+
+    it("ボリューム・ネットワークのカラム構成と値", function()
+      local volume = assert(registry.get("volume"))
+      local vvalues = {}
+      for _, column in ipairs(volume.columns) do
+        table.insert(vvalues, { column.header, column.value({ name = "v1", driver = "local", mountpoint = "/m" }) })
+      end
+      assert.are.same({ { "NAME", "v1" }, { "DRIVER", "local" }, { "MOUNTPOINT", "/m" } }, vvalues)
+
+      local network = assert(registry.get("network"))
+      local nvalues = {}
+      for _, column in ipairs(network.columns) do
+        table.insert(
+          nvalues,
+          { column.header, column.value({ id = "n1", name = "bridge", driver = "bridge", scope = "local" }) }
+        )
+      end
+      assert.are.same({ { "NAME", "bridge" }, { "DRIVER", "bridge" }, { "SCOPE", "local" } }, nvalues)
     end)
 
     it("ボリュームの一覧と削除の引数", function()
       local def = assert(registry.get("volume"))
 
       local args = assert(def.list_args)()
-      assert.are.same({ "volume", "ls" }, { args[1], args[2] })
+      -- 書式を渡さないと docker の既定の表形式になり、解析できなくなる。
+      assert.are.same({
+        "volume",
+        "ls",
+        "--format",
+        '{"name":{{json .Name}},"driver":{{json .Driver}},"mountpoint":{{json .Mountpoint}}}',
+      }, args)
       -- ボリュームは名前が識別子 (イベントでも Actor.ID に名前が入る)。
       assert.are.equal("vol1", def.id({ name = "vol1" }))
       assert.are.same({ "volume", "rm", "vol1" }, assert(def.delete_args)({ name = "vol1" }))
@@ -250,7 +302,13 @@ describe("docker.resources.registry", function()
       local def = assert(registry.get("network"))
 
       local args = assert(def.list_args)()
-      assert.are.same({ "network", "ls" }, { args[1], args[2] })
+      assert.are.same({
+        "network",
+        "ls",
+        "--no-trunc",
+        "--format",
+        '{"id":{{json .ID}},"name":{{json .Name}},"driver":{{json .Driver}},"scope":{{json .Scope}}}',
+      }, args)
       assert.are.same({ "network", "rm", "net1" }, assert(def.delete_args)({ id = "net1" }))
     end)
 

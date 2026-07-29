@@ -94,7 +94,10 @@ describe("docker.adapters.docker.compose", function()
 
       assert.is_false(result.ok)
       assert.are.equal("outside", result.reason)
-      assert.is_truthy(result.error:find("compose", 1, true), result.error)
+      assert.are.equal(
+        "ここは docker compose プロジェクトではありません。compose.yaml のあるディレクトリで開いてください。",
+        result.error
+      )
     end)
 
     it("composeサブコマンドが使えないとわかるメッセージを返す", function()
@@ -110,7 +113,10 @@ describe("docker.adapters.docker.compose", function()
         table.insert(messages, result.error)
       end
 
-      assert.are.equal(messages[1], messages[2], "どちらの文言でも同じ案内になること")
+      assert.are.same({
+        "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+        "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+      }, messages)
     end)
 
     it("composeファイルが不正なときはdockerの出力をそのまま返す", function()
@@ -125,17 +131,25 @@ describe("docker.adapters.docker.compose", function()
 
     it("3つの失敗はそれぞれ異なる区分になる", function()
       -- G11: compose サブコマンド不在が他と区別できること。
-      local reasons = {}
+      local reasons, seen = {}, {}
+      local messages_differ = true
       for _, stderr in ipairs({
         "no configuration file provided: not found",
         "docker: unknown command: docker compose",
         "yaml: mapping values are not allowed in this context",
       }) do
         stub({ code = 1, stderr = stderr })
-        table.insert(reasons, resolve().reason)
+        local result = resolve()
+        table.insert(reasons, result.reason)
+        if seen[result.error] then
+          messages_differ = false
+        end
+        seen[result.error] = true
       end
 
       assert.are.same({ "outside", "unavailable", "invalid" }, reasons)
+      -- 区分だけでなく、利用者に見える文言も取り違えていないこと。
+      assert.is_true(messages_differ, "3 つの文言がすべて異なること")
     end)
 
     it("出力が解析できないときは不正として扱う", function()

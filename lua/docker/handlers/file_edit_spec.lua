@@ -94,6 +94,22 @@ describe("docker.handlers.file_edit", function()
       assert.is_false(vim.bo[bufnr].modified, "開いた直後は未変更であること")
     end)
 
+    it("一時ファイルの名前にコンテナごとの識別子が入る", function()
+      -- 名前がパスだけだと、別のコンテナの同じパスで内容を取り違える。
+      local pulled = {}
+      cli._set_executor(function(cmd, _, on_exit)
+        table.insert(pulled, cmd[4])
+        vim.fn.writefile({ "x" }, cmd[4])
+        on_exit({ code = 0, stdout = "", stderr = "" })
+      end)
+
+      open("aaaaaaaaaaaa", "web", "/etc/hosts")
+      open("bbbbbbbbbbbb", "db", "/etc/hosts")
+
+      assert.are.equal(2, #pulled)
+      assert.is_true(pulled[1] ~= pulled[2], "一時ファイルの名前が別になること: " .. pulled[1])
+    end)
+
     it("同じパスを別のコンテナで開いても書き戻し先が混ざらない", function()
       stub({})
       local first = assert(open("aaaaaaaaaaaa", "web", "/etc/hosts"))

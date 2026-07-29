@@ -76,9 +76,22 @@ function M.open(id, label, path, on_done)
     -- `acwrite` は「保存を autocmd で処理する」バッファ種別。
     -- bufadd + bufload だと実在しないパスを読もうとして種別が戻るため、
     -- バッファを自分で作ってから名前と種別を与える。
+    -- 同じファイルを 2 回開いたときは既存のバッファを使い回す。
+    -- 新しく作って同じ名前を付けると E95 (バッファ名の重複) で落ちる。
     local name = ("docker://%s%s"):format(label, path)
-    local bufnr = vim.api.nvim_create_buf(true, false)
-    vim.api.nvim_buf_set_name(bufnr, name)
+    local existing = vim.fn.bufnr(name)
+    local bufnr
+    if existing ~= -1 and vim.api.nvim_buf_is_valid(existing) then
+      bufnr = existing
+    else
+      bufnr = vim.api.nvim_create_buf(true, false)
+      local named = pcall(vim.api.nvim_buf_set_name, bufnr, name)
+      if not named then
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        notify.error(("%s を開けませんでした (バッファ名が衝突しています)"):format(path))
+        return done(nil)
+      end
+    end
     vim.bo[bufnr].buftype = "acwrite"
     vim.bo[bufnr].swapfile = false
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.fn.readfile(local_path))

@@ -228,10 +228,24 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
     local handle = open_view("container")
     wait_for_line(handle, PREFIX .. "-standalone")
 
-    lifecycle.dispatch_for_test(handle, "refresh")
-    vim.wait(3000)
+    -- R が何もしなくても「一覧が残っている」だけなら通ってしまう。
+    -- 別プロセスで作ったコンテナが R の後に現れることで、取り直しを確かめる。
+    local name = PREFIX .. "-refresh"
+    sh({ "docker", "create", "--name", name, vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", "true" })
+    -- events による自動更新と区別するため、購読を止めてから R を押す。
+    assert(handle.subscription, "購読が張られていること").stop()
+    vim.wait(300)
+    assert.is_nil(line_of(handle, name), "購読を止めた状態では自動では現れないこと")
 
-    assert.is_truthy(line_of(handle, PREFIX .. "-standalone"), "再取得後も一覧が保たれること")
+    lifecycle.dispatch_for_test(handle, "refresh")
+
+    assert(
+      vim.wait(15000, function()
+        return line_of(handle, name) ~= nil
+      end, 100),
+      "R で取り直した一覧に現れること"
+    )
+    sh({ "docker", "rm", "-f", name })
   end)
 
   it("US-015 / G12: ? でそのビューの有効なキーが並ぶ", function()
@@ -262,7 +276,34 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
     lifecycle.close("network")
 
     local images = open_view("image")
-    assert.is_true(#rows(images) > 0, "イメージが 1 件以上並ぶこと")
+    -- 0 件でも empty_text の 1 行が返るため、件数だけでは検証にならない。
+    local image_rows = rows(images)
+    assert.is_nil(
+      image_rows[1]:find("イメージがありません", 1, true),
+      "実データが並ぶこと: " .. image_rows[1]
+    )
+    wait_for_line(images, vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine")
+  end)
+
+  it("US-007: イメージを削除できる", function()
+    -- 検証用に別名のタグを付け、それを消す (元のイメージは残す)。
+    local tag = PREFIX .. "-img:v1"
+    sh({ "docker", "tag", vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", tag })
+
+    local handle = open_view("image")
+    wait_for_line(handle, PREFIX .. "-img")
+
+    vim.ui.input = function(_, on_confirm)
+      on_confirm("y")
+    end
+    act_on(handle, PREFIX .. "-img", "delete")
+
+    assert(
+      vim.wait(20000, function()
+        return line_of(handle, PREFIX .. "-img") == nil
+      end, 100),
+      "削除が一覧へ反映されない"
+    )
   end)
 
   it("US-008 / US-009 / G7 / G8: サービス一覧と compose 操作", function()
@@ -308,16 +349,59 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
     )
   end)
 
-  it("US-013: docker の実行中も別バッファの編集が滞らない", function()
-    local handle = open_view("container")
-    lifecycle.dispatch_for_test(handle, "refresh")
+  it("US-013: docker の実行中も Neovim が止まらない", function()
+    local cli = require("docker.adapters.docker.cli")
 
-    -- 取得を待たずに別バッファを編集できる (実行が同期なら以降が進まない)。
+    -- 実際に時間のかかる docker 実行を投げ、その戻りより先に制御が返ることを確かめる。
+    -- 同期実行なら、この assert の時点で既に完了しているはず。
+    local finished = false
+    cli.run({ "run", "--rm", vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", "sleep", "2" }, function()
+      finished = true
+    end)
+
+    assert.is_false(finished, "呼び出しが戻った時点で完了していないこと (非同期であること)")
+
+    -- 実行中に別バッファを編集できる
     local scratch = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_lines(scratch, 0, -1, false, { "editable" })
-
     assert.are.same({ "editable" }, vim.api.nvim_buf_get_lines(scratch, 0, -1, false))
     vim.api.nvim_buf_delete(scratch, { force = true })
+
+    assert(
+      vim.wait(20000, function()
+        return finished
+      end, 100),
+      "最終的には完了すること"
+    )
+  end)
+
+  it("US-005: シェルを開ける / 停止中のコンテナでは開かない", function()
+    local handle = open_view("container")
+    wait_for_line(handle, PREFIX .. "-standalone")
+    local jobs_before = #jobs.list()
+
+    act_on(handle, PREFIX .. "-standalone", "shell")
+    assert(
+      vim.wait(10000, function()
+        return #jobs.list() > jobs_before
+      end),
+      "実行中のコンテナでシェルが開くこと"
+    )
+    vim.api.nvim_buf_delete(vim.api.nvim_get_current_buf(), { force = true })
+    vim.wait(500)
+
+    -- 停止中のコンテナでは開かない (BR-007)
+    local stopped = PREFIX .. "-stopped"
+    sh({ "docker", "create", "--name", stopped, vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", "true" })
+    lifecycle.dispatch_for_test(handle, "refresh")
+    wait_for_line(handle, stopped)
+
+    local before = #jobs.list()
+    act_on(handle, stopped, "shell")
+    vim.wait(1500)
+
+    assert.are.equal(before, #jobs.list(), "停止中のコンテナではシェルを開かないこと")
+    sh({ "docker", "rm", "-f", stopped })
   end)
 
   it("G13: 開いたまま終了処理を行うと子プロセスが残らない", function()

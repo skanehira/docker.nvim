@@ -28,8 +28,10 @@ function M.assemble(project, containers)
   for _, item in ipairs(containers) do
     local owner = fields.service_of(item)
     if owner and owner.project == project.name then
-      -- 同じサービスに複数のコンテナがあれば最初の 1 件を代表にする。
-      if not by_service[owner.service] then
+      local current = by_service[owner.service]
+      -- 同じサービスに複数のコンテナがある場合 (scale) は稼働中のものを代表にする。
+      -- 先頭固定だと、レプリカが動いているのに停止として見えることがある。
+      if not current or (fields.state(current) ~= "running" and fields.state(item) == "running") then
         by_service[owner.service] = item
       end
     end

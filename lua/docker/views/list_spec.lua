@@ -202,4 +202,45 @@ describe("docker.views.list", function()
       list.render(handle, def, { container() })
     end)
   end)
+
+  describe("各リソース種別の描画", function()
+    -- G6 の検証手順が list_spec に「各種別の一覧が描画されること」を求めている。
+    local samples = {
+      image = { id = "i1", repository = "alpine", tag = "3.20", size = "5MB", created_since = "2 days ago" },
+      volume = { name = "v1", driver = "local", mountpoint = "/var/lib/docker/volumes/v1" },
+      network = { id = "n1", name = "bridge", driver = "bridge", scope = "local" },
+      service = { project = "shop", name = "web", container = "shop-web-1", container_id = "c1", status = "running" },
+    }
+
+    it("種別ごとに見出しと行が生成される", function()
+      local expected = {
+        image = { "REPOSITORY  TAG   SIZE  CREATED", "alpine      3.20  5MB   2 days ago" },
+        volume = { "NAME  DRIVER  MOUNTPOINT", "v1    local   /var/lib/docker/volumes/v1" },
+        network = { "NAME    DRIVER  SCOPE", "bridge  bridge  local" },
+        service = { "SERVICE  STATUS   CONTAINER", "web      running  shop-web-1" },
+      }
+
+      local actual = {}
+      for kind, item in pairs(samples) do
+        local built = list.build(assert(registry.get(kind)), { item })
+        actual[kind] = { built.winbar, built.lines[1] }
+      end
+
+      assert.are.same(expected, actual)
+    end)
+
+    it("種別ごとに0件の文言が出る", function()
+      local actual = {}
+      for kind in pairs(samples) do
+        actual[kind] = list.build(assert(registry.get(kind)), {}).lines
+      end
+
+      assert.are.same({
+        image = { "イメージがありません" },
+        volume = { "ボリュームがありません" },
+        network = { "ネットワークがありません" },
+        service = { "サービスが定義されていません" },
+      }, actual)
+    end)
+  end)
 end)

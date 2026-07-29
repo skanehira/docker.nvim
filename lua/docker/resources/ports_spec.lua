@@ -46,6 +46,11 @@ describe("docker.resources.ports", function()
       assert.are.same({ "http://localhost:8080", "http://localhost:9090" }, actual)
     end)
 
+    it("範囲で公開されたポートも対象にする", function()
+      -- `docker run -p 8000-8002:8000-8002` はこの形で出る。丸ごと落とさない。
+      assert.are.same({ "http://localhost:8000" }, ports.published("0.0.0.0:8000-8002->8000-8002/tcp"))
+    end)
+
     it("値がnilでも空を返す", function()
       assert.are.same({}, ports.published(nil))
     end)

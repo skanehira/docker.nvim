@@ -393,4 +393,304 @@ describe("docker.handlers.lifecycle", function()
       assert.is_truthy(lifecycle.get("container"), "切替に失敗したら今のビューを残すこと")
     end)
   end)
+
+  describe("ドリルダウン", function()
+    ---@param cmd_handler fun(cmd: string[]): string
+    local function stub_lists(cmd_handler)
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "version" then
+          on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+          return
+        end
+        on_exit({ code = 0, stdout = cmd_handler(cmd), stderr = "" })
+      end)
+    end
+
+    local function container_json(over)
+      return vim.json.encode(vim.tbl_extend("force", {
+        id = "c1",
+        name = "web",
+        image = "alpine",
+        state = "running",
+        status = "Up",
+        ports = "",
+        command = "x",
+        created_at = "now",
+        compose_project = "",
+        compose_service = "",
+        compose_oneoff = "",
+      }, over or {}))
+    end
+
+    local function image_json(over)
+      return vim.json.encode(vim.tbl_extend("force", {
+        id = "i1",
+        repository = "alpine",
+        tag = "latest",
+        created_since = "1d",
+        size = "5MB",
+      }, over or {}))
+    end
+
+    it("コンテナからそのイメージへ移り対象行にカーソルが当たる", function()
+      stub_lists(function(cmd)
+        if cmd[2] == "image" then
+          return image_json({ id = "i0", repository = "other", tag = "1" })
+            .. "\n"
+            .. image_json({ id = "i1", repository = "alpine", tag = "latest" })
+        end
+        return container_json({ image = "alpine" })
+      end)
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "drilldown")
+      assert(vim.wait(3000, function()
+        return lifecycle.get("image") ~= nil
+      end))
+
+      local images = assert(lifecycle.get("image"))
+      -- `docker ps` の .Image はタグ省略形 ("alpine") になることがある。
+      assert.are.equal(2, vim.api.nvim_win_get_cursor(images.window.winid)[1], "alpine の行に当たること")
+    end)
+
+    it("イメージからそれを使うコンテナへ移る", function()
+      stub_lists(function(cmd)
+        if cmd[2] == "image" then
+          return image_json({ repository = "alpine", tag = "3.20" })
+        end
+        return container_json({ id = "c0", name = "other", image = "nginx" })
+          .. "\n"
+          .. container_json({ id = "c1", name = "target", image = "alpine:3.20" })
+      end)
+      local handle = assert(open_view("image"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "drilldown")
+      assert(vim.wait(3000, function()
+        return lifecycle.get("container") ~= nil
+      end))
+
+      local containers = assert(lifecycle.get("container"))
+      assert.are.equal(2, vim.api.nvim_win_get_cursor(containers.window.winid)[1])
+    end)
+
+    it("辿れる先が無いときは警告して開かない", function()
+      stub_lists(function()
+        return container_json({ image = "" })
+      end)
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "drilldown")
+      vim.wait(300)
+
+      assert.is_nil(lifecycle.get("image"))
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+    end)
+  end)
+
+  describe("一括削除", function()
+    ---@param count integer
+    local function stub_containers(count)
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "version" then
+          on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+          return
+        end
+        if cmd[2] == "rm" then
+          on_exit({ code = 0, stdout = "", stderr = "" })
+          return
+        end
+        local rows = {}
+        for i = 1, count do
+          table.insert(
+            rows,
+            vim.json.encode({
+              id = "id" .. i,
+              name = "c" .. i,
+              image = "alpine",
+              state = "exited",
+              status = "Exited",
+              ports = "",
+              command = "x",
+              created_at = "now",
+              compose_project = "",
+              compose_service = "",
+              compose_oneoff = "",
+            })
+          )
+        end
+        on_exit({ code = 0, stdout = table.concat(rows, "\n"), stderr = "" })
+      end)
+    end
+
+    it("Visual モードにも削除のキーが張られる", function()
+      -- ノーマルモードだけだと、範囲を選んで押してもプラグインに届かない。
+      stub_containers(3)
+      local handle = assert(open_view("container"))
+
+      local visual = {}
+      for _, m in ipairs(vim.api.nvim_buf_get_keymap(handle.window.bufnr, "x")) do
+        visual[m.lhs] = true
+      end
+
+      assert.is_true(visual["<C-D>"] or visual["<C-d>"], "Visual に <C-d> が張られていること")
+    end)
+
+    it("選択範囲の件数を確認プロンプトに出す", function()
+      stub_containers(3)
+      local handle = assert(open_view("container"))
+      local prompts = {}
+      local original_input = vim.ui.input
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(opts, on_confirm)
+        table.insert(prompts, opts.prompt)
+        on_confirm("n")
+      end
+
+      vim.api.nvim_set_current_win(handle.window.winid)
+      vim.cmd("normal! ggVjj")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-d>", true, false, true), "x", false)
+      vim.wait(300)
+      vim.ui.input = original_input
+
+      assert.are.equal(1, #prompts, "確認が 1 回出ること")
+      assert.is_truthy(prompts[1]:find("3", 1, true), prompts[1])
+    end)
+
+    it("確認でyと答えると選択した件数ぶん削除する", function()
+      stub_containers(3)
+      local handle = assert(open_view("container"))
+      local removed = {}
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "rm" then
+          table.insert(removed, cmd[3])
+          on_exit({ code = 0, stdout = "", stderr = "" })
+          return
+        end
+        on_exit({ code = 0, stdout = "", stderr = "" })
+      end)
+      local original_input = vim.ui.input
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("y")
+      end
+
+      vim.api.nvim_set_current_win(handle.window.winid)
+      vim.cmd("normal! ggVj")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-d>", true, false, true), "x", false)
+      vim.wait(500)
+      vim.ui.input = original_input
+
+      table.sort(removed)
+      assert.are.same({ "id1", "id2" }, removed)
+    end)
+
+    it("確認でnと答えると1件も削除しない", function()
+      stub_containers(3)
+      local handle = assert(open_view("container"))
+      local removed = {}
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "rm" then
+          table.insert(removed, cmd[3])
+        end
+        on_exit({ code = 0, stdout = "", stderr = "" })
+      end)
+      local original_input = vim.ui.input
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("n")
+      end
+
+      vim.api.nvim_set_current_win(handle.window.winid)
+      vim.cmd("normal! ggVj")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-d>", true, false, true), "x", false)
+      vim.wait(300)
+      vim.ui.input = original_input
+
+      assert.are.same({}, removed)
+    end)
+
+    it("一部が失敗しても残りは削除し失敗分をまとめて知らせる", function()
+      stub_containers(3)
+      local handle = assert(open_view("container"))
+      local removed = {}
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "rm" then
+          table.insert(removed, cmd[3])
+          if cmd[3] == "id1" then
+            on_exit({ code = 1, stdout = "", stderr = "container is running" })
+          else
+            on_exit({ code = 0, stdout = "", stderr = "" })
+          end
+          return
+        end
+        on_exit({ code = 0, stdout = "", stderr = "" })
+      end)
+      local original_input = vim.ui.input
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("y")
+      end
+
+      vim.api.nvim_set_current_win(handle.window.winid)
+      vim.cmd("normal! ggVj")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-d>", true, false, true), "x", false)
+      vim.wait(500)
+      vim.ui.input = original_input
+
+      assert.are.equal(2, #removed, "失敗しても他は実行すること")
+      local last = notified[#notified]
+      assert.are.equal(vim.log.levels.ERROR, last.level)
+      assert.is_truthy(last.msg:find("id1", 1, true) or last.msg:find("c1", 1, true), last.msg)
+    end)
+  end)
+
+  describe("詳細ビューの対象", function()
+    it("カーソル行のリソースを inspect する", function()
+      -- 常に 1 行目を見る実装だと、別のコンテナの詳細を出してしまう。
+      local inspected = {}
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "version" then
+          on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+          return
+        end
+        if cmd[2] == "inspect" then
+          table.insert(inspected, cmd[3])
+          on_exit({ code = 0, stdout = "[{}]", stderr = "" })
+          return
+        end
+        local rows = {}
+        for i = 1, 3 do
+          table.insert(
+            rows,
+            vim.json.encode({
+              id = "id" .. i,
+              name = "c" .. i,
+              image = "alpine",
+              state = "running",
+              status = "Up",
+              ports = "",
+              command = "x",
+              created_at = "now",
+              compose_project = "",
+              compose_service = "",
+              compose_oneoff = "",
+            })
+          )
+        end
+        on_exit({ code = 0, stdout = table.concat(rows, "\n"), stderr = "" })
+      end)
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 2, 0 })
+
+      lifecycle.dispatch_for_test(handle, "inspect")
+      assert(vim.wait(3000, function()
+        return #inspected > 0
+      end))
+
+      assert.are.same({ "id2" }, inspected)
+    end)
+  end)
 end)

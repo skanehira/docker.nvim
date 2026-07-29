@@ -33,9 +33,11 @@ fi
 
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/docker-nvim-e2e.XXXXXX")
 
-# 5. 検証用のリソースを必ず片付ける
-cleanup() {
-  local status=$?
+# 5. 検証用のリソースを片付ける。
+# 前回の実行が異常終了した場合に備え、セットアップ前にも同じ掃除を行う
+# (残骸があると名前の衝突でセットアップが失敗し、しかもその失敗が
+#  「既に Exited」という形でシナリオを偶然通してしまう)。
+remove_leftovers() {
   if [ -f "$WORKDIR/compose.yaml" ]; then
     (cd "$WORKDIR" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true
   fi
@@ -48,10 +50,18 @@ cleanup() {
   for name in $(docker network ls --format '{{.Name}}' 2>/dev/null | grep "^${PREFIX}" || true); do
     docker network rm "$name" >/dev/null 2>&1 || true
   done
+}
+
+cleanup() {
+  local status=$?
+  remove_leftovers
   rm -rf "$WORKDIR"
   exit "$status"
 }
 trap cleanup EXIT INT TERM
+
+# 前回の残骸を掃除してから始める
+remove_leftovers
 
 # 2. 検証用の compose プロジェクトとスタンドアロンコンテナを作る
 cat > "$WORKDIR/compose.yaml" <<EOF
@@ -65,11 +75,18 @@ services:
     command: sleep 600
 EOF
 
-docker run -d --name "${PREFIX}-standalone" "$IMAGE" sleep 600 >/dev/null
-docker run -d --name "${PREFIX}-doomed" "$IMAGE" sleep 600 >/dev/null
-docker volume create "${PREFIX}-vol" >/dev/null
-docker network create "${PREFIX}-net" >/dev/null
-(cd "$WORKDIR" && docker compose up -d web >/dev/null 2>&1)
+# セットアップの失敗を握り潰すと、シナリオが偶然通ってしまう。
+setup() {
+  docker run -d --name "${PREFIX}-standalone" "$IMAGE" sleep 600 >/dev/null &&
+    docker run -d --name "${PREFIX}-doomed" "$IMAGE" sleep 600 >/dev/null &&
+    docker volume create "${PREFIX}-vol" >/dev/null &&
+    docker network create "${PREFIX}-net" >/dev/null &&
+    (cd "$WORKDIR" && docker compose up -d web >/dev/null 2>&1)
+}
+if ! setup; then
+  echo "e2e: 検証用リソースの用意に失敗しました" >&2
+  exit 2
+fi
 
 # 3-4. headless の Neovim で通し実行する
 PLENARY_PATH=${PLENARY_PATH:-$HOME/.local/share/nvim/lazy/plenary.nvim}
@@ -78,5 +95,6 @@ export DOCKER_NVIM_E2E_PREFIX="$PREFIX"
 export DOCKER_NVIM_E2E_WORKDIR="$WORKDIR"
 export DOCKER_NVIM_E2E_IMAGE="$IMAGE"
 
+# `exec` にすると bash が置き換わり EXIT trap が消えて後始末が走らない。
 cd "$REPO_ROOT" || exit 1
-exec ./scripts/run-busted.sh tests/e2e/e2e_spec.lua
+./scripts/run-busted.sh tests/e2e/e2e_spec.lua

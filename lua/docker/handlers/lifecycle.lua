@@ -120,8 +120,9 @@ end
 ---@param handle docker.ViewHandle
 ---@param event docker.Event
 local function apply_event(handle, event)
-  -- 組み立てが必要な種別 (サービス) は 1 件の取り直しでは表せないので全件やり直す。
-  if handle.def.load then
+  -- 組み立てが必要な種別 (サービス) と、イベントの ID が識別子と対応しない種別
+  -- (イメージ) は 1 件の取り直しでは表せないので全件やり直す。
+  if handle.def.load or handle.def.event_reload then
     render.request(handle.kind, function()
       if views[handle.kind] then
         fetch(views[handle.kind])
@@ -219,11 +220,14 @@ local function drilldown_target(handle)
     if image == "" then
       return nil
     end
+    -- `docker ps` の .Image は "alpine" のようにタグを省いた形になることがある。
+    -- イメージ一覧側は repository と tag を持つので、両方の綴りで突き合わせる。
     return {
       kind = "image",
       match = function(candidate)
-        local ref = ("%s:%s"):format(tostring(candidate.repository), tostring(candidate.tag))
-        return ref == image or tostring(candidate.id) == image
+        local repository = tostring(candidate.repository)
+        local ref = ("%s:%s"):format(repository, tostring(candidate.tag))
+        return ref == image or repository == image or tostring(candidate.id) == image
       end,
     }
   end
@@ -393,11 +397,21 @@ local function dispatch(handle, action)
 
   if action == "inspect" then
     local item = list.item_at(visible, lnum)
-    if item then
-      inspect.open(handle.def, item)
-    else
+    if not item then
       notify.warn("詳細を表示する対象がありません")
+      return
     end
+    -- サービスは docker のオブジェクトではないので、紐付くコンテナを見せる。
+    if handle.kind == "service" then
+      local container_id = tostring(item.container_id or "")
+      if container_id == "" then
+        notify.warn(("%s は起動していないため詳細を表示できません"):format(tostring(item.name)))
+        return
+      end
+      inspect.open(assert(registry.get("container")), { id = container_id, name = item.container })
+      return
+    end
+    inspect.open(handle.def, item)
     return
   end
 
@@ -411,7 +425,8 @@ end
 
 ---@param handle docker.ViewHandle
 local function bind_keys(handle)
-  for key, action in pairs(keymaps.resolve(handle.def.view_type)) do
+  local resolved = keymaps.resolve(handle.def.view_type)
+  for key, action in pairs(resolved) do
     vim.keymap.set("n", key, function()
       dispatch(handle, action)
     end, {
@@ -420,6 +435,19 @@ local function bind_keys(handle)
       silent = true,
       desc = ("docker.nvim: %s"):format(action),
     })
+
+    -- 一括削除は選択範囲に効く操作なので Visual モードにも張る。
+    -- ノーマルモードだけだと、選択して押してもプラグインに届かない。
+    if action == "delete" then
+      vim.keymap.set("x", key, function()
+        bulk_delete(handle)
+      end, {
+        buffer = handle.window.bufnr,
+        nowait = true,
+        silent = true,
+        desc = "docker.nvim: 選択範囲をまとめて削除",
+      })
+    end
   end
 end
 
@@ -459,12 +487,18 @@ function M.open(kind, on_open)
   end
   opening[kind] = true
 
-  cli.check_connection(function(result)
+  --- 開き終わり (成功・失敗のいずれでも) に受付を再開する。
+  --- 接続確認の直後に解除すると、一覧の取得が終わるまで views[kind] が nil のままなので
+  --- その窓で二重にフロートが開く。
+  local function finish(handle)
     opening[kind] = nil
+    done(handle)
+  end
 
+  cli.check_connection(function(result)
     if not result.ok then
       notify.error(result.error or "docker に接続できません")
-      return done(nil)
+      return finish(nil)
     end
 
     -- compose の解決は開いた時点の作業ディレクトリで固定する (BR-003)。
@@ -488,13 +522,13 @@ function M.open(kind, on_open)
       handle.state = view.with_items(handle.state, store.list(kind))
       redraw(handle)
       subscribe_events(handle)
-      done(handle)
+      finish(handle)
     end
 
     local function on_loaded(loaded)
       if not loaded.ok then
         notify.error(loaded.error or "一覧の取得に失敗しました")
-        return done(nil)
+        return finish(nil)
       end
       present(loaded)
     end
