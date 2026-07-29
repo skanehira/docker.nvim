@@ -73,6 +73,33 @@ describe("docker.handlers.lifecycle", function()
       assert.is_truthy(lines[1]:find("web", 1, true), lines[1])
     end)
 
+    it("開き終わる前に閉じられても同じ種別のフロートが2枚にならない", function()
+      -- 応答待ちの間に close_all が走ると受付が戻るため、2 回目の応答で
+      -- もう 1 枚開き、閉じられない孤児のフロートが残る。
+      local replies = {}
+      cli._set_executor(function(cmd, _, on_exit)
+        table.insert(replies, function()
+          if cmd[2] == "version" then
+            on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+          else
+            on_exit({ code = 0, stdout = "", stderr = "" })
+          end
+        end)
+      end)
+
+      local before = #vim.api.nvim_list_wins()
+      lifecycle.open("container")
+      lifecycle.close_all()
+      lifecycle.open("container")
+      for _, reply in ipairs(replies) do
+        reply()
+      end
+      vim.wait(200)
+
+      local opened = #vim.api.nvim_list_wins() - before
+      assert.are.equal(1, opened, ("開いたままのフロートは 1 枚 (実際 %d 枚)"):format(opened))
+    end)
+
     it("同じ種別を再度開くと新しいバッファを作らず既存へ移動する", function()
       -- US-026: 複数タブで開いてもバッファは 1 つに保つ。
       local first = assert(open_view("container"))
@@ -152,6 +179,165 @@ describe("docker.handlers.lifecycle", function()
 
       lifecycle.close_all()
 
+      assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid))
+    end)
+  end)
+
+  describe("フォーカスが外れたとき", function()
+    --- 通常のウィンドウ (ターミナルを開いたときと同じ形) を下に作って移る。
+    ---@return integer
+    local function enter_plain_window()
+      vim.cmd("botright new")
+      return vim.api.nvim_get_current_win()
+    end
+
+    after_each(function()
+      -- テストで作った通常ウィンドウを片付ける。
+      for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if #vim.api.nvim_tabpage_list_wins(0) > 1 then
+          pcall(vim.api.nvim_win_close, winid, true)
+        end
+      end
+    end)
+
+    it("一覧の外のウィンドウへ移ると一覧が閉じる", function()
+      -- ログやシェルを開くと一覧の裏にフロートが残り続けてしまう。
+      local handle = assert(open_view("container"))
+
+      enter_plain_window()
+
+      assert.is_nil(lifecycle.get("container"), "ビューが解除されること")
+      assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid))
+    end)
+
+    it("一覧の外へ移るとイベントの購読も止まる", function()
+      -- ウィンドウだけ閉じて購読が残ると docker events の子プロセスが漏れる。
+      local handle = assert(open_view("container"))
+      local subscription = assert(handle.subscription, "購読が張られていること")
+
+      enter_plain_window()
+
+      assert.is_false(subscription.is_alive())
+    end)
+
+    it("ヘルプを前面に開いても一覧は閉じない", function()
+      -- BR-018: 上層を閉じたときに下層の内容とカーソル位置を残す。
+      local handle = assert(open_view("container"))
+
+      vim.api.nvim_set_current_win(handle.window.winid)
+      lifecycle.dispatch_for_test(handle, "help")
+
+      assert.is_truthy(lifecycle.get("container"), "一覧が残ること")
+      assert.is_true(vim.api.nvim_win_is_valid(handle.window.winid))
+    end)
+
+    it("別種別の一覧へ辿っても元の一覧は閉じない", function()
+      local handle = assert(open_view("container"))
+
+      vim.api.nvim_set_current_win(handle.window.winid)
+      lifecycle.dispatch_for_test(handle, "drilldown")
+      vim.wait(500, function()
+        return lifecycle.get("image") ~= nil
+      end)
+
+      assert.is_truthy(lifecycle.get("image"), "辿った先が開くこと")
+      assert.is_truthy(lifecycle.get("container"), "元の一覧が残ること")
+    end)
+
+    it("プラグイン以外のフロートへ移っても一覧は閉じない", function()
+      -- vim.ui.input をフロートで実装している環境で、確認プロンプトを出しただけで
+      -- 一覧が消えないようにする。
+      local handle = assert(open_view("container"))
+
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      local prompt = vim.api.nvim_open_win(bufnr, true, {
+        relative = "editor",
+        width = 20,
+        height = 1,
+        row = 1,
+        col = 1,
+        style = "minimal",
+      })
+
+      assert.is_truthy(lifecycle.get("container"), "一覧が残ること")
+      assert.is_true(vim.api.nvim_win_is_valid(handle.window.winid))
+      vim.api.nvim_win_close(prompt, true)
+    end)
+
+    it("ヘルプを開いたまま一覧の外へ移ると両方とも閉じる", function()
+      local handle = assert(open_view("container"))
+      vim.api.nvim_set_current_win(handle.window.winid)
+      lifecycle.dispatch_for_test(handle, "help")
+      local help_winid = vim.api.nvim_get_current_win()
+
+      enter_plain_window()
+
+      assert.is_false(vim.api.nvim_win_is_valid(help_winid), "ヘルプが閉じること")
+      assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid), "一覧も閉じること")
+    end)
+
+    it("複数の一覧を開いていても全て閉じて購読も止まる", function()
+      -- 1 件だけ閉じて残りを取りこぼすと、docker events の子プロセスが漏れる。
+      local containers = assert(open_view("container"))
+      local images = assert(open_view("image"))
+      local subscriptions = {
+        assert(containers.subscription, "container の購読が張られていること"),
+        assert(images.subscription, "image の購読が張られていること"),
+      }
+
+      enter_plain_window()
+
+      assert.are.same({ false, false }, {
+        subscriptions[1].is_alive(),
+        subscriptions[2].is_alive(),
+      })
+      assert.is_false(vim.api.nvim_win_is_valid(containers.window.winid))
+      assert.is_false(vim.api.nvim_win_is_valid(images.window.winid))
+    end)
+
+    it("フロートへフォーカスがあるまま最後の一覧を閉じても監視が残らない", function()
+      -- 閉じたことで起きるフォーカス移動に後始末を任せると、移動先が
+      -- プラグインのフロートだったときに監視だけが常駐する。
+      local handle = assert(open_view("container"))
+      vim.api.nvim_set_current_win(handle.window.winid)
+      lifecycle.dispatch_for_test(handle, "help")
+
+      lifecycle.close("container")
+
+      assert.is_nil(lifecycle.get("container"))
+      assert.are.same({}, vim.api.nvim_get_autocmds({ group = "DockerNvimViewFocus" }))
+    end)
+
+    it("qで一覧を1つ閉じても残っている一覧の監視は続く", function()
+      local containers = assert(open_view("container"))
+      local images = assert(open_view("image"))
+
+      vim.api.nvim_set_current_win(containers.window.winid)
+      lifecycle.dispatch_for_test(containers, "close")
+      enter_plain_window()
+
+      assert.is_nil(lifecycle.get("image"), "残っていた一覧も外へ移れば閉じること")
+      assert.is_false(vim.api.nvim_win_is_valid(images.window.winid))
+    end)
+
+    it("ビューを閉じた後はウィンドウ移動の監視が残らない", function()
+      -- 常駐すると一覧を開いていない間もウィンドウ移動のたびに走ってしまう。
+      open_view("container")
+
+      lifecycle.close_all()
+
+      local watchers = vim.api.nvim_get_autocmds({ group = "DockerNvimViewFocus" })
+      assert.are.same({}, watchers)
+    end)
+
+    it("閉じた後にもう一度開いても外れたときに閉じる", function()
+      open_view("container")
+      lifecycle.close_all()
+
+      local handle = assert(open_view("container"))
+      enter_plain_window()
+
+      assert.is_nil(lifecycle.get("container"))
       assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid))
     end)
   end)

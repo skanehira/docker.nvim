@@ -62,6 +62,31 @@ local function wait_for_line(handle, needle, timeout)
   )
 end
 
+--- 台帳に載っているジョブ ID の集合。
+--- 一覧を閉じると events の購読も外れるため、件数の増減ではなく
+--- 「どの ID が増えたか」で判定する。
+---@return table<integer, boolean>
+local function job_set()
+  local set = {}
+  for _, id in ipairs(jobs.list()) do
+    set[id] = true
+  end
+  return set
+end
+
+--- 台帳に新しく載ったジョブ ID。
+---@param before table<integer, boolean>
+---@return integer[]
+local function jobs_added_since(before)
+  local added = {}
+  for _, id in ipairs(jobs.list()) do
+    if not before[id] then
+      table.insert(added, id)
+    end
+  end
+  return added
+end
+
 ---@param handle docker.ViewHandle
 ---@param needle string
 ---@param action string
@@ -121,24 +146,28 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
   it("US-004 / G4: ログのターミナルを閉じると docker logs のプロセスが残らない", function()
     local handle = open_view("container")
     wait_for_line(handle, PREFIX .. "-standalone")
-    local before = #jobs.list()
+    local before = job_set()
 
     act_on(handle, PREFIX .. "-standalone", "logs")
     assert(
       vim.wait(10000, function()
-        return #jobs.list() > before
+        return jobs_added_since(before)[1] ~= nil
       end),
       "ターミナルのジョブが登録されない"
     )
+
+    -- ターミナルへフォーカスが移るので一覧のフロートは残らない。
+    assert.is_nil(lifecycle.get("container"), "一覧が閉じること")
+    assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid))
 
     local bufnr = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_delete(bufnr, { force = true })
 
     assert(
       vim.wait(10000, function()
-        return #jobs.list() == before
+        return #jobs_added_since(before) == 0
       end),
-      "ジョブ台帳から外れない"
+      ("ジョブ台帳から外れない (残っているジョブ: %s)"):format(vim.inspect(jobs_added_since(before)))
     )
     assert(
       vim.wait(10000, function()
@@ -378,12 +407,12 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
   it("US-005: シェルを開ける / 停止中のコンテナでは開かない", function()
     local handle = open_view("container")
     wait_for_line(handle, PREFIX .. "-standalone")
-    local jobs_before = #jobs.list()
+    local jobs_before = job_set()
 
     act_on(handle, PREFIX .. "-standalone", "shell")
     assert(
       vim.wait(10000, function()
-        return #jobs.list() > jobs_before
+        return jobs_added_since(jobs_before)[1] ~= nil
       end),
       "実行中のコンテナでシェルが開くこと"
     )
@@ -393,14 +422,15 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
     -- 停止中のコンテナでは開かない (BR-007)
     local stopped = PREFIX .. "-stopped"
     sh({ "docker", "create", "--name", stopped, vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", "true" })
-    lifecycle.dispatch_for_test(handle, "refresh")
+    -- シェルへ移った時点で一覧は閉じているので開き直す。
+    handle = open_view("container")
     wait_for_line(handle, stopped)
 
-    local before = #jobs.list()
+    local before = job_set()
     act_on(handle, stopped, "shell")
     vim.wait(1500)
 
-    assert.are.equal(before, #jobs.list(), "停止中のコンテナではシェルを開かないこと")
+    assert.are.same({}, jobs_added_since(before), "停止中のコンテナではシェルを開かないこと")
     sh({ "docker", "rm", "-f", stopped })
   end)
 

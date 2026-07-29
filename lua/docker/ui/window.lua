@@ -81,6 +81,11 @@ function M.open(opts)
     zindex = opts.zindex,
   })
 
+  -- 既定の NormalFloat は背景色を持つため、winbar だけが透過して見える。
+  -- 本体と外枠をエディタの Normal に寄せ、背景を透過している環境では
+  -- フロート全体が透ける。
+  vim.wo[winid].winhighlight = "NormalFloat:Normal,FloatBorder:Normal"
+
   if opts.winbar then
     vim.wo[winid].winbar = opts.winbar
   end
@@ -109,6 +114,17 @@ function M.close(handle)
   open_windows[handle.winid] = nil
   if vim.api.nvim_win_is_valid(handle.winid) then
     vim.api.nvim_win_close(handle.winid, true)
+  end
+end
+
+--- 開いている全てのフロートを閉じる。
+function M.close_all()
+  local handles = {}
+  for _, handle in pairs(open_windows) do
+    table.insert(handles, handle)
+  end
+  for _, handle in ipairs(handles) do
+    M.close(handle)
   end
 end
 

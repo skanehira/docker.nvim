@@ -70,9 +70,10 @@ describe("docker.handlers.terminal", function()
   end)
 
   describe("ウィンドウの扱い", function()
-    it("一覧のフロートを開いたまま起動しても一覧のバッファを奪わない", function()
+    it("フォーカスのあるフロートのバッファを奪わない", function()
       -- フロートにフォーカスがある状態で `enew` すると、bufhidden=wipe の
       -- 一覧バッファが破棄され、一覧が二度と開けなくなる。
+      -- 一覧そのものを閉じるのは lifecycle の役目で、ここでは扱わない。
       local float = window.open({ title = "Containers" })
       window.set_lines(float, { "web  alpine" })
 

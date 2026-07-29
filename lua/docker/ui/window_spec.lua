@@ -60,6 +60,14 @@ describe("docker.ui.window", function()
       assert.are.equal(60, vim.api.nvim_win_get_config(upper.winid).zindex)
     end)
 
+    it("本体と外枠の背景をエディタと同じにする", function()
+      -- 既定のままだと本文は NormalFloat の背景で塗られ、winbar だけが
+      -- 透過して見える。背景を Normal に寄せてフロート全体を揃える。
+      local handle = open()
+
+      assert.are.equal("NormalFloat:Normal,FloatBorder:Normal", vim.wo[handle.winid].winhighlight)
+    end)
+
     it("エディタの中央に配置する", function()
       local handle = open()
 

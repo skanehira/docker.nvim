@@ -458,6 +458,41 @@ function M.dispatch_for_test(handle, action)
   dispatch(handle, action)
 end
 
+local focus_group = vim.api.nvim_create_augroup("DockerNvimViewFocus", { clear = true })
+local focus_watching = false
+
+--- ウィンドウ移動の監視を止める。ビューを開いていない間は常駐させない。
+local function unwatch_focus()
+  if not focus_watching then
+    return
+  end
+  focus_watching = false
+  vim.api.nvim_clear_autocmds({ group = focus_group })
+end
+
+--- 一覧の外へフォーカスが移ったらフロートを閉じる。
+--- ログやシェルのターミナルを開いた後に、一覧が裏へ残り続けないようにする。
+local function watch_focus()
+  if focus_watching then
+    return
+  end
+  focus_watching = true
+  vim.api.nvim_create_autocmd("WinEnter", {
+    group = focus_group,
+    desc = "docker.nvim: 一覧の外へフォーカスが移ったらフロートを閉じる",
+    callback = function()
+      -- 移動先がフロートなら残す。プラグインのビューは全てフロートなので
+      -- 詳細・ヘルプ・別種別の一覧への移動がこれで除ける (BR-018)。
+      -- vim.ui.input をフロートで実装している環境の確認プロンプトも同様に除ける。
+      local winid = vim.api.nvim_get_current_win()
+      if vim.api.nvim_win_get_config(winid).relative ~= "" then
+        return
+      end
+      M.close_all()
+    end,
+  })
+end
+
 --- 一覧ビューを開く。既に開いていればそのウィンドウへ移動する。
 --- docker への接続確認が非同期なので、開き終わりは `on_open` で受け取る。
 ---@param kind string
@@ -508,6 +543,9 @@ function M.open(kind, on_open)
     -- 取得失敗のときに空のフロートだけが残らないようにする (7.3)。
     local function present(loaded)
       highlight.setup()
+      -- 応答を待っている間に閉じられて開き直されると、受付が戻っているため
+      -- ここへ 2 度到達する。古い方を閉じないと孤児のフロートが残る。
+      M.close(kind)
       local handle = {
         kind = kind,
         def = def,
@@ -518,6 +556,7 @@ function M.open(kind, on_open)
       }
       views[kind] = handle
       bind_keys(handle)
+      watch_focus()
       store.replace_all(kind, loaded.data)
       handle.state = view.with_items(handle.state, store.list(kind))
       redraw(handle)
@@ -557,16 +596,25 @@ function M.close(kind)
     handle.subscription.stop()
     handle.subscription = nil
   end
+  -- 最後の 1 つを閉じたら監視も外す。閉じたことで起きるフォーカス移動に
+  -- 任せると、移動先がフロートだったときに監視だけが残る。
+  if next(views) == nil then
+    unwatch_focus()
+  end
   window.close(handle.window)
 end
 
 --- 開いている全てのビューを閉じる。
 function M.close_all()
+  -- 先に監視を止める。閉じたことで起きるフォーカス移動で再入しないようにする。
+  unwatch_focus()
   for kind in pairs(views) do
     M.close(kind)
   end
   views = {}
   opening = {}
+  -- 詳細とヘルプは views に載らないので、ここでまとめて片付ける。
+  window.close_all()
 end
 
 --- 開いているビューを返す。
