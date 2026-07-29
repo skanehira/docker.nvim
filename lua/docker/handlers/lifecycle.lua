@@ -52,7 +52,7 @@ local function redraw(handle)
     cursor = vim.api.nvim_win_get_cursor(handle.window.winid)
   end
 
-  list.render(handle.window, handle.def, handle.state.items, {
+  list.render(handle.window, handle.def, view.visible_items(handle.state, handle.def), {
     busy = function(item)
       return operations.has_any(tostring(handle.def.id(item)))
     end,
@@ -189,6 +189,124 @@ local function subscribe_events(handle)
   })
 end
 
+--- 辿った先で、対応する行へカーソルを合わせる。
+---@param handle docker.ViewHandle
+---@param match fun(item: table): boolean
+local function focus_on(handle, match)
+  local visible = view.visible_items(handle.state, handle.def)
+  for index, item in ipairs(visible) do
+    if match(item) then
+      pcall(vim.api.nvim_win_set_cursor, handle.window.winid, { index, 0 })
+      handle.state = view.with_cursor(handle.state, index)
+      return
+    end
+  end
+end
+
+--- カーソル行から辿れる先を決める。
+---@param handle docker.ViewHandle
+---@return { kind: string, match: fun(item: table): boolean }|nil
+local function drilldown_target(handle)
+  local lnum = vim.api.nvim_win_get_cursor(handle.window.winid)[1]
+  local item = list.item_at(view.visible_items(handle.state, handle.def), lnum)
+  if not item then
+    return nil
+  end
+
+  if handle.kind == "container" then
+    -- コンテナ -> そのイメージ
+    local image = tostring(item.image or "")
+    if image == "" then
+      return nil
+    end
+    return {
+      kind = "image",
+      match = function(candidate)
+        local ref = ("%s:%s"):format(tostring(candidate.repository), tostring(candidate.tag))
+        return ref == image or tostring(candidate.id) == image
+      end,
+    }
+  end
+
+  if handle.kind == "image" then
+    -- イメージ -> それを使うコンテナ
+    local ref = ("%s:%s"):format(tostring(item.repository), tostring(item.tag))
+    return {
+      kind = "container",
+      match = function(candidate)
+        return tostring(candidate.image) == ref
+      end,
+    }
+  end
+
+  if handle.kind == "service" then
+    -- サービス -> そのコンテナ
+    local container_id = tostring(item.container_id or "")
+    if container_id == "" then
+      return nil
+    end
+    return {
+      kind = "container",
+      match = function(candidate)
+        return tostring(candidate.id) == container_id
+      end,
+    }
+  end
+
+  return nil
+end
+
+--- 選択範囲のリソースをまとめて削除する。
+--- 一部が失敗しても他は実行し、失敗分をまとめて知らせる (原子性は保証しない)。
+---@param handle docker.ViewHandle
+local function bulk_delete(handle)
+  -- Visual モードを抜けてから範囲を取る (抜けないと '< '> が更新されない)。
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  local first = vim.fn.line("'<")
+  local last = vim.fn.line("'>")
+
+  local visible = view.visible_items(handle.state, handle.def)
+  local targets = {}
+  for lnum = first, last do
+    local item = list.item_at(visible, lnum)
+    if item then
+      table.insert(targets, item)
+    end
+  end
+
+  if #targets == 0 then
+    return
+  end
+
+  vim.ui.input({ prompt = ("%d 件を削除しますか? (y/N): "):format(#targets) }, function(answer)
+    if answer ~= "y" and answer ~= "Y" then
+      return
+    end
+
+    local remaining = #targets
+    local failures = {}
+    for _, item in ipairs(targets) do
+      local delete_args = assert(handle.def.delete_args)
+      cli.run(delete_args(item), function(result)
+        if not result.ok then
+          table.insert(failures, ("%s: %s"):format(tostring(item.name or item.id), result.error))
+        end
+        remaining = remaining - 1
+        if remaining == 0 then
+          if #failures == 0 then
+            notify.info(("%d 件を削除しました"):format(#targets))
+          else
+            notify.error(
+              ("%d 件が削除できませんでした:\n%s"):format(#failures, table.concat(failures, "\n"))
+            )
+          end
+          fetch(handle)
+        end
+      end)
+    end
+  end)
+end
+
 --- カーソル行のリソースに対してアクションを実行する。
 ---@param handle docker.ViewHandle
 ---@param action string
@@ -204,6 +322,37 @@ local function dispatch(handle, action)
     if not handle.subscription or not handle.subscription.is_alive() then
       subscribe_events(handle)
     end
+    return
+  end
+
+  if action == "filter" then
+    vim.ui.input({ prompt = "絞り込み (空で解除): ", default = handle.state.filter }, function(text)
+      if text == nil then
+        return
+      end
+      handle.state = view.with_filter(handle.state, vim.trim(text))
+      redraw(handle)
+    end)
+    return
+  end
+
+  if action == "drilldown" then
+    local target = drilldown_target(handle)
+    if not target then
+      notify.warn("この行から辿れる先がありません")
+      return
+    end
+    M.open(target.kind, function(opened)
+      if opened then
+        -- 辿った先で対象の行へカーソルを移す。
+        focus_on(opened, target.match)
+      end
+    end)
+    return
+  end
+
+  if action == "delete" and vim.fn.mode():lower():find("v") then
+    bulk_delete(handle)
     return
   end
 
@@ -240,9 +389,10 @@ local function dispatch(handle, action)
 
   local lnum = vim.api.nvim_win_get_cursor(handle.window.winid)[1]
   handle.state = view.with_cursor(handle.state, lnum)
+  local visible = view.visible_items(handle.state, handle.def)
 
   if action == "inspect" then
-    local item = list.item_at(handle.state.items, lnum)
+    local item = list.item_at(visible, lnum)
     if item then
       inspect.open(handle.def, item)
     else
@@ -253,7 +403,7 @@ local function dispatch(handle, action)
 
   actions.execute(action, {
     def = handle.def,
-    item = list.item_at(handle.state.items, lnum),
+    item = list.item_at(visible, lnum),
     cwd = handle.cwd,
     project = handle.project,
   })

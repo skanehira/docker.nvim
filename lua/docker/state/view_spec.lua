@@ -3,7 +3,7 @@ local view = require("docker.state.view")
 describe("docker.state.view", function()
   describe("new", function()
     it("種別を持ち項目が空でカーソルが先頭の状態を作る", function()
-      assert.are.same({ kind = "container", items = {}, cursor = 1 }, view.new("container"))
+      assert.are.same({ kind = "container", items = {}, cursor = 1, filter = "" }, view.new("container"))
     end)
   end)
 
@@ -13,7 +13,7 @@ describe("docker.state.view", function()
 
       local after = view.with_items(before, { { id = "a" } })
 
-      assert.are.same({ kind = "container", items = { { id = "a" } }, cursor = 1 }, after)
+      assert.are.same({ kind = "container", items = { { id = "a" } }, cursor = 1, filter = "" }, after)
     end)
 
     it("元の状態を書き換えない", function()
@@ -22,7 +22,7 @@ describe("docker.state.view", function()
 
       view.with_items(before, { { id = "a" } })
 
-      assert.are.same({ kind = "container", items = {}, cursor = 1 }, before)
+      assert.are.same({ kind = "container", items = {}, cursor = 1, filter = "" }, before)
     end)
 
     it("渡した配列を後から変更しても状態の項目は変わらない", function()
@@ -94,6 +94,90 @@ describe("docker.state.view", function()
 
     it("項目が0件のときはnilを返す", function()
       assert.is_nil(view.selected(view.new("container")))
+    end)
+  end)
+
+  describe("絞り込み", function()
+    local registry = require("docker.resources.registry")
+    local def = assert(registry.get("container"))
+
+    ---@param overrides table
+    local function container(overrides)
+      return vim.tbl_extend("force", {
+        id = "id",
+        name = "web",
+        image = "alpine",
+        state = "running",
+        status = "Up",
+        ports = "",
+        command = "x",
+        created_at = "now",
+        compose_project = "",
+        compose_service = "",
+        compose_oneoff = "",
+      }, overrides)
+    end
+
+    local function with(items)
+      return view.with_items(view.new("container"), items)
+    end
+
+    it("絞り込みが空なら全件を返す", function()
+      local state = with({ container({ id = "1" }), container({ id = "2" }) })
+
+      assert.are.equal(2, #view.visible_items(state, def))
+    end)
+
+    it("表示値に部分一致する行だけを返す", function()
+      local state = with({
+        container({ id = "1", name = "web-server" }),
+        container({ id = "2", name = "database" }),
+      })
+
+      local visible = view.visible_items(view.with_filter(state, "web"), def)
+
+      assert.are.equal(1, #visible)
+      assert.are.equal("web-server", visible[1].name)
+    end)
+
+    it("大文字小文字を区別しない", function()
+      local state = with({ container({ name = "WebServer" }) })
+
+      assert.are.equal(1, #view.visible_items(view.with_filter(state, "webserver"), def))
+    end)
+
+    it("名前以外の列にも一致する", function()
+      local state = with({ container({ name = "a", image = "postgres:16" }) })
+
+      assert.are.equal(1, #view.visible_items(view.with_filter(state, "postgres"), def))
+    end)
+
+    it("一致しなければ0件になる", function()
+      local state = with({ container({ name = "web" }) })
+
+      assert.are.same({}, view.visible_items(view.with_filter(state, "zzz"), def))
+    end)
+
+    it("絞り込みを解除すると全行に戻る", function()
+      local state = with({ container({ id = "1", name = "web" }), container({ id = "2", name = "db" }) })
+      local filtered = view.with_filter(state, "web")
+
+      local cleared = view.with_filter(filtered, "")
+
+      assert.are.equal(2, #view.visible_items(cleared, def))
+    end)
+
+    it("絞り込みを変えるとカーソルは先頭へ戻る", function()
+      -- 行と項目の対応が変わるため、位置を保つと別の対象を指してしまう。
+      local state = view.with_cursor(with({ container({ id = "1" }), container({ id = "2" }) }), 2)
+
+      assert.are.equal(1, view.with_filter(state, "web").cursor)
+    end)
+
+    it("項目を差し替えても絞り込みは保つ", function()
+      local state = view.with_filter(with({ container({ name = "web" }) }), "web")
+
+      assert.are.equal("web", view.with_items(state, { container({ name = "web" }) }).filter)
     end)
   end)
 end)

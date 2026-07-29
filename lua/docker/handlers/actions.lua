@@ -37,6 +37,18 @@ local CONTAINER_ACTIONS = {
     args = "restart",
     success = "%s を再起動しました",
   },
+  pause = {
+    args = "pause",
+    requires = { running = true },
+    denied = "%s は実行中ではないため一時停止できません",
+    success = "%s を一時停止しました",
+  },
+  unpause = {
+    args = "unpause",
+    requires = { paused = true },
+    denied = "%s は一時停止していません",
+    success = "%s の一時停止を解除しました",
+  },
   kill = {
     args = "kill",
     requires = { running = true, restarting = true },

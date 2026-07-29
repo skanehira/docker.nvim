@@ -8,6 +8,7 @@ local M = {}
 ---@field kind string     リソース種別
 ---@field items table[]   表示中のリソース
 ---@field cursor integer  カーソル行 (1 始まり)
+---@field filter string   絞り込みの語 (空なら全件)
 
 ---@param count integer
 ---@param cursor integer
@@ -22,7 +23,7 @@ end
 ---@param kind string
 ---@return docker.ViewState
 function M.new(kind)
-  return { kind = kind, items = {}, cursor = 1 }
+  return { kind = kind, items = {}, cursor = 1, filter = "" }
 end
 
 --- 表示するリソースを差し替える。カーソルは保つが、範囲外になれば丸める。
@@ -34,6 +35,7 @@ function M.with_items(state, items)
     kind = state.kind,
     items = vim.deepcopy(items),
     cursor = clamp_cursor(#items, state.cursor),
+    filter = state.filter or "",
   }
 end
 
@@ -46,7 +48,45 @@ function M.with_cursor(state, cursor)
     kind = state.kind,
     items = vim.deepcopy(state.items),
     cursor = clamp_cursor(#state.items, cursor),
+    filter = state.filter or "",
   }
+end
+
+--- 絞り込みの語を差し替える。カーソルは先頭へ戻す (行の対応が変わるため)。
+---@param state docker.ViewState
+---@param filter string
+---@return docker.ViewState
+function M.with_filter(state, filter)
+  return {
+    kind = state.kind,
+    items = vim.deepcopy(state.items),
+    cursor = 1,
+    filter = filter or "",
+  }
+end
+
+--- 絞り込みを適用した後の項目。
+--- 表示に使う値のどれかに部分一致すれば残す (大文字小文字は区別しない)。
+---@param state docker.ViewState
+---@param def docker.ResourceDefinition
+---@return table[]
+function M.visible_items(state, def)
+  local filter = state.filter or ""
+  if filter == "" then
+    return state.items
+  end
+
+  local needle = filter:lower()
+  local matched = {}
+  for _, item in ipairs(state.items) do
+    for _, column in ipairs(def.columns) do
+      if tostring(column.value(item)):lower():find(needle, 1, true) then
+        table.insert(matched, item)
+        break
+      end
+    end
+  end
+  return matched
 end
 
 --- カーソル行のリソース。0 件のときは nil。

@@ -222,17 +222,17 @@ USER_STORIES.md の Should（US-017、US-021〜US-024、US-027）に対応。
 
 USER_STORIES.md の Could（US-028〜US-031）に対応。
 
-- [ ] [RED] ドリルダウンのテストを作成（コンテナからイメージへ、サービスからコンテナへ移動し対象にカーソルが当たる）
-- [ ] [GREEN] `drilldown` アクションの実装
-- [ ] [RED] 一括削除のテストを作成（Visual モードの選択範囲が対象になる、確認に件数が含まれる、一部失敗時に成功分は削除され失敗分がまとめて通知される）
-- [ ] [GREEN] 一括削除の実装
-- [ ] [RED] pause / unpause のテストを `lua/docker/handlers/actions_spec.lua` に追加（発行する引数、停止中コンテナへの pause と一時停止していないコンテナへの unpause を拒否する）
-- [ ] [GREEN] `pause` / `unpause` アクションの実装
-- [ ] [RED] 絞り込みのテストを `lua/docker/views/list_filter_spec.lua` に作成（`<C-f>` で部分一致する行のみ表示される、解除で全行に戻る、`/` は Neovim 本来の検索として残る）
-- [ ] [GREEN] `filter` アクションの実装
-- [ ] [REFACTOR] ビュー状態（フィルタ）の持ち方を整理する
-- [ ] [REVIEW] フェーズ実装の簡易セルフレビューと修正
-- [ ] [CHECK] `make check` の実行と確認
+- [x] [RED] ドリルダウンのテストを作成（コンテナからイメージへ、サービスからコンテナへ移動し対象にカーソルが当たる）
+- [x] [GREEN] `drilldown` アクションの実装
+- [x] [RED] 一括削除のテストを作成（Visual モードの選択範囲が対象になる、確認に件数が含まれる、一部失敗時に成功分は削除され失敗分がまとめて通知される）
+- [x] [GREEN] 一括削除の実装
+- [x] [RED] pause / unpause のテストを `lua/docker/handlers/actions_spec.lua` に追加（発行する引数、停止中コンテナへの pause と一時停止していないコンテナへの unpause を拒否する）
+- [x] [GREEN] `pause` / `unpause` アクションの実装
+- [x] [RED] 絞り込みのテストを `lua/docker/views/list_filter_spec.lua` に作成（`<C-f>` で部分一致する行のみ表示される、解除で全行に戻る、`/` は Neovim 本来の検索として残る）
+- [x] [GREEN] `filter` アクションの実装
+- [x] [REFACTOR] ビュー状態（フィルタ）の持ち方を整理する
+- [x] [REVIEW] フェーズ実装の簡易セルフレビューと修正
+- [x] [CHECK] `make check` の実行と確認
 
 ### フェーズ11-a: 品質保証 <!-- deps: 1,2,3,4,5,6,7,8,9,10 -->
 

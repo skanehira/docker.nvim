@@ -321,4 +321,32 @@ describe("docker.handlers.actions", function()
       assert.are.same({ "docker", "restart", "abc123" }, last_run())
     end)
   end)
+
+  describe("pause と unpause", function()
+    it("実行中のコンテナをpauseする", function()
+      actions.execute("pause", { def = def, item = container({ state = "running" }) })
+
+      assert.are.same({ "docker", "pause", "abc123" }, last_run())
+    end)
+
+    it("一時停止中のコンテナをunpauseする", function()
+      actions.execute("unpause", { def = def, item = container({ state = "paused" }) })
+
+      assert.are.same({ "docker", "unpause", "abc123" }, last_run())
+    end)
+
+    it("停止中のコンテナはpauseせず警告する", function()
+      actions.execute("pause", { def = def, item = container({ state = "exited" }) })
+
+      assert.are.same({}, runs)
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+    end)
+
+    it("一時停止していないコンテナはunpauseせず警告する", function()
+      actions.execute("unpause", { def = def, item = container({ state = "running" }) })
+
+      assert.are.same({}, runs)
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+    end)
+  end)
 end)
