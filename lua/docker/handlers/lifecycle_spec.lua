@@ -535,7 +535,7 @@ describe("docker.handlers.lifecycle", function()
         visual[m.lhs] = true
       end
 
-      assert.is_true(visual["<C-D>"] or visual["<C-d>"], "Visual に <C-d> が張られていること")
+      assert.is_true(visual["D"], "Visual に D が張られていること")
     end)
 
     it("選択範囲の件数を確認プロンプトに出す", function()
@@ -551,7 +551,7 @@ describe("docker.handlers.lifecycle", function()
 
       vim.api.nvim_set_current_win(handle.window.winid)
       vim.cmd("normal! ggVjj")
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-d>", true, false, true), "x", false)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("D", true, false, true), "x", false)
       vim.wait(300)
       vim.ui.input = original_input
 
@@ -579,7 +579,7 @@ describe("docker.handlers.lifecycle", function()
 
       vim.api.nvim_set_current_win(handle.window.winid)
       vim.cmd("normal! ggVj")
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-d>", true, false, true), "x", false)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("D", true, false, true), "x", false)
       vim.wait(500)
       vim.ui.input = original_input
 
@@ -605,7 +605,7 @@ describe("docker.handlers.lifecycle", function()
 
       vim.api.nvim_set_current_win(handle.window.winid)
       vim.cmd("normal! ggVj")
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-d>", true, false, true), "x", false)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("D", true, false, true), "x", false)
       vim.wait(300)
       vim.ui.input = original_input
 
@@ -636,7 +636,7 @@ describe("docker.handlers.lifecycle", function()
 
       vim.api.nvim_set_current_win(handle.window.winid)
       vim.cmd("normal! ggVj")
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-d>", true, false, true), "x", false)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("D", true, false, true), "x", false)
       vim.wait(500)
       vim.ui.input = original_input
 

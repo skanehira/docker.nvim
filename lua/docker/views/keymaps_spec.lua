@@ -51,7 +51,7 @@ describe("docker.views.keymaps", function()
     it("無効にしたアクションは解決されない", function()
       config.setup({ keymaps = { container_list = { delete = false } } })
 
-      assert.is_nil(keymaps.resolve("container_list")["<C-d>"])
+      assert.is_nil(keymaps.resolve("container_list")["D"])
     end)
 
     it("未知のビュー種別は共通のキーだけを返す", function()
@@ -71,7 +71,7 @@ describe("docker.views.keymaps", function()
         actions[row.action] = row.key
       end
       assert.are.equal("r", actions.quickrun)
-      assert.are.equal("<C-d>", actions.delete)
+      assert.are.equal("D", actions.delete)
       assert.are.equal("<CR>", actions.inspect)
     end)
 

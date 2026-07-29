@@ -15,10 +15,8 @@ describe("docker.views.help", function()
       local lines = help.build("container_list")
 
       local joined = table.concat(lines, "\n")
-      assert.is_truthy(joined:find("u", 1, true))
-      assert.is_truthy(joined:find("start", 1, true))
-      assert.is_truthy(joined:find("<C-d>", 1, true))
-      assert.is_truthy(joined:find("delete", 1, true))
+      assert.is_truthy(joined:match("u%s+start"), joined)
+      assert.is_truthy(joined:match("D%s+delete"), joined)
     end)
 
     it("そのビューで無効な操作は載らない", function()

@@ -36,7 +36,7 @@ describe("docker.config", function()
         shell = "a",
         exec = "e",
         logs = "t",
-        delete = "<C-d>",
+        delete = "D",
         copy_to = "ct",
         copy_from = "cf",
         edit_file = "E",
@@ -49,9 +49,9 @@ describe("docker.config", function()
       config.setup()
 
       local keymaps = config.get().keymaps
-      assert.are.same({ quickrun = "r", delete = "<C-d>", drilldown = "gd" }, keymaps.image_list)
-      assert.are.same({ delete = "<C-d>" }, keymaps.volume_list)
-      assert.are.same({ delete = "<C-d>" }, keymaps.network_list)
+      assert.are.same({ quickrun = "r", delete = "D", drilldown = "gd" }, keymaps.image_list)
+      assert.are.same({ delete = "D" }, keymaps.volume_list)
+      assert.are.same({ delete = "D" }, keymaps.network_list)
     end)
 
     it("全ビュー共通のキーが定義される", function()

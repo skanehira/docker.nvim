@@ -31,7 +31,7 @@ local DEFAULT_KEYMAPS = {
     shell = "a",
     exec = "e",
     logs = "t",
-    delete = "<C-d>",
+    delete = "D",
     copy_to = "ct",
     copy_from = "cf",
     edit_file = "E",
@@ -40,14 +40,14 @@ local DEFAULT_KEYMAPS = {
   },
   image_list = {
     quickrun = "r",
-    delete = "<C-d>",
+    delete = "D",
     drilldown = "gd",
   },
   volume_list = {
-    delete = "<C-d>",
+    delete = "D",
   },
   network_list = {
-    delete = "<C-d>",
+    delete = "D",
   },
   service_list = {
     up = "u",
