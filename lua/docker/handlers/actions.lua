@@ -3,9 +3,11 @@
 --- 前提状態の検査 (BR-007) → 重複要求の排除 (BR-009) → docker 実行 の順で進める。
 --- 失敗しても内部状態は変えない。一覧は docker のイベント経由で更新される。
 local cli = require("docker.adapters.docker.cli")
+local file_edit = require("docker.handlers.file_edit")
 local compose = require("docker.adapters.docker.compose")
 local notify = require("docker.notify")
 local operations = require("docker.handlers.operations")
+local ports = require("docker.resources.ports")
 local terminal = require("docker.handlers.terminal")
 
 local M = {}
@@ -174,13 +176,70 @@ local function open_terminal(name, item, label)
   end)
 end
 
+--- 使い捨てコンテナで起動する対象。タグが付いていればそちらを使う。
+---@param item table
+---@return string
+local function image_ref(item)
+  local repository = tostring(item.repository or "")
+  local tag = tostring(item.tag or "")
+  if repository ~= "" and repository ~= "<none>" and tag ~= "" and tag ~= "<none>" then
+    return ("%s:%s"):format(repository, tag)
+  end
+  return tostring(item.id)
+end
+
+--- 公開ポートをブラウザで開く。複数あれば選ばせる。
+---@param item table
+---@param label string
+local function open_browser(item, label)
+  local urls = ports.published(item.ports)
+  if #urls == 0 then
+    notify.warn(("%s には公開されているポートがありません"):format(label))
+    return
+  end
+  if #urls == 1 then
+    vim.ui.open(urls[1])
+    return
+  end
+  vim.ui.select(urls, { prompt = ("%s のどのポートを開きますか?"):format(label) }, function(choice)
+    if choice then
+      vim.ui.open(choice)
+    end
+  end)
+end
+
+--- 2 つのパスを尋ねてから `docker cp` を実行する。
+---@param item table
+---@param label string
+---@param direction "to"|"from"
+local function copy_file(item, label, direction)
+  local id = tostring(item.id)
+  local first = direction == "to" and "コピー元 (ホスト): " or ("コピー元 (%s 内): "):format(label)
+  local second = direction == "to" and ("コピー先 (%s 内): "):format(label) or "コピー先 (ホスト): "
+
+  vim.ui.input({ prompt = first }, function(source)
+    if type(source) ~= "string" or vim.trim(source) == "" then
+      return
+    end
+    vim.ui.input({ prompt = second }, function(destination)
+      if type(destination) ~= "string" or vim.trim(destination) == "" then
+        return
+      end
+      local from = direction == "to" and source or ("%s:%s"):format(id, source)
+      local to = direction == "to" and ("%s:%s"):format(id, destination) or destination
+      run_exclusive(id, label, "copy", { "cp", from, to }, "%s のコピーが完了しました")
+    end)
+  end)
+end
+
 --- アクションを実行する。
 ---@param name string
 ---@param ctx docker.ActionContext
 function M.execute(name, ctx)
   local spec = CONTAINER_ACTIONS[name]
   local terminal_spec = TERMINAL_ACTIONS[name]
-  if ctx.def.kind ~= "service" and not spec and not terminal_spec and name ~= "delete" then
+  local EXTRA = { quickrun = true, open_browser = true, copy_to = true, copy_from = true, edit_file = true }
+  if ctx.def.kind ~= "service" and not spec and not terminal_spec and not EXTRA[name] and name ~= "delete" then
     notify.warn(("未対応の操作です: %s"):format(tostring(name)))
     return
   end
@@ -238,6 +297,31 @@ function M.execute(name, ctx)
 
   if name == "delete" then
     delete(ctx, item, label)
+    return
+  end
+
+  if name == "quickrun" then
+    terminal.open_quickrun(image_ref(item), label)
+    return
+  end
+
+  if name == "open_browser" then
+    open_browser(item, label)
+    return
+  end
+
+  if name == "edit_file" then
+    vim.ui.input({ prompt = ("%s 内の編集するファイル: "):format(label) }, function(path)
+      if type(path) ~= "string" or vim.trim(path) == "" then
+        return
+      end
+      file_edit.open(tostring(item.id), label, vim.trim(path))
+    end)
+    return
+  end
+
+  if name == "copy_to" or name == "copy_from" then
+    copy_file(item, label, name == "copy_to" and "to" or "from")
     return
   end
 

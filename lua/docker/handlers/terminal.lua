@@ -141,6 +141,15 @@ function M.open_compose_logs(service, label, cwd)
   return open({ "docker", "compose", "logs", "-f", service }, ("logs/%s"):format(label), cwd)
 end
 
+--- イメージから使い捨てのコンテナを起動してシェルを開く。
+--- `--rm` によりシェルを抜けた時点で自動的に削除される。
+---@param image string
+---@param label string
+---@return docker.Terminal
+function M.open_quickrun(image, label)
+  return open({ "docker", "run", "--rm", "-it", "--entrypoint", "sh", image }, ("run/%s"):format(label))
+end
+
 --- コンテナ内でコマンドを実行する。
 ---@param id string
 ---@param label string

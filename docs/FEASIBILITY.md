@@ -209,7 +209,9 @@
 
 **判断**: 成功 → 保存フック方式で実装 / 失敗 → 明示コマンド方式
 
-<!-- POC_STATUS: id=container-file-edit, blocker=false, status=unresolved -->
+**結果（2026-07-30、フェーズ 9 の実装後に実測）**: 成功。実コンテナに対し `docker cp` で取り出し、`docker://<container>/<path>` のバッファを `buftype=acwrite` で開き、`:write` で `BufWriteCmd` を発火させて書き戻せることを確認した（コンテナ内のファイルが実際に書き換わることまで確認）。バッファは `nvim_create_buf` で作ってから名前と種別を与える必要がある（`bufadd` + `bufload` だと種別が戻り横取りが効かない）。書き戻し失敗時に `modified` を保持することも確認済み。**明示コマンドへの切り替えは不要。**
+
+<!-- POC_STATUS: id=container-file-edit, blocker=false, status=verified, confidence=0.95 -->
 
 ---
 

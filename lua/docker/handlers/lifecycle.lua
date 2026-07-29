@@ -207,6 +207,28 @@ local function dispatch(handle, action)
     return
   end
 
+  if action == "switch_view" then
+    -- 切替先を選ばせ、同じ流れで開く (今のビューは閉じる)。
+    local choices = registry.subcommands()
+    vim.ui.select(choices, { prompt = "切り替え先のリソース種別" }, function(choice)
+      if not choice then
+        return
+      end
+      local target = registry.by_subcommand(choice)
+      if not target or target.kind == handle.kind then
+        return
+      end
+      M.open(target.kind, function(opened)
+        -- 切替に成功したときだけ元のビューを閉じる。
+        -- compose プロジェクト外などで開けなかった場合に、今のビューを失わせない。
+        if opened then
+          M.close(handle.kind)
+        end
+      end)
+    end)
+    return
+  end
+
   if action == "help" then
     local help_window = help.open(handle.def.view_type)
     -- ヘルプは `q` で閉じて直前の一覧へ戻る (BR-018)。

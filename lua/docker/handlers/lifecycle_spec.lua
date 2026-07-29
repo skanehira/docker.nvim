@@ -327,4 +327,70 @@ describe("docker.handlers.lifecycle", function()
       assert.is_false(vim.api.nvim_buf_is_valid(bufnr), "バッファごと破棄されること")
     end)
   end)
+
+  describe("ビュー切替", function()
+    it("選んだ種別へ切り替えて元のビューを閉じる", function()
+      local handle = assert(open_view("container"))
+      local original_select = vim.ui.select
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.select = function(items, _, on_choice)
+        -- images を選ぶ
+        for _, item in ipairs(items) do
+          if item == "images" then
+            on_choice(item)
+            return
+          end
+        end
+        on_choice(nil)
+      end
+
+      lifecycle.dispatch_for_test(handle, "switch_view")
+      vim.wait(1000, function()
+        return lifecycle.get("image") ~= nil
+      end)
+      vim.ui.select = original_select
+
+      assert.is_truthy(lifecycle.get("image"), "切替先が開くこと")
+      assert.is_nil(lifecycle.get("container"), "元のビューは閉じること")
+    end)
+
+    it("選択をキャンセルすると今のビューが残る", function()
+      local handle = assert(open_view("container"))
+      local original_select = vim.ui.select
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.select = function(_, _, on_choice)
+        on_choice(nil)
+      end
+
+      lifecycle.dispatch_for_test(handle, "switch_view")
+      vim.wait(200)
+      vim.ui.select = original_select
+
+      assert.is_truthy(lifecycle.get("container"), "今のビューが残ること")
+    end)
+
+    it("切替先を開けなかったときは今のビューを閉じない", function()
+      -- compose プロジェクト外で services へ切り替えた場合など。
+      local handle = assert(open_view("container"))
+      local original_select = vim.ui.select
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.select = function(_, _, on_choice)
+        on_choice("services")
+      end
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "version" then
+          on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+        else
+          on_exit({ code = 1, stdout = "", stderr = "no configuration file provided: not found" })
+        end
+      end)
+
+      lifecycle.dispatch_for_test(handle, "switch_view")
+      vim.wait(500)
+      vim.ui.select = original_select
+
+      assert.is_nil(lifecycle.get("service"))
+      assert.is_truthy(lifecycle.get("container"), "切替に失敗したら今のビューを残すこと")
+    end)
+  end)
 end)
