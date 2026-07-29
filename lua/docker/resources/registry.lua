@@ -19,6 +19,7 @@ local M = {}
 ---@field empty_text string              0 件のときに一覧へ出す 1 行
 ---@field list_args fun(): string[]      一覧取得の docker 引数
 ---@field delete_args fun(item: table): string[]  削除の docker 引数 (強制削除は付けない)
+---@field item_args fun(id: string): string[]     1 件だけ取り直す docker 引数
 ---@field id fun(item: table): string    識別子の取り出し
 ---@field columns docker.ColumnDef[]
 ---@field status_column integer|nil      ハイライト対象のカラム位置 (1 始まり)
@@ -64,6 +65,10 @@ local definitions = {
     -- `--no-trunc` が無いと ID が 12 文字、Command が 20 文字で切り詰められる。
     list_args = function()
       return { "ps", "-a", "--no-trunc", "--format", format.template(CONTAINER_FIELDS) }
+    end,
+    -- イベントで変化した 1 件だけを取り直す。全件取得より軽い。
+    item_args = function(id)
+      return { "ps", "-a", "--no-trunc", "--filter", "id=" .. id, "--format", format.template(CONTAINER_FIELDS) }
     end,
     -- 強制削除 (-f) は付けない。実行中コンテナの削除は docker に拒否させる (BR-002)。
     delete_args = function(item)

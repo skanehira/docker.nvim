@@ -3,6 +3,7 @@
 --- 単一のジョブで container / image / volume / network すべてのイベントを受け取る。
 --- `on_stdout` のチャンクは行の途中で切れることがあるため、未完了分を保持して
 --- 次のチャンクと連結してから解析する。
+--- 切断したら待機時間を延ばしながら再購読し、規定回数で諦めて手動更新を促す。
 local jobs = require("docker.handlers.jobs")
 
 local M = {}
@@ -17,13 +18,25 @@ local M = {}
 ---@field stop fun()               意図的な停止
 ---@field is_alive fun(): boolean
 
+--- 再購読の待機時間 (ミリ秒)。最大 5 回まで試す。
+local RETRY_DELAYS = { 1000, 2000, 4000, 8000, 16000 }
+
 ---@type (fun(cmd: string[], handlers: table): integer|nil)|nil
 local starter = nil
+
+---@type (fun(delay: integer, callback: fun()))|nil
+local waiter = nil
 
 --- テスト用の差し替え口。nil を渡すと実際のジョブ起動に戻る。
 ---@param fn (fun(cmd: string[], handlers: table): integer|nil)|nil
 function M._set_starter(fn)
   starter = fn
+end
+
+--- テスト用の差し替え口。nil を渡すと実際の待機に戻る。
+---@param fn (fun(delay: integer, callback: fun()))|nil
+function M._set_waiter(fn)
+  waiter = fn
 end
 
 --- docker が出す 1 行の JSON を `docker.Event` へ変換する。
@@ -100,56 +113,117 @@ local function default_starter(cmd, handlers)
   })
 end
 
---- イベントを購読する。
----@param opts { since: string|nil, on_event: fun(ev: docker.Event), on_disconnect: fun(intentional: boolean)|nil }
+---@param delay integer
+---@param callback fun()
+local function default_waiter(delay, callback)
+  vim.defer_fn(callback, delay)
+end
+
+--- イベントを購読する。切断したら自動で再購読を試みる。
+---@param opts { since: string|nil, on_event: fun(ev: docker.Event), on_disconnect: fun(intentional: boolean)|nil, on_reconnect: fun()|nil, on_giveup: fun()|nil }
 ---@return docker.EventSubscription
 function M.subscribe(opts)
-  local cmd = { "docker", "events", "--format", "{{json .}}" }
-  if opts.since then
-    table.insert(cmd, "--since")
-    table.insert(cmd, opts.since)
-  end
-
-  local decoder = M.new_decoder()
   -- 意図的な停止と外部要因の終了は同じ終了コードになる。先にフラグを立てて区別する。
   local stopping = false
-  local alive = true
-  local job_id
+  local alive = false
+  local attempt = 0
+  local since = opts.since
+  local job_id = nil
 
-  local start = starter or default_starter
-  job_id = start(cmd, {
-    on_stdout = function(chunk)
-      for _, event in ipairs(decoder:push(chunk)) do
-        opts.on_event(event)
-      end
-    end,
-    on_exit = function()
-      alive = false
-      if job_id then
-        jobs.unregister(job_id)
-      end
-      if opts.on_disconnect then
-        opts.on_disconnect(stopping)
-      end
-    end,
-  })
+  local connect
 
-  if type(job_id) == "number" and job_id > 0 then
-    jobs.register(job_id)
-  else
+  ---@param is_retry boolean
+  local function start_once(is_retry)
+    local cmd = { "docker", "events", "--format", "{{json .}}" }
+    if since then
+      table.insert(cmd, "--since")
+      table.insert(cmd, since)
+    end
+
+    local decoder = M.new_decoder()
+    local start = starter or default_starter
+    local id = start(cmd, {
+      on_stdout = function(chunk)
+        -- 停止した後に届いたチャンクは配送しない。
+        if stopping or not alive then
+          return
+        end
+        for _, event in ipairs(decoder:push(chunk)) do
+          -- イベントが届いたことが復旧の証拠。ジョブが起動できただけでは
+          -- (デーモンが落ちていても jobstart は成功するため) 復旧とみなせない。
+          attempt = 0
+          -- 再購読の起点。待機中に取りこぼした分は on_reconnect の全件再取得で整合させる。
+          if type(event.time) == "number" then
+            since = tostring(event.time)
+          end
+          opts.on_event(event)
+        end
+      end,
+      on_exit = function()
+        alive = false
+        if job_id then
+          jobs.unregister(job_id)
+          job_id = nil
+        end
+        if opts.on_disconnect then
+          opts.on_disconnect(stopping)
+        end
+        if not stopping then
+          connect()
+        end
+      end,
+    })
+
+    if type(id) == "number" and id > 0 then
+      job_id = id
+      alive = true
+      jobs.register(id)
+      -- 再購読できたら、待機中に取りこぼした分を全件再取得で埋める。
+      if is_retry and opts.on_reconnect then
+        opts.on_reconnect()
+      end
+      return true
+    end
+
     alive = false
+    return false
+  end
+
+  --- 切断からの再購読。待機時間を延ばしながら規定回数まで試す。
+  connect = function()
+    attempt = attempt + 1
+    local delay = RETRY_DELAYS[attempt]
+    if not delay then
+      if opts.on_giveup then
+        opts.on_giveup()
+      end
+      return
+    end
+
+    local wait = waiter or default_waiter
+    wait(delay, function()
+      if stopping then
+        return
+      end
+      start_once(true)
+    end)
+  end
+
+  if not start_once(false) then
+    -- 起動できなかったことを黙って捨てると、購読していないのに購読中に見える。
+    if opts.on_disconnect then
+      opts.on_disconnect(false)
+    end
   end
 
   return {
     stop = function()
-      if not alive then
-        return
-      end
       stopping = true
       alive = false
       if job_id then
         jobs.unregister(job_id)
         pcall(vim.fn.jobstop, job_id)
+        job_id = nil
       end
     end,
     is_alive = function()

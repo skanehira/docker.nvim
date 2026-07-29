@@ -148,19 +148,19 @@ DESIGN_DETAIL_APP.md「5.2 イベント購読」「7.1 一覧を開いてライ�
 - [x] [GREEN] `adapters/docker/events.lua` の受信・組み立て・解析を実装
 - [x] [RED] 購読の開始と停止のテストを作成（意図的な停止でジョブが登録解除される、停止フラグにより切断と区別される）
 - [x] [GREEN] 購読の開始・停止の実装
-- [ ] [RED] イベントからストア更新までのテストを作成（create / start / stop / destroy が追加・更新・削除に対応する、既に消えた対象の取得失敗を通知しない）
-- [ ] [GREEN] イベント受信時のストア更新を実装
+- [x] [RED] イベントからストア更新までのテストを作成（create / start / stop / destroy が追加・更新・削除に対応する、既に消えた対象の取得失敗を通知しない）
+- [x] [GREEN] イベント受信時のストア更新を実装
 - [x] [RED] 描画デバウンスのテストを `lua/docker/handlers/render_spec.lua` に作成（連続する更新要求が 1 回にまとめられる、再描画後にカーソル位置が保持される、偽の時計でイベント受信から 1 秒以内に描画要求が出ることを検査する）
 - [x] [GREEN] `handlers/render.lua` の実装
-- [ ] [RED] 切断と再購読のテストを `lua/docker/adapters/docker/events_reconnect_spec.lua` に作成（切断を検知して通知する、待機時間を延ばしながら最大 5 回再試行する、成功時に全件再取得で整合させる、5 回失敗で手動更新を促す）
-- [ ] [GREEN] 再購読処理の実装
-- [ ] [RED] 手動再取得のテストを `lua/docker/handlers/actions_refresh_spec.lua` に作成（`R` で再取得と再描画が行われカーソル位置が保たれる、購読が停止していれば再開される）
-- [ ] [GREEN] `refresh` アクションの実装
-- [ ] [RED] ビュー破棄時の後始末のテストを作成（`q` / `:bd` / タブを閉じる のいずれでも購読ジョブが停止する）
-- [ ] [GREEN] ビュー破棄時の購読停止を実装
-- [ ] [REFACTOR] 購読の状態遷移（購読中・切断・再試行中・断念）を整理する
-- [ ] [REVIEW] フェーズ実装の簡易セルフレビューと修正
-- [ ] [CHECK] `make check` の実行と確認
+- [x] [RED] 切断と再購読のテストを `lua/docker/adapters/docker/events_reconnect_spec.lua` に作成（切断を検知して通知する、待機時間を延ばしながら最大 5 回再試行する、成功時に全件再取得で整合させる、5 回失敗で手動更新を促す）
+- [x] [GREEN] 再購読処理の実装
+- [x] [RED] 手動再取得のテストを `lua/docker/handlers/actions_refresh_spec.lua` に作成（`R` で再取得と再描画が行われカーソル位置が保たれる、購読が停止していれば再開される）
+- [x] [GREEN] `refresh` アクションの実装
+- [x] [RED] ビュー破棄時の後始末のテストを作成（`q` / `:bd` / タブを閉じる のいずれでも購読ジョブが停止する）
+- [x] [GREEN] ビュー破棄時の購読停止を実装
+- [x] [REFACTOR] 購読の状態遷移（購読中・切断・再試行中・断念）を整理する
+- [x] [REVIEW] フェーズ実装の簡易セルフレビューと修正
+- [x] [CHECK] `make check` の実行と確認
 
 ### フェーズ7: compose 対応の実装 <!-- deps: 1,2,3,4,5,6 -->
 

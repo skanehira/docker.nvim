@@ -6,6 +6,7 @@
 --- プラグインのキーが作用しないようにするため (BR-014)。
 local actions = require("docker.handlers.actions")
 local cli = require("docker.adapters.docker.cli")
+local events = require("docker.adapters.docker.events")
 local help = require("docker.views.help")
 local highlight = require("docker.ui.highlight")
 local keymaps = require("docker.views.keymaps")
@@ -25,6 +26,7 @@ local M = {}
 ---@field def docker.ResourceDefinition
 ---@field window docker.Window
 ---@field state docker.ViewState
+---@field subscription docker.EventSubscription|nil
 
 --- 種別 -> 開いているビュー
 ---@type table<string, docker.ViewHandle>
@@ -91,6 +93,71 @@ local function fetch(handle, on_done)
   end, { parse = "ndjson" })
 end
 
+--- 対象が消えたことを示すイベントか。
+---@param action string
+---@return boolean
+local function is_removal(action)
+  return action == "destroy" or action == "delete" or action == "remove" or action == "prune"
+end
+
+--- イベントで変わった 1 件だけを取り直してストアへ反映する。
+---@param handle docker.ViewHandle
+---@param event docker.Event
+local function apply_event(handle, event)
+  local function schedule_redraw()
+    render.request(handle.kind, function()
+      local current = views[handle.kind]
+      if current then
+        current.state = view.with_items(current.state, store.list(current.kind))
+        redraw(current)
+      end
+    end)
+  end
+
+  if is_removal(event.action) then
+    store.remove(handle.kind, event.id)
+    schedule_redraw()
+    return
+  end
+
+  cli.run(handle.def.item_args(event.id), function(result)
+    -- 取得できないのは既に消えた場合が大半。利用者へは通知せず一覧から取り除く。
+    if not result.ok or type(result.data) ~= "table" or #result.data == 0 then
+      store.remove(handle.kind, event.id)
+    else
+      store.upsert(handle.kind, result.data[1])
+    end
+    schedule_redraw()
+  end, { parse = "ndjson" })
+end
+
+--- そのビューのイベント購読を始める。
+---@param handle docker.ViewHandle
+local function subscribe_events(handle)
+  handle.subscription = events.subscribe({
+    on_event = function(event)
+      if event.type == handle.def.event_type and views[handle.kind] then
+        apply_event(handle, event)
+      end
+    end,
+    on_disconnect = function(intentional)
+      if not intentional then
+        notify.warn("docker のイベント購読が切断されました。再接続を試みます。")
+      end
+    end,
+    on_reconnect = function()
+      -- 待機中に取りこぼした分があるため、全件取り直して整合させる。
+      if views[handle.kind] then
+        notify.info("docker のイベント購読が回復しました。")
+        fetch(handle)
+      end
+    end,
+    on_giveup = function()
+      notify.warn("イベント購読を回復できませんでした。R で手動更新してください。")
+    end,
+  })
+end
+
 --- カーソル行のリソースに対してアクションを実行する。
 ---@param handle docker.ViewHandle
 ---@param action string
@@ -102,6 +169,10 @@ local function dispatch(handle, action)
 
   if action == "refresh" then
     fetch(handle)
+    -- 切れた購読はここで戻す (G10)。生きている購読は張り直さない。
+    if not handle.subscription or not handle.subscription.is_alive() then
+      subscribe_events(handle)
+    end
     return
   end
 
@@ -131,6 +202,13 @@ local function bind_keys(handle)
       desc = ("docker.nvim: %s"):format(action),
     })
   end
+end
+
+--- テスト用。キー操作に相当する振り分けを直接呼ぶ。
+---@param handle docker.ViewHandle
+---@param action string
+function M.dispatch_for_test(handle, action)
+  dispatch(handle, action)
 end
 
 --- 一覧ビューを開く。既に開いていればそのウィンドウへ移動する。
@@ -180,6 +258,7 @@ function M.open(kind, on_open)
     views[kind] = handle
     bind_keys(handle)
     fetch(handle, function()
+      subscribe_events(handle)
       done(handle)
     end)
   end)
@@ -194,6 +273,10 @@ function M.close(kind)
   end
   views[kind] = nil
   render.cancel(kind)
+  if handle.subscription then
+    handle.subscription.stop()
+    handle.subscription = nil
+  end
   window.close(handle.window)
 end
 

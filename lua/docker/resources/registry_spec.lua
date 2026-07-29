@@ -151,5 +151,20 @@ describe("docker.resources.registry", function()
     it("表示名はContainers", function()
       assert.are.equal("Containers", def.display_name)
     end)
+
+    it("1件だけ取り直す引数はIDで絞り込む", function()
+      local args = def.item_args("abc123")
+
+      assert.are.equal("ps", args[1])
+      assert.is_truthy(vim.tbl_contains(args, "--filter"))
+      assert.is_truthy(vim.tbl_contains(args, "id=abc123"))
+      assert.is_truthy(vim.tbl_contains(args, "-a"), "停止したコンテナも取り直せること")
+      assert.is_truthy(vim.tbl_contains(args, "--no-trunc"))
+    end)
+
+    it("削除の引数は強制削除を付けない", function()
+      -- BR-002: 実行中コンテナの削除は docker に拒否させる。
+      assert.are.same({ "rm", "abc123def456" }, def.delete_args(container()))
+    end)
   end)
 end)
