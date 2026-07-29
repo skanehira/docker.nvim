@@ -1,4 +1,4 @@
-<!-- dev-spec:approved 2026-07-29 goals_sha=e708a6e6eb7fafda72bb76e4be959304b0006a4dab9171ac6769fc3c614109cd -->
+<!-- dev-spec:approved 2026-07-30 goals_sha=1b6e7b97c3a39c3bce678bde9880bdb4956071cffce3d009affd0352bd37951f -->
 # TODO: docker.nvim
 
 作成日: 2026-07-29
