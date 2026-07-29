@@ -93,20 +93,20 @@ DESIGN_DETAIL_APP.md「3.3 リソース定義」「3.4 リソースストア」�
 
 DESIGN_DETAIL_APP.md「2. ディレクトリ構造」の `ui/` と `views/list.lua`、「6.3 入出力」に対応。US-001。
 
-- [ ] [RED] カラム幅算出と行整形のテストを作成（各列の最大幅に揃う、値に全角文字が含まれる場合の桁揃え、空値の扱い）
-- [ ] [GREEN] `ui/table.lua` の実装
-- [ ] [RED] ハイライト適用位置のテストを作成（状態カラムの範囲に状態別のハイライトが付く）
-- [ ] [GREEN] `ui/highlight.lua` の実装（`DockerStatusRunning` などのハイライトグループ定義と extmark による適用）
-- [ ] [RED] ウィンドウ生成のテストを作成（フロートウィンドウが `border` とタイトルを持つ、カラムヘッダーが `winbar` に入る、バッファが `buftype=nofile` かつ `nomodifiable`、`VimResized` で追従する）
-- [ ] [GREEN] `ui/window.lua` の実装（`zindex` による重ね合わせに対応させる）
-- [ ] [RED] 一覧ビューの描画テストを `lua/docker/views/list_spec.lua` に作成（リソース集合からバッファ行が生成される、compose 列の値、非 compose コンテナで空欄になる、0 件のときの表示、カーソル行からリソースを特定できる、各リソース種別の一覧が描画される）
-- [ ] [GREEN] `views/list.lua` と `state/view.lua` の実装
-- [ ] [RED] 状態表示のテストを `lua/docker/views/list_status_spec.lua` に作成（ストア上のコンテナ状態が変わると STATUS 列の文字列とハイライトが変わる）
-- [ ] [GREEN] 状態カラムの描画とハイライト適用を実装
-- [ ] 200 件のコンテナで一覧の取得から描画までの所要時間を計測し、NFR-4 の目標値（初回描画 500 ms 以内）を満たすか確認する。結果を DESIGN_DETAIL_APP.md 11.3 の `large-list-performance` に反映し、満たさない場合は差分更新または表示上限の導入を判断する
-- [ ] [REFACTOR] ビュー状態の更新を不変更新に統一する
-- [ ] [REVIEW] フェーズ実装の簡易セルフレビューと修正
-- [ ] [CHECK] `make check` の実行と確認
+- [x] [RED] カラム幅算出と行整形のテストを作成（各列の最大幅に揃う、値に全角文字が含まれる場合の桁揃え、空値の扱い）
+- [x] [GREEN] `ui/table.lua` の実装
+- [x] [RED] ハイライト適用位置のテストを作成（状態カラムの範囲に状態別のハイライトが付く）
+- [x] [GREEN] `ui/highlight.lua` の実装（`DockerStatusRunning` などのハイライトグループ定義と extmark による適用）
+- [x] [RED] ウィンドウ生成のテストを作成（フロートウィンドウが `border` とタイトルを持つ、カラムヘッダーが `winbar` に入る、バッファが `buftype=nofile` かつ `nomodifiable`、`VimResized` で追従する）
+- [x] [GREEN] `ui/window.lua` の実装（`zindex` による重ね合わせに対応させる）
+- [x] [RED] 一覧ビューの描画テストを `lua/docker/views/list_spec.lua` に作成（リソース集合からバッファ行が生成される、compose 列の値、非 compose コンテナで空欄になる、0 件のときの表示、カーソル行からリソースを特定できる、各リソース種別の一覧が描画される）
+- [x] [GREEN] `views/list.lua` と `state/view.lua` の実装
+- [x] [RED] 状態表示のテストを `lua/docker/views/list_status_spec.lua` に作成（ストア上のコンテナ状態が変わると STATUS 列の文字列とハイライトが変わる）
+- [x] [GREEN] 状態カラムの描画とハイライト適用を実装
+- [x] 200 件のコンテナで一覧の取得から描画までの所要時間を計測し、NFR-4 の目標値（初回描画 500 ms 以内）を満たすか確認する。結果を DESIGN_DETAIL_APP.md 11.3 の `large-list-performance` に反映し、満たさない場合は差分更新または表示上限の導入を判断する
+- [x] [REFACTOR] ビュー状態の更新を不変更新に統一する
+- [x] [REVIEW] フェーズ実装の簡易セルフレビューと修正
+- [x] [CHECK] `make check` の実行と確認
 
 ### フェーズ5: コントローラ・キーマップ・コンテナ操作の実装 <!-- deps: 1,2,3,4 -->
 

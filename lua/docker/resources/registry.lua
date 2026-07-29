@@ -15,6 +15,7 @@ local M = {}
 ---@field kind string                    "container" | "image" | "volume" | "network" | "service"
 ---@field subcommand string              `:Docker` に渡す引数 (例: "containers")
 ---@field display_name string
+---@field empty_text string              0 件のときに一覧へ出す 1 行
 ---@field list_args fun(): string[]      一覧取得の docker 引数
 ---@field id fun(item: table): string    識別子の取り出し
 ---@field columns docker.ColumnDef[]
@@ -55,6 +56,7 @@ local definitions = {
     kind = "container",
     subcommand = "containers",
     display_name = "Containers",
+    empty_text = "コンテナがありません",
     -- `-a` は停止中のコンテナも一覧に含めるため (BR-022)。
     -- `--no-trunc` が無いと ID が 12 文字、Command が 20 文字で切り詰められる。
     list_args = function()

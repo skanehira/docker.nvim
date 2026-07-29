@@ -244,7 +244,9 @@
 
 **判断**: 成功 → 目標値を NFR-4 に確定 / 失敗 → 差分更新または表示上限を設計に含める
 
-<!-- POC_STATUS: id=large-list-performance, blocker=false, status=unresolved -->
+**結果（2026-07-29、フェーズ 4 の実装後に実測）**: 成功。macOS / Neovim 0.13.0 / docker 29.4.0 で、200 件の「解析 → ストア反映 → 描画」が 1.6〜2.2 ms、500 件で 4.5 ms、1000 件で 8.1 ms（おおむね線形）。`docker ps` の実行自体は 18.7〜54.0 ms なので、200 件の初回描画は合計 20〜60 ms に収まり、目標の 500 ms に対して十分な余裕がある。デバウンス幅は 100 ms に確定した（1 秒の目標に対し、再取得 20〜60 ms と描画 2 ms を加えても約 850 ms の余裕が残る）。**代替案（表示上限・差分更新）はいずれも不要。** 詳細は [DESIGN_DETAIL_APP.md の 11.3](DESIGN_DETAIL_APP.md#113-未確定要素) に記載。
+
+<!-- POC_STATUS: id=large-list-performance, blocker=false, status=verified, confidence=0.95 -->
 
 ---
 
