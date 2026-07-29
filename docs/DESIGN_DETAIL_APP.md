@@ -63,6 +63,7 @@ plugin/docker.lua                  :Docker コマンドと <Plug> マッピン�
 lua/docker/init.lua                setup / open / close、キーからアクションへのディスパッチ
 lua/docker/config.lua              デフォルト設定・キーマップ定義・合成・検証
 lua/docker/notify.lua              利用者への通知（情報・警告・エラー）
+lua/docker/format.lua              出力テンプレートの組み立てと NDJSON の解析
 lua/docker/resources/registry.lua  リソース種別ごとの宣言的定義
 lua/docker/resources/fields.lua    生データから表示値を取り出すヘルパ（状態・ポート・経過時間）
 lua/docker/state/store.lua         リソースストアと購読者への通知
@@ -75,7 +76,6 @@ lua/docker/handlers/operations.lua 実行中操作の台帳
 lua/docker/handlers/jobs.lua       ジョブ台帳（VimLeavePre で一括終了）
 lua/docker/handlers/terminal.lua   ターミナルバッファでのコマンド実行
 lua/docker/adapters/docker/cli.lua      docker コマンドの実行（単発）
-lua/docker/adapters/docker/format.lua   出力テンプレートの組み立てと NDJSON の解析
 lua/docker/adapters/docker/events.lua   docker events の購読と再購読
 lua/docker/adapters/docker/compose.lua  docker compose CLI の実行と compose プロジェクトの解決
 lua/docker/views/list.lua          一覧ビュー
@@ -283,7 +283,7 @@ store.subscribe(listener)
 
 ## 5. docker コマンド仕様
 
-PoC で確定した形式をそのまま用いる。テンプレートの組み立ては `adapters/docker/format.lua` に集約する。
+PoC で確定した形式をそのまま用いる。テンプレートの組み立てと NDJSON の解析は `lua/docker/format.lua` に集約する。外界に触れない純粋な文字列処理であり、アダプタ層（`adapters/docker/cli.lua`）とリソース定義（`resources/registry.lua`）の双方から使うため、どちらにも属さない共有の位置に置く。
 
 ### 5.1 一覧取得
 

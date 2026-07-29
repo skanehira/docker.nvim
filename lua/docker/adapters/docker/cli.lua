@@ -2,7 +2,7 @@
 ---
 --- 外界に触れるのはこのモジュールだけで、実行そのものは差し替え可能な実行器に委ねる。
 --- 例外は投げず、常に `docker.Result` を返して呼び出し側に成否の検査を強制する。
-local format = require("docker.adapters.docker.format")
+local format = require("docker.format")
 local notify = require("docker.notify")
 
 local M = {}

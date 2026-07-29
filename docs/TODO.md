@@ -61,33 +61,33 @@ DESIGN_DETAIL_APP.md「1. プロジェクトセットアップ」に対応。
 
 DESIGN_DETAIL_APP.md「3.2 アダプタ層」「5. docker コマンド仕様」「8. エラー戦略」に対応。US-013（非同期実行）・US-014（環境エラーの区別）。
 
-- [ ] [RED] 出力テンプレート組み立てのテストを作成（`format.lua`: フィールド指定から `{{json ...}}` 形式のテンプレート文字列を生成する）
-- [ ] [GREEN] テンプレート組み立ての実装
-- [ ] [RED] NDJSON 解析のテストを作成（PoC 採取の実データを `tests/fixtures/` に置き、ラベル値にカンマ・引用符・改行・偽の compose ラベルを含むケース、空行、解析不能な行を含める）
-- [ ] [GREEN] NDJSON 解析の実装（解析できない行は読み飛ばして件数を記録する）
-- [ ] [RED] コマンド実行と結果型のテストを作成（成功・非 0 終了・stderr の伝播。実行器を差し替えて docker 無しで検証する）
-- [ ] [GREEN] `cli.run` と `docker.Result` の実装（`vim.system` による非同期実行、`_set_executor` の差し替え口）
-- [ ] [RED] 接続確認のテストを `lua/docker/adapters/docker/cli_spec.lua` に作成（docker 未検出・デーモン未起動・ソケット権限不足の 3 状況で異なるメッセージが返ること）
-- [ ] [GREEN] `cli.check_connection` の実装（stderr の内容で 3 状況を判別する）
-- [ ] [RED] デバッグログのテストを作成（既定では出力されない、`debug` を有効にすると実行した docker コマンド・終了コード・解析に失敗した行数が出力される）
-- [ ] [GREEN] デバッグログ出力の実装（`notify.lua` にデバッグ用の出力経路を追加し、`cli.run` から呼ぶ）
-- [ ] [REFACTOR] 引数組み立てと結果生成の重複を整理する
-- [ ] [REVIEW] フェーズ実装の簡易セルフレビューと修正
-- [ ] [CHECK] `make lint` / `make format-check` / `make typecheck` / `make test` の実行と確認
+- [x] [RED] 出力テンプレート組み立てのテストを作成（`lua/docker/format.lua`: フィールド指定から `{{json ...}}` 形式のテンプレート文字列を生成する）
+- [x] [GREEN] テンプレート組み立ての実装
+- [x] [RED] NDJSON 解析のテストを作成（PoC 採取の実データを `tests/fixtures/` に置き、ラベル値にカンマ・引用符・改行・偽の compose ラベルを含むケース、空行、解析不能な行を含める）
+- [x] [GREEN] NDJSON 解析の実装（解析できない行は読み飛ばして件数を記録する）
+- [x] [RED] コマンド実行と結果型のテストを作成（成功・非 0 終了・stderr の伝播。実行器を差し替えて docker 無しで検証する）
+- [x] [GREEN] `cli.run` と `docker.Result` の実装（`vim.system` による非同期実行、`_set_executor` の差し替え口）
+- [x] [RED] 接続確認のテストを `lua/docker/adapters/docker/cli_spec.lua` に作成（docker 未検出・デーモン未起動・ソケット権限不足の 3 状況で異なるメッセージが返ること）
+- [x] [GREEN] `cli.check_connection` の実装（stderr の内容で 3 状況を判別する）
+- [x] [RED] デバッグログのテストを作成（既定では出力されない、`debug` を有効にすると実行した docker コマンド・終了コード・解析に失敗した行数が出力される）
+- [x] [GREEN] デバッグログ出力の実装（`notify.lua` にデバッグ用の出力経路を追加し、`cli.run` から呼ぶ）
+- [x] [REFACTOR] 引数組み立てと結果生成の重複を整理する
+- [x] [REVIEW] フェーズ実装の簡易セルフレビューと修正
+- [x] [CHECK] `make lint` / `make format-check` / `make typecheck` / `make test` の実行と確認
 
 ### フェーズ3: リソース定義とリソースストアの実装 <!-- deps: 1,2 -->
 
 DESIGN_DETAIL_APP.md「3.3 リソース定義」「3.4 リソースストア」「4. データ構造」に対応。DOMAIN_MODEL.md の INV-1。
 
-- [ ] [RED] コンテナのリソース定義のテストを `lua/docker/resources/registry_spec.lua` に作成（一覧取得の引数に `-a`（停止中を含む全件取得、BR-022）と `--no-trunc` が含まれること、`.Size` を参照しないこと、生データからカラム値と compose 列が取り出されること、非 compose コンテナで compose 列が空文字列になること）
-- [ ] [GREEN] `registry.lua` にコンテナ定義を実装
-- [ ] [RED] compose ラベル判定のテストを作成（`oneoff=True` をサービスに紐付けない、偽のラベルを仕込んだ値で誤判定しない）
-- [ ] [GREEN] `fields.lua` に compose ラベル判定と状態・ポートの取り出しを実装
-- [ ] [RED] リソースストアのテストを `lua/docker/state/store_spec.lua` に作成（全置換・追加更新・削除、同一種別に同一 ID が重複しない、購読者への通知）
-- [ ] [GREEN] `state/store.lua` の実装
-- [ ] [REFACTOR] 定義の共通部分（ID の取り出し・カラム生成）を整理する
-- [ ] [REVIEW] フェーズ実装の簡易セルフレビューと修正
-- [ ] [CHECK] `make check` の実行と確認
+- [x] [RED] コンテナのリソース定義のテストを `lua/docker/resources/registry_spec.lua` に作成（一覧取得の引数に `-a`（停止中を含む全件取得、BR-022）と `--no-trunc` が含まれること、`.Size` を参照しないこと、生データからカラム値と compose 列が取り出されること、非 compose コンテナで compose 列が空文字列になること）
+- [x] [GREEN] `registry.lua` にコンテナ定義を実装
+- [x] [RED] compose ラベル判定のテストを作成（`oneoff=True` をサービスに紐付けない、偽のラベルを仕込んだ値で誤判定しない）
+- [x] [GREEN] `fields.lua` に compose ラベル判定と状態・ポートの取り出しを実装
+- [x] [RED] リソースストアのテストを `lua/docker/state/store_spec.lua` に作成（全置換・追加更新・削除、同一種別に同一 ID が重複しない、購読者への通知）
+- [x] [GREEN] `state/store.lua` の実装
+- [x] [REFACTOR] 定義の共通部分（ID の取り出し・カラム生成）を整理する
+- [x] [REVIEW] フェーズ実装の簡易セルフレビューと修正
+- [x] [CHECK] `make check` の実行と確認
 
 ### フェーズ4: UI 基盤と一覧ビューの実装 <!-- deps: 1,2,3 -->
 

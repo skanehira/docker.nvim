@@ -1,4 +1,4 @@
-local format = require("docker.adapters.docker.format")
+local format = require("docker.format")
 
 --- フィクスチャは PoC で採取した実際の docker 出力 (tests/fixtures/)。
 ---@param name string
@@ -11,7 +11,7 @@ local function read_fixture(name)
   return content
 end
 
-describe("docker.adapters.docker.format", function()
+describe("docker.format", function()
   describe("label_expr", function()
     it("ラベル名を渡すとキー名指しのGoテンプレート式になる", function()
       assert.are.equal('(.Label "com.docker.compose.project")', format.label_expr("com.docker.compose.project"))
