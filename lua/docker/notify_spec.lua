@@ -15,6 +15,8 @@ describe("docker.notify", function()
 
   after_each(function()
     vim.notify = original_notify
+    -- デバッグ状態はモジュールに残るため、テスト間に漏らさない。
+    notify.set_debug(false)
   end)
 
   it("info_で通知するとINFOレベルとプラグイン名のタイトルが付く", function()
@@ -47,6 +49,31 @@ describe("docker.notify", function()
         opts = { title = "docker.nvim" },
       },
     }, calls)
+  end)
+
+  it("デバッグ出力は既定では発行されない", function()
+    notify.debug("docker ps -a (exit 0)")
+
+    assert.are.same({}, calls)
+  end)
+
+  it("デバッグを有効にするとDEBUGレベルで発行される", function()
+    notify.set_debug(true)
+
+    notify.debug("docker ps -a (exit 0)")
+
+    assert.are.same({
+      { msg = "docker ps -a (exit 0)", level = vim.log.levels.DEBUG, opts = { title = "docker.nvim" } },
+    }, calls)
+  end)
+
+  it("デバッグを再び無効にすると発行されなくなる", function()
+    notify.set_debug(true)
+    notify.set_debug(false)
+
+    notify.debug("docker ps -a (exit 0)")
+
+    assert.are.same({}, calls)
   end)
 
   it("複数回通知すると呼び出した順にすべて発行される", function()
