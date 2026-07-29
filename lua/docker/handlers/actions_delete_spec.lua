@@ -157,4 +157,52 @@ describe("削除アクション", function()
 
     assert.is_false(operations.is_running("abc123", "delete"))
   end)
+
+  describe("全リソース種別の削除", function()
+    it("種別ごとに正しい削除コマンドを発行する", function()
+      answer_with("y")
+      local cases = {
+        { kind = "container", item = container(), expected = { "docker", "rm", "abc123" } },
+        { kind = "image", item = { id = "img1", repository = "alpine" }, expected = { "docker", "rmi", "img1" } },
+        { kind = "volume", item = { name = "vol1" }, expected = { "docker", "volume", "rm", "vol1" } },
+        { kind = "network", item = { id = "net1", name = "mynet" }, expected = { "docker", "network", "rm", "net1" } },
+      }
+
+      local actual = {}
+      for _, case in ipairs(cases) do
+        runs = {}
+        actions.execute("delete", { def = assert(registry.get(case.kind)), item = case.item })
+        table.insert(actual, runs[1])
+      end
+
+      assert.are.same({ cases[1].expected, cases[2].expected, cases[3].expected, cases[4].expected }, actual)
+    end)
+
+    it("どの種別でも確認プロンプトを経る", function()
+      -- G6: 削除は種別に依らず確認を挟む。
+      answer_with("n")
+
+      for _, kind in ipairs({ "container", "image", "volume", "network" }) do
+        runs, prompts = {}, {}
+        actions.execute("delete", {
+          def = assert(registry.get(kind)),
+          item = { id = "x", name = "x" },
+        })
+        assert.are.equal(1, #prompts, kind .. " で確認が出ること")
+        assert.are.same({}, runs, kind .. " で削除コマンドを発行しないこと")
+      end
+    end)
+
+    it("どの種別でも強制削除のオプションを付けない", function()
+      answer_with("y")
+
+      for _, kind in ipairs({ "container", "image", "volume", "network" }) do
+        runs = {}
+        actions.execute("delete", { def = assert(registry.get(kind)), item = { id = "x", name = "x" } })
+        for _, arg in ipairs(runs[1]) do
+          assert.is_true(arg ~= "-f" and arg ~= "--force", kind .. " に強制削除を含めないこと")
+        end
+      end
+    end)
+  end)
 end)

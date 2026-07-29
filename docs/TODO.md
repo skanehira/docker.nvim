@@ -186,17 +186,17 @@ DESIGN_DETAIL_APP.md「5.3 compose」「7.3 compose サービス一覧の組み�
 
 DESIGN_DETAIL_APP.md「4.2 イメージ / ボリューム / ネットワーク」「5.4 その他の操作」に対応。US-006、US-007、US-018〜US-020。
 
-- [ ] [RED] 詳細ビューのテストを `lua/docker/views/inspect_spec.lua` に作成（`docker inspect` の結果が JSON として表示される、`q` で直前の一覧に戻りカーソル位置が復元される、取得失敗時にビューを開かない）
-- [ ] [GREEN] `views/inspect.lua` とビュースタックの実装
-- [ ] [RED] イメージのリソース定義のテストを `lua/docker/resources/registry_spec.lua` に追加（カラム構成、`.Label` を使わないこと、一覧取得と削除コマンドの引数）
-- [ ] [GREEN] イメージ定義と一覧・削除を実装
-- [ ] [RED] ボリューム・ネットワークのリソース定義のテストを同ファイルに追加（カラム構成、一覧取得と削除コマンドの引数、組み込みネットワークの削除失敗が docker のエラーとして伝わること）
-- [ ] [GREEN] ボリューム・ネットワークの定義と一覧・削除を実装
-- [ ] [RED] 0 件表示のテストを `lua/docker/views/list_spec.lua` に追加（各リソース種別で空である旨が表示されエラーにならない）
-- [ ] [GREEN] 0 件表示の実装
-- [ ] [REFACTOR] 削除処理を種別に依存しない形へ統一し、`lua/docker/handlers/actions_delete_spec.lua` に全リソース種別で確認プロンプトを経ることのテストを追加する
-- [ ] [REVIEW] フェーズ実装の簡易セルフレビューと修正
-- [ ] [CHECK] `make check` の実行と確認
+- [x] [RED] 詳細ビューのテストを `lua/docker/views/inspect_spec.lua` に作成（`docker inspect` の結果が JSON として表示される、`q` で直前の一覧に戻りカーソル位置が復元される、取得失敗時にビューを開かない）
+- [x] [GREEN] `views/inspect.lua` とビュースタックの実装
+- [x] [RED] イメージのリソース定義のテストを `lua/docker/resources/registry_spec.lua` に追加（カラム構成、`.Label` を使わないこと、一覧取得と削除コマンドの引数）
+- [x] [GREEN] イメージ定義と一覧・削除を実装
+- [x] [RED] ボリューム・ネットワークのリソース定義のテストを同ファイルに追加（カラム構成、一覧取得と削除コマンドの引数、組み込みネットワークの削除失敗が docker のエラーとして伝わること）
+- [x] [GREEN] ボリューム・ネットワークの定義と一覧・削除を実装
+- [x] [RED] 0 件表示のテストを `lua/docker/views/list_spec.lua` に追加（各リソース種別で空である旨が表示されエラーにならない）
+- [x] [GREEN] 0 件表示の実装
+- [x] [REFACTOR] 削除処理を種別に依存しない形へ統一し、`lua/docker/handlers/actions_delete_spec.lua` に全リソース種別で確認プロンプトを経ることのテストを追加する
+- [x] [REVIEW] フェーズ実装の簡易セルフレビューと修正
+- [x] [CHECK] `make check` の実行と確認
 
 ### フェーズ9: 拡張機能の実装 <!-- deps: 1,2,3,4,5,6,7,8 -->
 

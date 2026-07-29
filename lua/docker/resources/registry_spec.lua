@@ -39,7 +39,7 @@ describe("docker.resources.registry", function()
 
   describe("subcommands", function()
     it("定義済みの種別に対応するExコマンドの引数を返す", function()
-      assert.are.same({ "containers", "services" }, registry.subcommands())
+      assert.are.same({ "containers", "images", "volumes", "networks", "services" }, registry.subcommands())
     end)
   end)
 
@@ -212,6 +212,83 @@ describe("docker.resources.registry", function()
 
     it("キーマップはサービス一覧のものを引く", function()
       assert.are.equal("service_list", def.view_type)
+    end)
+  end)
+
+  describe("イメージ・ボリューム・ネットワークの定義", function()
+    it("イメージの一覧と削除の引数", function()
+      local def = assert(registry.get("image"))
+
+      local args = assert(def.list_args)()
+      assert.are.same({ "image", "ls" }, { args[1], args[2] })
+      assert.is_truthy(vim.tbl_contains(args, "--no-trunc"))
+      -- `docker image ls` は .Label を扱えない。
+      assert.is_nil(table.concat(args, " "):find(".Label", 1, true))
+      assert.are.same({ "rmi", "img1" }, assert(def.delete_args)({ id = "img1" }))
+    end)
+
+    it("イメージのカラム構成", function()
+      local headers = {}
+      for _, column in ipairs(assert(registry.get("image")).columns) do
+        table.insert(headers, column.header)
+      end
+
+      assert.are.same({ "REPOSITORY", "TAG", "SIZE", "CREATED" }, headers)
+    end)
+
+    it("ボリュームの一覧と削除の引数", function()
+      local def = assert(registry.get("volume"))
+
+      local args = assert(def.list_args)()
+      assert.are.same({ "volume", "ls" }, { args[1], args[2] })
+      -- ボリュームは名前が識別子 (イベントでも Actor.ID に名前が入る)。
+      assert.are.equal("vol1", def.id({ name = "vol1" }))
+      assert.are.same({ "volume", "rm", "vol1" }, assert(def.delete_args)({ name = "vol1" }))
+    end)
+
+    it("ネットワークの一覧と削除の引数", function()
+      local def = assert(registry.get("network"))
+
+      local args = assert(def.list_args)()
+      assert.are.same({ "network", "ls" }, { args[1], args[2] })
+      assert.are.same({ "network", "rm", "net1" }, assert(def.delete_args)({ id = "net1" }))
+    end)
+
+    it("組み込みネットワークを削除対象から除外しない", function()
+      -- 削除の可否は docker に判断させ、エラーをそのまま提示する (BR-016)。
+      local def = assert(registry.get("network"))
+
+      assert.are.same({ "network", "rm", "bridge" }, assert(def.delete_args)({ id = "bridge", name = "bridge" }))
+    end)
+
+    it("それぞれのイベント種別に対応付く", function()
+      assert.are.equal("image", assert(registry.get("image")).event_type)
+      assert.are.equal("volume", assert(registry.get("volume")).event_type)
+      assert.are.equal("network", assert(registry.get("network")).event_type)
+    end)
+
+    it("状態カラムを持たない", function()
+      -- コンテナやサービスと違い、状態という概念が無い。
+      for _, kind in ipairs({ "image", "volume", "network" }) do
+        assert.is_nil(assert(registry.get(kind)).status_column, kind)
+      end
+    end)
+  end)
+
+  describe("0 件表示", function()
+    it("種別ごとに項目が無いことを示す文言を持つ", function()
+      local texts = {}
+      for _, kind in ipairs({ "container", "image", "volume", "network", "service" }) do
+        texts[kind] = assert(registry.get(kind)).empty_text
+      end
+
+      assert.are.same({
+        container = "コンテナがありません",
+        image = "イメージがありません",
+        volume = "ボリュームがありません",
+        network = "ネットワークがありません",
+        service = "サービスが定義されていません",
+      }, texts)
     end)
   end)
 end)

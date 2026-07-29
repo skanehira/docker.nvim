@@ -116,10 +116,11 @@ function M.render(handle, def, items, opts)
   end
 
   highlight.clear(handle.bufnr)
-  if not built.empty and def.status_column then
+  local status_of = def.status
+  if not built.empty and def.status_column and status_of then
     for index, values in ipairs(built.rows) do
       local from, to = tbl.column_span(values, built.widths, def.status_column)
-      highlight.apply(handle.bufnr, index - 1, from, to, highlight.group_for(def.status(items[index])))
+      highlight.apply(handle.bufnr, index - 1, from, to, highlight.group_for(status_of(items[index])))
     end
   end
 

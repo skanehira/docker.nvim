@@ -242,7 +242,7 @@ function M.execute(name, ctx)
   end
 
   if terminal_spec then
-    local state = ctx.def.status(item) or ""
+    local state = ctx.def.status and ctx.def.status(item) or ""
     if terminal_spec.requires and not terminal_spec.requires[state] then
       notify.warn(terminal_spec.denied:format(label))
       return
@@ -250,7 +250,7 @@ function M.execute(name, ctx)
     open_terminal(name, item, label)
     return
   end
-  local state = ctx.def.status(item) or ""
+  local state = ctx.def.status and ctx.def.status(item) or ""
   if not allowed(spec, state) then
     notify.warn(spec.denied:format(label))
     return

@@ -27,7 +27,7 @@ local M = {}
 ---@field id fun(item: table): string    識別子の取り出し
 ---@field columns docker.ColumnDef[]
 ---@field status_column integer|nil      ハイライト対象のカラム位置 (1 始まり)
----@field status fun(item: table): string|nil
+---@field status? fun(item: table): string|nil 状態カラムを持つ種別のみ
 ---@field event_type string|nil          docker events の Type との対応
 
 --- コンテナ一覧で取得するフィールド。
@@ -46,6 +46,27 @@ local CONTAINER_FIELDS = {
   { key = "compose_project", expr = format.label_expr("com.docker.compose.project") },
   { key = "compose_service", expr = format.label_expr("com.docker.compose.service") },
   { key = "compose_oneoff", expr = format.label_expr("com.docker.compose.oneoff") },
+}
+
+local IMAGE_FIELDS = {
+  { key = "id", expr = ".ID" },
+  { key = "repository", expr = ".Repository" },
+  { key = "tag", expr = ".Tag" },
+  { key = "created_since", expr = ".CreatedSince" },
+  { key = "size", expr = ".Size" },
+}
+
+local VOLUME_FIELDS = {
+  { key = "name", expr = ".Name" },
+  { key = "driver", expr = ".Driver" },
+  { key = "mountpoint", expr = ".Mountpoint" },
+}
+
+local NETWORK_FIELDS = {
+  { key = "id", expr = ".ID" },
+  { key = "name", expr = ".Name" },
+  { key = "driver", expr = ".Driver" },
+  { key = "scope", expr = ".Scope" },
 }
 
 ---@param key string
@@ -94,6 +115,81 @@ definitions = {
     status = fields.state,
     event_type = "container",
   },
+  image = {
+    kind = "image",
+    subcommand = "images",
+    view_type = "image_list",
+    display_name = "Images",
+    empty_text = "イメージがありません",
+    -- `docker image ls` は `.Label` を扱えないため、ラベル由来のフィールドは持たない。
+    -- コンテナと違いイメージの `.Size` は一覧の既定項目で、追加のコストが無い。
+    list_args = function()
+      return { "image", "ls", "--no-trunc", "--format", format.template(IMAGE_FIELDS) }
+    end,
+    item_args = function(id)
+      return { "image", "ls", "--no-trunc", "--filter", "id=" .. id, "--format", format.template(IMAGE_FIELDS) }
+    end,
+    delete_args = function(item)
+      return { "rmi", tostring(item.id) }
+    end,
+    id = plain("id"),
+    columns = {
+      { header = "REPOSITORY", value = plain("repository") },
+      { header = "TAG", value = plain("tag") },
+      { header = "SIZE", value = plain("size") },
+      { header = "CREATED", value = plain("created_since") },
+    },
+    event_type = "image",
+  },
+  volume = {
+    kind = "volume",
+    subcommand = "volumes",
+    view_type = "volume_list",
+    display_name = "Volumes",
+    empty_text = "ボリュームがありません",
+    list_args = function()
+      return { "volume", "ls", "--format", format.template(VOLUME_FIELDS) }
+    end,
+    item_args = function(id)
+      return { "volume", "ls", "--filter", "name=" .. id, "--format", format.template(VOLUME_FIELDS) }
+    end,
+    delete_args = function(item)
+      return { "volume", "rm", tostring(item.name) }
+    end,
+    -- ボリュームは名前が識別子。イベントでも Actor.ID に名前が入る。
+    id = plain("name"),
+    columns = {
+      { header = "NAME", value = plain("name") },
+      { header = "DRIVER", value = plain("driver") },
+      { header = "MOUNTPOINT", value = plain("mountpoint") },
+    },
+    event_type = "volume",
+  },
+  network = {
+    kind = "network",
+    subcommand = "networks",
+    view_type = "network_list",
+    display_name = "Networks",
+    empty_text = "ネットワークがありません",
+    list_args = function()
+      return { "network", "ls", "--no-trunc", "--format", format.template(NETWORK_FIELDS) }
+    end,
+    item_args = function(id)
+      return { "network", "ls", "--no-trunc", "--filter", "id=" .. id, "--format", format.template(NETWORK_FIELDS) }
+    end,
+    -- 組み込みネットワーク (bridge / host / none) の削除は docker が拒否する。
+    -- こちらで弾かず、docker のエラーをそのまま提示する (BR-016)。
+    delete_args = function(item)
+      return { "network", "rm", tostring(item.id) }
+    end,
+    id = plain("id"),
+    columns = {
+      { header = "NAME", value = plain("name") },
+      { header = "DRIVER", value = plain("driver") },
+      { header = "SCOPE", value = plain("scope") },
+    },
+    event_type = "network",
+  },
   service = {
     kind = "service",
     subcommand = "services",
@@ -139,7 +235,7 @@ definitions = {
 }
 
 --- `:Docker` のサブコマンドとして受け付ける順序。定義の追加時にここへ足す。
-local ORDER = { "container", "service" }
+local ORDER = { "container", "image", "volume", "network", "service" }
 
 ---@param kind string
 ---@return docker.ResourceDefinition|nil

@@ -9,6 +9,7 @@ local cli = require("docker.adapters.docker.cli")
 local events = require("docker.adapters.docker.events")
 local help = require("docker.views.help")
 local highlight = require("docker.ui.highlight")
+local inspect = require("docker.views.inspect")
 local keymaps = require("docker.views.keymaps")
 local list = require("docker.views.list")
 local notify = require("docker.notify")
@@ -217,6 +218,17 @@ local function dispatch(handle, action)
 
   local lnum = vim.api.nvim_win_get_cursor(handle.window.winid)[1]
   handle.state = view.with_cursor(handle.state, lnum)
+
+  if action == "inspect" then
+    local item = list.item_at(handle.state.items, lnum)
+    if item then
+      inspect.open(handle.def, item)
+    else
+      notify.warn("詳細を表示する対象がありません")
+    end
+    return
+  end
+
   actions.execute(action, {
     def = handle.def,
     item = list.item_at(handle.state.items, lnum),
