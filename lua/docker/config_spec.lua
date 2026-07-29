@@ -22,13 +22,36 @@ describe("docker.config", function()
   end)
 
   describe("既定値", function()
-    it("設定を渡さないと既定のキーマップになる", function()
+    it("コンテナ一覧の既定キーマップが全て定義される", function()
+      -- 抜き取り検査だと割り当てが消えても気付けない。全体で比較する。
+      config.setup()
+
+      assert.are.same({
+        start = "u",
+        stop = "d",
+        restart = "r",
+        kill = "<C-k>",
+        pause = "p",
+        unpause = "P",
+        shell = "a",
+        exec = "e",
+        logs = "t",
+        delete = "<C-d>",
+        copy_to = "ct",
+        copy_from = "cf",
+        edit_file = "E",
+        open_browser = "<C-o>",
+        drilldown = "gd",
+      }, config.get().keymaps.container_list)
+    end)
+
+    it("イメージ・ボリューム・ネットワーク一覧の既定キーマップが定義される", function()
       config.setup()
 
       local keymaps = config.get().keymaps
-      assert.are.equal("u", keymaps.container_list.start)
-      assert.are.equal("d", keymaps.container_list.stop)
-      assert.are.equal("<C-d>", keymaps.container_list.delete)
+      assert.are.same({ quickrun = "r", delete = "<C-d>", drilldown = "gd" }, keymaps.image_list)
+      assert.are.same({ delete = "<C-d>" }, keymaps.volume_list)
+      assert.are.same({ delete = "<C-d>" }, keymaps.network_list)
     end)
 
     it("全ビュー共通のキーが定義される", function()
@@ -57,13 +80,15 @@ describe("docker.config", function()
     it("composeサービス一覧はサービス単位とプロジェクト単位のキーを持つ", function()
       config.setup()
 
-      local service = config.get().keymaps.service_list
-      assert.are.equal("u", service.up)
-      assert.are.equal("d", service.stop)
-      assert.are.equal("r", service.restart)
-      assert.are.equal("t", service.logs)
-      assert.are.equal("U", service.project_up)
-      assert.are.equal("D", service.project_down)
+      assert.are.same({
+        up = "u",
+        stop = "d",
+        restart = "r",
+        logs = "t",
+        project_up = "U",
+        project_down = "D",
+        drilldown = "gd",
+      }, config.get().keymaps.service_list)
     end)
 
     it("デバッグ出力は既定で無効になる", function()

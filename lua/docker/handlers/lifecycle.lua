@@ -13,6 +13,7 @@ local list = require("docker.views.list")
 local notify = require("docker.notify")
 local operations = require("docker.handlers.operations")
 local registry = require("docker.resources.registry")
+local render = require("docker.handlers.render")
 local store = require("docker.state.store")
 local view = require("docker.state.view")
 local window = require("docker.ui.window")
@@ -29,13 +30,43 @@ local M = {}
 ---@type table<string, docker.ViewHandle>
 local views = {}
 
+--- 接続確認の応答を待っている種別。docker への問い合わせは非同期なので、
+--- 応答前にもう一度開こうとするとフロートが二重に開く。
+---@type table<string, boolean>
+local opening = {}
+
+--- カーソル位置を保ったまま描き直す。
 ---@param handle docker.ViewHandle
 local function redraw(handle)
+  if not vim.api.nvim_buf_is_valid(handle.window.bufnr) then
+    return
+  end
+
+  local cursor
+  if vim.api.nvim_win_is_valid(handle.window.winid) then
+    cursor = vim.api.nvim_win_get_cursor(handle.window.winid)
+  end
+
   list.render(handle.window, handle.def, handle.state.items, {
     busy = function(item)
       return operations.has_any(tostring(handle.def.id(item)))
     end,
   })
+
+  -- 再描画でカーソルが先頭へ戻らないようにする。
+  if cursor and vim.api.nvim_win_is_valid(handle.window.winid) then
+    local last = math.max(vim.api.nvim_buf_line_count(handle.window.bufnr), 1)
+    pcall(vim.api.nvim_win_set_cursor, handle.window.winid, { math.min(cursor[1], last), cursor[2] })
+  end
+end
+
+--- 種別のビューを描き直す (外部から状態が変わったとき用)。
+---@param kind string
+function M.refresh_view(kind)
+  local handle = views[kind]
+  if handle then
+    redraw(handle)
+  end
 end
 
 --- 一覧を取得してビューへ反映する。
@@ -103,26 +134,40 @@ local function bind_keys(handle)
 end
 
 --- 一覧ビューを開く。既に開いていればそのウィンドウへ移動する。
+--- docker への接続確認が非同期なので、開き終わりは `on_open` で受け取る。
 ---@param kind string
----@return docker.ViewHandle|nil
-function M.open(kind)
+---@param on_open fun(handle: docker.ViewHandle|nil)|nil
+function M.open(kind, on_open)
+  local function done(handle)
+    if on_open then
+      on_open(handle)
+    end
+  end
+
   local def = registry.get(kind)
   if not def then
     notify.warn(("未対応のリソース種別です: %s"):format(tostring(kind)))
-    return nil
+    return done(nil)
   end
 
   local existing = views[kind]
   if existing and vim.api.nvim_win_is_valid(existing.window.winid) then
     vim.api.nvim_set_current_win(existing.window.winid)
-    return existing
+    return done(existing)
   end
 
-  local opened
+  -- 応答を待っている間に再度開こうとしても、フロートを二重に作らない。
+  if opening[kind] then
+    return done(nil)
+  end
+  opening[kind] = true
+
   cli.check_connection(function(result)
+    opening[kind] = nil
+
     if not result.ok then
       notify.error(result.error or "docker に接続できません")
-      return
+      return done(nil)
     end
 
     highlight.setup()
@@ -134,11 +179,10 @@ function M.open(kind)
     }
     views[kind] = handle
     bind_keys(handle)
-    fetch(handle)
-    opened = handle
+    fetch(handle, function()
+      done(handle)
+    end)
   end)
-
-  return opened
 end
 
 --- 種別のビューを閉じる。開いていなければ何もしない。
@@ -149,6 +193,7 @@ function M.close(kind)
     return
   end
   views[kind] = nil
+  render.cancel(kind)
   window.close(handle.window)
 end
 
@@ -158,13 +203,22 @@ function M.close_all()
     M.close(kind)
   end
   views = {}
+  opening = {}
 end
 
---- 開いているビューを返す (テストと再描画で使う)。
+--- 開いているビューを返す。
 ---@param kind string
 ---@return docker.ViewHandle|nil
 function M.get(kind)
   return views[kind]
 end
+
+--- 実行中の操作が変わったら、その種別の一覧を描き直す。
+--- これが無いと「実行中」の印が画面に出ない。
+operations.subscribe(function()
+  for kind in pairs(views) do
+    M.refresh_view(kind)
+  end
+end)
 
 return M

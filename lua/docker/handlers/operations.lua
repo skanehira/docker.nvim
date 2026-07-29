@@ -8,9 +8,25 @@ local M = {}
 ---@type table<string, table<string, boolean>>
 local running = {}
 
---- テスト用。台帳を空に戻す。
+--- 実行中の操作が変わったことの通知先 (一覧の「実行中」表示の更新に使う)。
+---@type fun()[]
+local listeners = {}
+
+--- テスト用。台帳を空に戻す (購読は残す)。
 function M._reset()
   running = {}
+end
+
+--- 実行中の操作が変わったときに呼ばれる。
+---@param listener fun()
+function M.subscribe(listener)
+  table.insert(listeners, listener)
+end
+
+local function notify_changed()
+  for _, listener in ipairs(listeners) do
+    listener()
+  end
 end
 
 --- 操作の開始を申し出る。既に同じ操作が実行中なら受け付けない。
@@ -27,6 +43,7 @@ function M.begin(target_id, operation)
     running[target_id] = per_target
   end
   per_target[operation] = true
+  notify_changed()
   return true
 end
 
@@ -42,6 +59,7 @@ function M.finish(target_id, operation)
   if next(per_target) == nil then
     running[target_id] = nil
   end
+  notify_changed()
 end
 
 ---@param target_id string

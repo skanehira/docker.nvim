@@ -49,13 +49,22 @@ describe("docker.views.list", function()
     end)
 
     it("compose由来のコンテナはPROJECTとSERVICEの値が行に出る", function()
+      -- 名前・プロジェクト名・サービス名を互いに異なる値にする。
+      -- コンテナ名に含まれる語で照合すると、列が空でもテストが通ってしまう。
       local built = list.build(def, {
-        container({ name = "shop-web-1", compose_project = "shop", compose_service = "web", compose_oneoff = "False" }),
+        container({
+          name = "ctr",
+          image = "img",
+          status = "Up",
+          compose_project = "projalpha",
+          compose_service = "svcbeta",
+          compose_oneoff = "False",
+        }),
       })
 
-      local line = built.lines[1]
-      assert.is_truthy(line:find("shop", 1, true), "PROJECT の値が出ること: " .. line)
-      assert.is_truthy(line:find("web", 1, true), "SERVICE の値が出ること: " .. line)
+      -- 列幅は見出し (NAME/IMAGE/STATUS/PORTS/PROJECT/SERVICE) の長さで決まる。
+      -- PORTS は空なので、STATUS と PROJECT の間はその幅ぶん空く。
+      assert.are.equal("ctr   img    Up             projalpha  svcbeta", built.lines[1])
     end)
 
     it("compose由来でないコンテナはPROJECTとSERVICEが空欄になる", function()
@@ -139,6 +148,58 @@ describe("docker.views.list", function()
       list.render(handle, def, { container({ name = "cache" }) })
 
       assert.are.equal(1, #vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false))
+    end)
+  end)
+
+  describe("表示行の安全性", function()
+    local window = require("docker.ui.window")
+
+    it("改行を含む値があっても一覧全体が描画できる", function()
+      -- compose のラベル値は任意の文字を取れる。改行を含む値が 1 件でもあると
+      -- nvim_buf_set_lines が失敗し、一覧そのものが出せなくなる。
+      local handle = window.open({ title = "Containers" })
+
+      list.render(handle, def, {
+        container({ id = "1", name = "plain" }),
+        container({ id = "2", name = "evil", compose_project = "proj\nEVIL" }),
+      })
+
+      local lines = vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false)
+      assert.are.equal(2, #lines, "2 件とも描画されること")
+      assert.is_truthy(lines[2]:find("proj EVIL", 1, true), lines[2])
+      window.close(handle)
+    end)
+
+    it("復帰やタブを含む値も1行に収める", function()
+      local handle = window.open({ title = "Containers" })
+
+      list.render(handle, def, { container({ name = "a\tb\rc" }) })
+
+      local lines = vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false)
+      assert.are.equal(1, #lines)
+      assert.is_nil(lines[1]:find("\t", 1, true))
+      window.close(handle)
+    end)
+
+    it("改行を含む値でも桁揃えが崩れない", function()
+      local handle = window.open({ title = "Containers" })
+
+      list.render(handle, def, {
+        container({ id = "1", name = "one", compose_project = "aa\nbb" }),
+        container({ id = "2", name = "two", compose_project = "cccc" }),
+      })
+
+      local lines = vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false)
+      assert.are.equal(lines[1]:find("aa bb", 1, true), lines[2]:find("cccc", 1, true))
+      window.close(handle)
+    end)
+
+    it("閉じたウィンドウへ描画してもエラーにならない", function()
+      -- 取得中にビューを閉じると、結果が返ってきた時点でバッファは無効になっている。
+      local handle = window.open({ title = "Containers" })
+      window.close(handle)
+
+      list.render(handle, def, { container() })
     end)
   end)
 end)

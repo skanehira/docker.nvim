@@ -215,16 +215,14 @@ describe("docker.handlers.actions", function()
 
     before_each(function()
       opened = {}
-      terminal._set_opener(function(cmd, _)
+      terminal._set_job_starter(function(cmd)
         table.insert(opened, cmd)
-        local bufnr = vim.api.nvim_create_buf(true, true)
-        vim.api.nvim_set_current_buf(bufnr)
         return 100 + #opened
       end)
     end)
 
     after_each(function()
-      terminal._set_opener(nil)
+      terminal._set_job_starter(nil)
     end)
 
     it("logsは停止中のコンテナでもターミナルを開く", function()
@@ -270,6 +268,57 @@ describe("docker.handlers.actions", function()
 
       vim.ui.input = original_input
       assert.are.same({}, opened)
+    end)
+  end)
+
+  describe("通知の文言", function()
+    it("操作ごとに何が起きたか分かる文言で通知する", function()
+      local messages = {}
+      for _, case in ipairs({
+        { action = "start", state = "exited" },
+        { action = "stop", state = "running" },
+        { action = "restart", state = "running" },
+        { action = "kill", state = "running" },
+      }) do
+        notified = {}
+        actions.execute(case.action, { def = def, item = container({ state = case.state }) })
+        table.insert(messages, notified[#notified].msg)
+      end
+
+      assert.are.same({
+        "web を起動しました",
+        "web を停止しました",
+        "web を再起動しました",
+        "web を強制終了しました",
+      }, messages)
+    end)
+
+    it("前提を満たさない操作は理由が分かる文言で断る", function()
+      local messages = {}
+      for _, case in ipairs({
+        { action = "start", state = "running" },
+        { action = "stop", state = "exited" },
+        { action = "kill", state = "exited" },
+      }) do
+        notified = {}
+        actions.execute(case.action, { def = def, item = container({ state = case.state }) })
+        table.insert(messages, notified[#notified].msg)
+      end
+
+      assert.are.same({
+        "web は既に実行中です",
+        "web は実行中ではないため停止できません",
+        "web は実行中ではないため強制終了できません",
+      }, messages)
+    end)
+  end)
+
+  describe("restart の前提", function()
+    it("停止中のコンテナでもrestartできる", function()
+      -- docker restart は停止中のコンテナを起動する。前提で弾いてはいけない。
+      actions.execute("restart", { def = def, item = container({ state = "exited" }) })
+
+      assert.are.same({ "docker", "restart", "abc123" }, last_run())
     end)
   end)
 end)

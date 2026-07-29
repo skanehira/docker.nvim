@@ -15,54 +15,62 @@ local M = {}
 --- コンテナ側で判定するため、シェルのスニペットとして渡す。
 local SHELL_SNIPPET = "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"
 
----@type (fun(cmd: string[], opts: table): integer|nil)|nil
-local opener = nil
+---@type (fun(cmd: string[]): integer|nil)|nil
+local job_starter = nil
 
 --- バッファ番号 -> ジョブ ID
 ---@type table<integer, integer>
 local job_of_buffer = {}
 
---- テスト用の差し替え口。nil を渡すと実際のターミナル生成に戻る。
----@param fn (fun(cmd: string[], opts: table): integer|nil)|nil
-function M._set_opener(fn)
-  opener = fn
+--- バッファ名の重複で `E95` にならないよう通し番号を振る。
+local sequence = 0
+
+--- テスト用の差し替え口。ジョブ起動だけを差し替え、ウィンドウとバッファの
+--- 用意は本番と同じ経路を通す。nil を渡すと実際のジョブ起動に戻る。
+---@param fn (fun(cmd: string[]): integer|nil)|nil
+function M._set_job_starter(fn)
+  job_starter = fn
   job_of_buffer = {}
 end
 
---- 実際のターミナル生成。専用バッファを作ってその中でジョブを起動する。
 ---@param cmd string[]
----@param opts { title: string }
 ---@return integer|nil job_id
-local function default_opener(cmd, opts)
-  vim.cmd("enew")
-  local job_id = vim.fn.jobstart(cmd, { term = true })
-  if job_id and job_id > 0 then
-    vim.api.nvim_buf_set_name(0, ("docker://%s"):format(opts.title))
-  end
-  return job_id
+local function default_job_starter(cmd)
+  return vim.fn.jobstart(cmd, { term = true })
 end
 
 ---@param cmd string[]
 ---@param title string
 ---@return docker.Terminal
 local function open(cmd, title)
-  local open_with = opener or default_opener
-  local job_id = open_with(cmd, { title = title })
+  -- 一覧はフロートウィンドウで、そこにフォーカスがある状態で `enew` すると
+  -- bufhidden=wipe の一覧バッファが破棄されてしまう。必ず新しいウィンドウを開く。
+  vim.cmd("botright new")
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if type(job_id) == "number" and job_id > 0 then
-    jobs.register(job_id)
-    job_of_buffer[bufnr] = job_id
+  local start = job_starter or default_job_starter
+  local job_id = start(cmd)
 
-    vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
-      buffer = bufnr,
-      once = true,
-      desc = "docker.nvim: ターミナルを閉じたらジョブ台帳から外す",
-      callback = function()
-        M._on_buffer_closed(bufnr)
-      end,
-    })
+  if type(job_id) ~= "number" or job_id <= 0 then
+    return { bufnr = bufnr, job_id = job_id }
   end
+
+  -- 名前付けより先に台帳へ載せる。名前が衝突して例外になっても、
+  -- 起動済みのジョブを追跡対象から漏らさない。
+  jobs.register(job_id)
+  job_of_buffer[bufnr] = job_id
+
+  sequence = sequence + 1
+  pcall(vim.api.nvim_buf_set_name, bufnr, ("docker://%s/%d"):format(title, sequence))
+
+  vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
+    buffer = bufnr,
+    once = true,
+    desc = "docker.nvim: ターミナルを閉じたらジョブ台帳から外す",
+    callback = function()
+      M._on_buffer_closed(bufnr)
+    end,
+  })
 
   return { bufnr = bufnr, job_id = job_id }
 end
@@ -75,6 +83,36 @@ function M._on_buffer_closed(bufnr)
     jobs.unregister(job_id)
     job_of_buffer[bufnr] = nil
   end
+end
+
+--- コマンド文字列を語に分ける。引用符で囲んだ部分は 1 語として扱う。
+---@param command string
+---@return string[]
+local function split_command(command)
+  -- Lua パターンに交替 (|) が無いため手で走査する。
+  local words = {}
+  local i = 1
+  local length = #command
+  while i <= length do
+    local char = command:sub(i, i)
+    if char:match("%s") then
+      i = i + 1
+    elseif char == "'" or char == '"' then
+      local closing = command:find(char, i + 1, true)
+      if closing then
+        table.insert(words, command:sub(i + 1, closing - 1))
+        i = closing + 1
+      else
+        table.insert(words, command:sub(i + 1))
+        break
+      end
+    else
+      local next_space = command:find("%s", i) or (length + 1)
+      table.insert(words, command:sub(i, next_space - 1))
+      i = next_space
+    end
+  end
+  return words
 end
 
 --- ログを追従する。
@@ -100,9 +138,7 @@ end
 ---@return docker.Terminal
 function M.open_exec(id, label, command)
   local cmd = { "docker", "exec", "-it", id }
-  for _, word in ipairs(vim.split(vim.trim(command), "%s+", { trimempty = true })) do
-    table.insert(cmd, word)
-  end
+  vim.list_extend(cmd, split_command(command))
   return open(cmd, ("exec/%s"):format(label))
 end
 

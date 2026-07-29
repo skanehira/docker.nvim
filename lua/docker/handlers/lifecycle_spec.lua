@@ -1,6 +1,7 @@
 local cli = require("docker.adapters.docker.cli")
 local config = require("docker.config")
 local lifecycle = require("docker.handlers.lifecycle")
+local operations = require("docker.handlers.operations")
 local store = require("docker.state.store")
 
 describe("docker.handlers.lifecycle", function()
@@ -11,6 +12,7 @@ describe("docker.handlers.lifecycle", function()
     notified = {}
     config._reset()
     store._reset()
+    operations._reset()
     lifecycle.close_all()
     original_notify = vim.notify
     ---@diagnostic disable-next-line: duplicate-set-field
@@ -33,6 +35,23 @@ describe("docker.handlers.lifecycle", function()
     end)
   end)
 
+  --- ビューが開き終わるまで待つ (docker への接続確認が非同期のため)。
+  ---@param kind string
+  ---@return docker.ViewHandle|nil
+  local function open_view(kind)
+    local captured, called = nil, false
+    lifecycle.open(kind, function(handle)
+      captured, called = handle, true
+    end)
+    assert(
+      vim.wait(3000, function()
+        return called
+      end),
+      "open のコールバックが呼ばれなかった"
+    )
+    return captured
+  end
+
   after_each(function()
     lifecycle.close_all()
     vim.notify = original_notify
@@ -43,15 +62,12 @@ describe("docker.handlers.lifecycle", function()
 
   describe("open", function()
     it("一覧ビューを開く", function()
-      local handle = lifecycle.open("container")
-
-      assert.is_truthy(handle)
-      handle = assert(handle)
+      local handle = assert(open_view("container"))
       assert.is_true(vim.api.nvim_win_is_valid(handle.window.winid))
     end)
 
     it("取得した内容をバッファへ描画する", function()
-      local handle = assert(lifecycle.open("container"))
+      local handle = assert(open_view("container"))
 
       local lines = vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false)
       assert.is_truthy(lines[1]:find("web", 1, true), lines[1])
@@ -59,16 +75,16 @@ describe("docker.handlers.lifecycle", function()
 
     it("同じ種別を再度開くと新しいバッファを作らず既存へ移動する", function()
       -- US-026: 複数タブで開いてもバッファは 1 つに保つ。
-      local first = assert(lifecycle.open("container"))
+      local first = assert(open_view("container"))
 
-      local second = assert(lifecycle.open("container"))
+      local second = assert(open_view("container"))
 
       assert.are.equal(first.window.bufnr, second.window.bufnr)
     end)
 
     it("キーマップをバッファローカルに設定する", function()
       -- BR-014: 一覧ビュー以外のバッファでプラグインのキーが作用しない。
-      local handle = assert(lifecycle.open("container"))
+      local handle = assert(open_view("container"))
 
       local mapped = {}
       for _, m in ipairs(vim.api.nvim_buf_get_keymap(handle.window.bufnr, "n")) do
@@ -79,7 +95,7 @@ describe("docker.handlers.lifecycle", function()
     end)
 
     it("プラグインのキーは他のバッファには設定されない", function()
-      lifecycle.open("container")
+      open_view("container")
 
       local scratch = vim.api.nvim_create_buf(false, true)
       assert.are.same({}, vim.api.nvim_buf_get_keymap(scratch, "n"))
@@ -87,7 +103,7 @@ describe("docker.handlers.lifecycle", function()
     end)
 
     it("未知の種別は開かずに警告する", function()
-      local handle = lifecycle.open("nonexistent")
+      local handle = open_view("nonexistent")
 
       assert.is_nil(handle)
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
@@ -98,7 +114,7 @@ describe("docker.handlers.lifecycle", function()
         on_exit({ code = 1, stdout = "", stderr = "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" })
       end)
 
-      local handle = lifecycle.open("container")
+      local handle = open_view("container")
 
       assert.is_nil(handle)
       local last = notified[#notified]
@@ -109,7 +125,7 @@ describe("docker.handlers.lifecycle", function()
 
   describe("close", function()
     it("ビューを閉じる", function()
-      local handle = assert(lifecycle.open("container"))
+      local handle = assert(open_view("container"))
 
       lifecycle.close("container")
 
@@ -117,10 +133,10 @@ describe("docker.handlers.lifecycle", function()
     end)
 
     it("閉じた後に開くと新しいバッファになる", function()
-      local first = assert(lifecycle.open("container"))
+      local first = assert(open_view("container"))
       lifecycle.close("container")
 
-      local second = assert(lifecycle.open("container"))
+      local second = assert(open_view("container"))
 
       assert.is_true(first.window.bufnr ~= second.window.bufnr)
     end)
@@ -132,7 +148,7 @@ describe("docker.handlers.lifecycle", function()
 
   describe("close_all", function()
     it("開いている全てのビューを閉じる", function()
-      local handle = assert(lifecycle.open("container"))
+      local handle = assert(open_view("container"))
 
       lifecycle.close_all()
 
@@ -149,7 +165,7 @@ describe("docker.handlers.lifecycle", function()
     end
 
     it("qで一覧が閉じる", function()
-      local handle = assert(lifecycle.open("container"))
+      local handle = assert(open_view("container"))
 
       press(handle, "q")
 
@@ -157,7 +173,7 @@ describe("docker.handlers.lifecycle", function()
     end)
 
     it("?でヘルプが前面に開く", function()
-      local handle = assert(lifecycle.open("container"))
+      local handle = assert(open_view("container"))
 
       press(handle, "?")
 
@@ -167,13 +183,148 @@ describe("docker.handlers.lifecycle", function()
       assert.is_truthy(joined:find("start", 1, true), joined)
     end)
 
-    it("Rで一覧を取り直す", function()
-      local handle = assert(lifecycle.open("container"))
-      local before = #vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false)
+    it("Rで一覧を取り直すためdockerを再度呼ぶ", function()
+      -- 行数だけを見ていると、R が何もしなくても気付けない。
+      local handle = assert(open_view("container"))
+      local calls = {}
+      cli._set_executor(function(cmd, _, on_exit)
+        table.insert(calls, cmd)
+        on_exit({ code = 0, stdout = "", stderr = "" })
+      end)
 
       press(handle, "R")
 
-      assert.are.equal(before, #vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
+      assert.are.equal(1, #calls, "一覧取得を 1 回発行すること")
+      assert.are.equal("ps", calls[1][2])
+    end)
+  end)
+
+  describe("非同期な接続確認との競合", function()
+    it("応答を待っている間に再度開いてもフロートが二重に開かない", function()
+      -- `:Docker containers` を連打すると、接続確認の応答前に何枚も開いてしまう。
+      -- 孤児になったフロートは q でも close() でも閉じられなくなる。
+      local pending_replies = {}
+      cli._set_executor(function(cmd, _, on_exit)
+        -- 接続確認の応答を保留し、その間に 2 回目・3 回目を発行する
+        table.insert(pending_replies, function()
+          if cmd[2] == "version" then
+            on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+          else
+            on_exit({ code = 0, stdout = "", stderr = "" })
+          end
+        end)
+      end)
+
+      local before = #vim.api.nvim_list_wins()
+      lifecycle.open("container")
+      lifecycle.open("container")
+      lifecycle.open("container")
+      for _, reply in ipairs(pending_replies) do
+        reply()
+      end
+      vim.wait(200)
+
+      local opened = #vim.api.nvim_list_wins() - before
+      assert.is_true(opened <= 1, ("開いたウィンドウは 1 枚まで (実際 %d 枚)"):format(opened))
+    end)
+
+    it("接続に失敗した後でも改めて開ける", function()
+      cli._set_executor(function(_, _, on_exit)
+        on_exit({ code = 1, stdout = "", stderr = "Cannot connect to the Docker daemon" })
+      end)
+      assert.is_nil(open_view("container"))
+
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "version" then
+          on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+        else
+          on_exit({ code = 0, stdout = "", stderr = "" })
+        end
+      end)
+
+      assert.is_truthy(open_view("container"), "失敗後に開けなくならないこと")
+    end)
+  end)
+
+  describe("実行中表示の結線", function()
+    it("操作を開始すると一覧に実行中の印が出る", function()
+      -- 台帳に印を付けるだけでは画面は変わらない。再描画まで繋がっている必要がある。
+      local handle = assert(open_view("container"))
+      assert.is_nil(vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+
+      operations.begin("abc123", "stop")
+
+      assert.is_truthy(
+        vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("実行中", 1, true),
+        vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]
+      )
+    end)
+
+    it("操作が終わると実行中の印が消える", function()
+      local handle = assert(open_view("container"))
+      operations.begin("abc123", "stop")
+
+      operations.finish("abc123", "stop")
+
+      assert.is_nil(vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+    end)
+  end)
+
+  describe("再描画とカーソル", function()
+    it("再取得してもカーソル行が先頭へ戻らない", function()
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "version" then
+          on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+        else
+          local rows = {}
+          for i = 1, 5 do
+            table.insert(
+              rows,
+              ('{"id":"id%d","name":"c%d","image":"alpine","state":"running","status":"Up",'):format(i, i)
+                .. '"ports":"","command":"x","created_at":"now","compose_project":"","compose_service":"","compose_oneoff":""}'
+            )
+          end
+          on_exit({ code = 0, stdout = table.concat(rows, "\n") .. "\n", stderr = "" })
+        end
+      end)
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 4, 0 })
+
+      lifecycle.refresh_view("container")
+
+      assert.are.equal(4, vim.api.nvim_win_get_cursor(handle.window.winid)[1])
+    end)
+  end)
+
+  describe("キーマップの適用範囲", function()
+    it("プラグインのキーをグローバルに張らない", function()
+      -- BR-014: 一覧ビュー以外のバッファでプラグインのキーが作用しない。
+      -- `nvim_buf_get_keymap` はバッファローカルしか見ないためグローバル併設を
+      -- 検出できない。グローバルのマップ一覧に一覧ビューのキーが無いことを直接見る。
+      -- (前のテストで既に開いている可能性があるので、差分ではなく実在で判定する)
+      assert(open_view("container"))
+
+      local global = {}
+      for _, m in ipairs(vim.api.nvim_get_keymap("n")) do
+        global[m.lhs] = true
+      end
+
+      local leaked = {}
+      for _, key in ipairs({ "u", "d", "r", "t", "a", "e", "E", "q", "R", "?" }) do
+        if global[key] then
+          table.insert(leaked, key)
+        end
+      end
+      assert.are.same({}, leaked, "グローバルへ漏れたキー: " .. vim.inspect(leaked))
+    end)
+
+    it("ビューを閉じるとそのバッファのキーも消える", function()
+      local handle = assert(open_view("container"))
+      local bufnr = handle.window.bufnr
+
+      lifecycle.close("container")
+
+      assert.is_false(vim.api.nvim_buf_is_valid(bufnr), "バッファごと破棄されること")
     end)
   end)
 end)

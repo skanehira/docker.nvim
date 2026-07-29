@@ -83,10 +83,18 @@ describe("docker.views.keymaps", function()
       end
     end)
 
-    it("キーの順序は実行のたびに変わらない", function()
-      local first, second = keymaps.describe_view("container_list"), keymaps.describe_view("container_list")
+    it("キーの昇順で並ぶ", function()
+      -- 同じ内容でも並びが揺れるとヘルプの行順が実行のたびに変わる。
+      local rows = keymaps.describe_view("volume_list")
 
-      assert.are.same(first, second)
+      local keys = {}
+      for _, row in ipairs(rows) do
+        table.insert(keys, row.key)
+      end
+      local sorted = vim.deepcopy(keys)
+      table.sort(sorted)
+      assert.are.same(sorted, keys)
+      assert.is_true(#keys > 1)
     end)
   end)
 end)

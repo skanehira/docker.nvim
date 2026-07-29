@@ -15,6 +15,17 @@ local M = {}
 ---@field widths integer[]    列の表示幅
 ---@field empty boolean       表示するリソースが 0 件か
 
+--- 表示用に 1 行へ収める。
+---
+--- compose のラベル値やコンテナ名は任意の文字を取れる。改行を含む値が 1 件でも
+--- あると `nvim_buf_set_lines` が失敗し、一覧そのものが描画できなくなる。
+--- 幅の計算より前に潰しておかないと、桁揃えとハイライトのバイト位置もずれる。
+---@param value any
+---@return string
+local function single_line(value)
+  return (tostring(value or ""):gsub("%c", " "))
+end
+
 ---@param def docker.ResourceDefinition
 ---@return string[]
 local function headers_of(def)
@@ -42,7 +53,7 @@ function M.build(def, items, opts)
   for _, item in ipairs(items) do
     local values = {}
     for index, column in ipairs(def.columns) do
-      local value = column.value(item)
+      local value = single_line(column.value(item))
       if busy and index == def.status_column and busy(item) then
         value = value .. BUSY_SUFFIX
       end
@@ -93,6 +104,11 @@ end
 ---@return docker.ListBuild
 function M.render(handle, def, items, opts)
   local built = M.build(def, items, opts)
+
+  -- 取得中にビューを閉じると、結果が返ってきた時点でバッファは無効になっている。
+  if not vim.api.nvim_buf_is_valid(handle.bufnr) then
+    return built
+  end
 
   window.set_lines(handle, built.lines)
   if vim.api.nvim_win_is_valid(handle.winid) then
