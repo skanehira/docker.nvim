@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+  "runtime": {
+    "version": "LuaJIT"
+  },
+  "diagnostics": {
+    "globals": ["vim", "describe", "it", "before_each", "after_each", "assert"]
+  },
+  "workspace": {
+    "library": ["$VIMRUNTIME/lua/vim", "~/.local/share/nvim/lazy/plenary.nvim/lua"],
+    "ignoreDir": ["docs", "doc", ".git", "lua_modules", ".luarocks"],
+    "checkThirdParty": false
+  }
+}

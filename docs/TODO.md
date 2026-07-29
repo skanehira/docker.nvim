@@ -31,14 +31,31 @@ CI の構築（フェーズ 11-b）は品質保証（フェーズ 11-a）の後�
 
 DESIGN_DETAIL_APP.md「1. プロジェクトセットアップ」に対応。
 
-- [ ] ディレクトリ構造の作成（`lua/docker/{resources,state,handlers,adapters/docker,views,ui}` / `plugin` / `doc` / `tests` / `scripts`）
-- [ ] `.luacheckrc` の作成（`vim` をグローバルとして許可）
-- [ ] `stylua.toml` の作成（インデント幅・行長の設定）
-- [ ] `.luarc.json` の作成（Neovim ランタイムパスを型解決に含める）
-- [ ] `tests/minimal_init.lua` の作成（plenary.nvim を `runtimepath` に追加）
-- [ ] `Makefile` の作成（`test` / `test-file` / `test-e2e` / `lint` / `format` / `format-check` / `typecheck` / `check`）。`test-file` は指定ファイルが存在しない場合に非 0 で終了させる（ゴール検証がファイル名を名指しするため、不在を成功と解釈させない）
-- [ ] `lua/docker/notify.lua` の作成（情報・警告・エラーの通知を 1 箇所に集約）
-- [ ] [CHECK] 初回確認（`make test` がテスト 0 件で正常終了、`make lint` と `make typecheck` が警告 0 で終了、`make test-file FILE=存在しないパス` が非 0 で終了）
+- [x] ディレクトリ構造の作成（`lua/docker/{resources,state,handlers,adapters/docker,views,ui}` / `plugin` / `doc` / `tests` / `scripts`）。空ディレクトリは git が追跡しないため `.gitkeep` を置き、clone 後も構成が残るようにする
+- [x] `.luacheckrc` の作成（`vim` をグローバルとして許可）
+- [x] `stylua.toml` の作成（インデント幅・行長の設定）
+- [x] `.luarc.json` の作成（Neovim ランタイムパスを型解決に含める）
+- [x] `tests/minimal_init.lua` の作成（plenary.nvim を `runtimepath` に追加）。plenary の場所は `PLENARY_PATH` で上書きでき、不在または plenary でないディレクトリを指している場合は `cquit 1` で即座に非 0 終了する（この検査が無いと `PlenaryBusted*` が未定義コマンドのままヘッドレス nvim がハングし、CI からは失敗ではなく無応答に見える）
+- [x] `scripts/run-busted.sh` の作成（テストの起動と「実際に実行されたこと」の検証を集約）
+- [x] `Makefile` の作成（`test` / `test-file` / `test-e2e` / `plugin-check` / `lint` / `format` / `format-check` / `typecheck` / `check`）
+- [x] `lua/docker/notify.lua` の作成（情報・警告・エラーの通知を 1 箇所に集約）
+- [x] [CHECK] 初回確認（`make lint` / `make format-check` / `make typecheck` / `make plugin-check` / `make test` がそれぞれ 0 で終了し、`make check` が全部を通す）
+
+**検証器を空虚にしないための不変条件**（ゴールの検証手順がすべて `make test-file FILE=...` の終了コードに依存するため、ここが崩れると受入検証そのものが無意味になる）。判定は `scripts/run-busted.sh` / `scripts/typecheck.sh` / `scripts/plugin-check.sh` に集約する:
+
+- `make test-file` は次をすべて非 0 で終了させる: `FILE` 未指定 / ファイル不在 / `*_spec.lua` でない / 実行後にテストが 1 件も成功していない
+- `make test` は、走査対象に spec が 1 件も無い場合も非 0 で終了させる。フェーズ 1 着手時点の「テスト 0 件で正常終了」は足場が動くことの初回確認としてのみ実施し、恒久的な仕様としては採らない
+- 実行前の静的検査として、各 spec が `it(...)` を 1 つ以上持つこと、`os.exit` を呼ばないこと、`pending(...)` を使わないことを確認する（`os.exit` を許すとハーネスが本当の結果を出力する前にプロセスが消えて偽のサマリだけが残る。`pending` は plenary が Pending 行と `Success` の件数の両方に数えるため、全件 pending でも実行後の検査をすり抜ける。あわせて `rules/core/tdd.md` の「後で追加する意図でテストをスキップしない」にも対応する）
+- 実行後は、spec ファイル 1 つにつきサマリブロックがちょうど 1 つ出ること、かつ `Success: 0` のサマリが 1 つも無いことを検査する（合計値で見ると、別 spec の成功数に隠れて空の spec を見逃す）。サマリ行の判定には plenary の `print` が挟むタブを使い、テスト本体が出力した `Success: 3` のような文字列と区別する
+- `make spec-layout-check` は `lua/` と `tests/e2e/` の外にある spec を検出する（`make test` が走査しないため、置いても一度も実行されない）
+- `make typecheck` は `VIMRUNTIME` と plenary のパスを解決できない場合に検査せず失敗させる（解決できないまま実行すると型エラーがあっても "no problems found" で素通りする）
+- `make plugin-check` は `plugin/*.lua` の読み込みエラーを stderr で検出する（テストから require されないため他のどのゲートにも掛からない。`v:errmsg` では `vim.schedule` / `VimEnter` 内のエラーを取りこぼす）
+
+**これらのゲートが保証しないこと**（後続フェーズで「ゲートが拾ってくれる」と誤認しないために明記する）:
+
+- spec が対応する実装を実際に検証しているかは判定できない。`assert.are.same(1, 1)` だけの spec でもゴール検証は通る。これは `review-tdd` / `review-adversarial` の責務であり、終了コードでは代替できない
+- 一部の spec だけが削除された場合は検出できない（spec 数とサマリ数が同時に減るため常に一致する）
+- `it` の本体を空にする、`assert` を消す、条件分岐で実質何も検証しない形にするなど、テストの「中身」を弱めた場合は検出できない（実行はされ、成功も 1 件以上出るため）
 
 ### フェーズ2: docker CLI アダプタの実装 <!-- deps: 1 -->
 
