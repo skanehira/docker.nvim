@@ -1,7 +1,9 @@
 --- docker compose CLI の実行と compose プロジェクトの解決。
 ---
---- `config --format json` を 1 回実行して「プロジェクト内かの判定」「プロジェクト名」
---- 「サービス名の全件 (未起動を含む)」の 3 つを得る。
+--- 役割は 2 つある。
+---   `ls -a`: 存在するプロジェクトの列挙。ラベル由来なので作業ディレクトリに依存しない。
+---   `config --format json`: 1 つのプロジェクトについて「プロジェクト名」と
+---     「サービス名の全件 (未起動を含む)」を得る。compose ファイルが読める場所でのみ使える。
 --- `config --services` は出力順が実行のたびに変わるため使わない。
 local cli = require("docker.adapters.docker.cli")
 
@@ -11,6 +13,10 @@ local M = {}
 ---@field name string
 ---@field working_dir string
 ---@field service_names string[]  常に同じ順序 (JSON のキー順は保証されないため並べ替える)
+
+---@class docker.ComposeProjectListing
+---@field name string
+---@field config_files string  compose ファイルのパス (複数ある場合はカンマ区切り)
 
 ---@class docker.ComposeResult : docker.Result
 ---@field reason "outside"|"unavailable"|"invalid"|nil 失敗の区分
@@ -47,11 +53,59 @@ local function classify(stderr)
   return "invalid", stderr
 end
 
---- compose プロジェクトを解決する。
----@param cwd string ビューを開いた時点の作業ディレクトリ (BR-003)
+--- 存在する compose プロジェクトを列挙する。
+--- `-a` を付けて停止中のプロジェクトも含める。コンテナのラベルから作られるため
+--- compose ファイルの有無や作業ディレクトリに依存しない。
 ---@param on_done fun(result: docker.ComposeResult)
-function M.resolve_project(cwd, on_done)
-  cli.run({ "compose", "config", "--format", "json" }, function(result)
+function M.list_projects(on_done)
+  cli.run({ "compose", "ls", "-a", "--format", "json" }, function(result)
+    if not result.ok then
+      local reason, message = classify(tostring(result.error or ""))
+      on_done({ ok = false, data = nil, error = message, code = result.code, reason = reason })
+      return
+    end
+
+    if type(result.data) ~= "table" then
+      on_done({
+        ok = false,
+        data = nil,
+        error = "docker compose のプロジェクト一覧を解析できませんでした",
+        code = result.code,
+        reason = "invalid",
+      })
+      return
+    end
+
+    local projects = {}
+    for _, entry in ipairs(result.data) do
+      if type(entry) == "table" and type(entry.Name) == "string" and entry.Name ~= "" then
+        table.insert(projects, {
+          name = entry.Name,
+          config_files = type(entry.ConfigFiles) == "string" and entry.ConfigFiles or "",
+        })
+      end
+    end
+
+    on_done({ ok = true, data = projects, error = nil, code = result.code })
+  end, { parse = "json" })
+end
+
+--- compose プロジェクトを解決する。
+--- プロジェクト名を渡すと `-p` で名指しする。作業ディレクトリから決まる既定の名前と
+--- 実際のプロジェクト名は `COMPOSE_PROJECT_NAME` や `-p` 起動でずれるため、
+--- 既存プロジェクトの定義を引くときは名指しして取り違えを防ぐ。
+---@param cwd string compose ファイルを探す作業ディレクトリ
+---@param on_done fun(result: docker.ComposeResult)
+---@param opts { project_name: string|nil }|nil
+function M.resolve_project(cwd, on_done, opts)
+  local args = { "compose" }
+  local project_name = opts and opts.project_name
+  if project_name then
+    vim.list_extend(args, { "-p", project_name })
+  end
+  vim.list_extend(args, { "config", "--format", "json" })
+
+  cli.run(args, function(result)
     if not result.ok then
       local reason, message = classify(tostring(result.error or ""))
       on_done({ ok = false, data = nil, error = message, code = result.code, reason = reason })
@@ -90,8 +144,8 @@ function M.resolve_project(cwd, on_done)
 end
 
 --- compose のサブコマンドを実行する。
----@param subcommand string[] 例: { "up", "-d", "web" }
----@param cwd string
+---@param subcommand string[] 例: { "-p", "shop", "up", "-d", "web" }
+---@param cwd string|nil compose ファイルを必要とする操作でのみ渡す
 ---@param on_done fun(result: docker.Result)
 function M.run(subcommand, cwd, on_done)
   local args = { "compose" }

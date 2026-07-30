@@ -159,6 +159,105 @@ describe("docker.adapters.docker.compose", function()
     end)
   end)
 
+  describe("list_projects", function()
+    ---@return docker.ComposeResult
+    local function list()
+      local captured
+      compose.list_projects(function(result)
+        captured = result
+      end)
+      return assert(captured, "on_done was not called")
+    end
+
+    it("停止中を含む全プロジェクトをJSONで取得する引数でdocker composeを呼ぶ", function()
+      -- `-a` が無いと稼働中のプロジェクトしか出ず、停止したプロジェクトが一覧から消える。
+      stub({ code = 0, stdout = "[]" })
+
+      list()
+
+      assert.are.same({ "docker", "compose", "ls", "-a", "--format", "json" }, runs[1].cmd)
+    end)
+
+    it("どの作業ディレクトリにも依存せず実行する", function()
+      -- プロジェクトの列挙はラベル由来で、compose ファイルの場所に依存しない。
+      stub({ code = 0, stdout = "[]" })
+
+      list()
+
+      assert.is_nil(runs[1].opts.cwd)
+    end)
+
+    it("プロジェクト名と設定ファイルのパスを取り出す", function()
+      stub({
+        code = 0,
+        stdout = '[{"Name":"shop","Status":"running(2)","ConfigFiles":"/work/shop/compose.yaml"},'
+          .. '{"Name":"blog","Status":"exited(1)","ConfigFiles":"/work/blog/compose.yaml"}]',
+      })
+
+      local result = list()
+
+      assert.is_true(result.ok)
+      assert.are.same({
+        { name = "shop", config_files = "/work/shop/compose.yaml" },
+        { name = "blog", config_files = "/work/blog/compose.yaml" },
+      }, result.data)
+    end)
+
+    it("プロジェクトが0件でも成功として扱う", function()
+      stub({ code = 0, stdout = "[]" })
+
+      local result = list()
+
+      assert.is_true(result.ok)
+      assert.are.same({}, result.data)
+    end)
+
+    it("設定ファイルのパスが無いプロジェクトは空文字列にする", function()
+      stub({ code = 0, stdout = '[{"Name":"shop","Status":"running(1)"}]' })
+
+      assert.are.same({ { name = "shop", config_files = "" } }, list().data)
+    end)
+
+    it("composeサブコマンドが使えないとわかるメッセージを返す", function()
+      stub({ code = 1, stderr = "docker: unknown command: docker compose" })
+
+      local result = list()
+
+      assert.is_false(result.ok)
+      assert.are.equal("unavailable", result.reason)
+      assert.are.equal(
+        "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+        result.error
+      )
+    end)
+
+    it("出力が解析できないときは不正として扱う", function()
+      stub({ code = 0, stdout = "not json" })
+
+      local result = list()
+
+      assert.is_false(result.ok)
+      assert.are.equal("invalid", result.reason)
+    end)
+  end)
+
+  describe("既存プロジェクトの定義の補完", function()
+    it("プロジェクト名を指定すると-pを付けて実行する", function()
+      -- ディレクトリ名から決まる既定のプロジェクト名と、コンテナのラベルにある
+      -- プロジェクト名は COMPOSE_PROJECT_NAME や -p 起動でずれる。名指しして取り違えを防ぐ。
+      stub({ code = 0, stdout = '{"name":"shop","services":{"web":{}}}' })
+
+      local captured
+      compose.resolve_project("/work/shop", function(result)
+        captured = result
+      end, { project_name = "shop" })
+
+      assert.are.same({ "docker", "compose", "-p", "shop", "config", "--format", "json" }, runs[1].cmd)
+      assert.are.equal("/work/shop", runs[1].opts.cwd)
+      assert.are.same({ "web" }, captured.data.service_names)
+    end)
+  end)
+
   describe("run", function()
     it("compose のサブコマンドを作業ディレクトリで実行する", function()
       stub({ code = 0, stdout = "" })
