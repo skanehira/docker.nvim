@@ -153,16 +153,21 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 #### US-008: compose サービス一覧を見る
 
 - **As a** Neovim 開発者
-- **I want to** カレントディレクトリの compose プロジェクトのサービスを一覧で見る
-- **So that** どのサービスがどの状態かを lazydocker のように一望できる
+- **I want to** 存在するすべての compose プロジェクトのサービスを一覧で見る
+- **So that** どのプロジェクトのどのサービスがどの状態かを lazydocker のように一望できる
 
 **受け入れ基準**:
 
-- [ ] Given compose プロジェクトのディレクトリで Neovim を開いている When `:Docker services` を実行する Then SERVICE / STATUS / CONTAINER のカラムでサービスが一覧表示され、状態は running / exited / none のいずれかで表示される
+- [ ] Given docker が起動している When `:Docker services` を実行する Then PROJECT / SERVICE / STATUS / CONTAINER のカラムで全 compose プロジェクトのサービスが一覧表示され、状態は対応するコンテナの状態（`running` / `exited` / `paused` など）、コンテナが無ければ `none` で表示される
+- [ ] Given 複数の compose プロジェクトが存在する When 一覧を表示する Then 行はプロジェクト名の昇順、同一プロジェクト内はサービス名の昇順に並ぶ
+- [ ] Given 別々のプロジェクトに同じ名前のサービスがある（例: `web` が `blog` と `shop` の両方にある） When 一覧を表示する Then 両方の行が `<プロジェクト名>/<サービス名>` で区別され、互いに衝突しない
 - [ ] Given compose に定義されているがコンテナが起動していないサービスがある When 一覧を表示する Then そのサービスが状態 `none` として表示される
-- [ ] Given compose プロジェクト外のディレクトリにいる When サービス一覧を開く Then compose プロジェクト内ではない旨のメッセージが表示され、エラーで終了しない
-- [ ] Given compose ファイルの記述が不正なディレクトリにいる When サービス一覧を開く Then compose のエラーメッセージが表示され、compose プロジェクト外とは区別される
-- [ ] Given `COMPOSE_FILE` 環境変数や compose のオーバーライドファイルでプロジェクトが構成されている When サービス一覧を開く Then `docker compose` CLI が解決したのと同じサービス集合が表示される（compose ファイルの探索規則はプラグイン側で実装せず CLI に委ねる）
+- [ ] Given 一度も起動していない compose プロジェクトのディレクトリで Neovim を開いている When サービス一覧を開く Then そのプロジェクトのサービスも一覧に合流して表示される
+- [ ] Given compose ファイルの場所が分からないプロジェクトがある When 一覧を表示する Then そのプロジェクトはコンテナが実在するサービスのみ表示される（未起動のサービスは行に出ない）
+- [ ] Given カレントディレクトリが compose プロジェクト外である When サービス一覧を開く Then 何も通知されず、他の compose プロジェクトのサービスが一覧表示される
+- [ ] Given カレントディレクトリの compose ファイルの記述が不正である When サービス一覧を開く Then 一覧は開き、docker のエラーメッセージが警告として 1 回だけ通知される（状態の取り直しのたびに同じ文言は繰り返さない）
+- [ ] Given compose プロジェクトが 1 つも存在しない When 一覧を表示する Then `compose プロジェクトがありません` が表示され、エラーにはならない
+- [ ] Given `COMPOSE_FILE` 環境変数や compose のオーバーライドファイルでカレントディレクトリのプロジェクトが構成されている When サービス一覧を開く Then `docker compose` CLI が解決したのと同じサービス集合が表示される（compose ファイルの探索規則はプラグイン側で実装せず CLI に委ねる）
 
 **エピック**: EP-3
 
@@ -171,16 +176,19 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 #### US-009: サービス単位で操作する
 
 - **As a** Neovim 開発者
-- **I want to** サービス単位で up / stop / restart し、ログを見る
+- **I want to** 一覧のどのプロジェクトのサービスでも up / stop / restart し、ログを見る
 - **So that** 特定サービスだけを再起動して開発サイクルを回せる
 
 **受け入れ基準**:
 
-- [ ] Given 状態が none のサービスにカーソルがある When `u` を押す Then そのサービスが `docker compose up -d <service>` で起動し、状態が running に更新される
-- [ ] Given running のサービスにカーソルがある When `d` を押す Then そのサービスが停止し、状態が exited に更新される
-- [ ] Given running のサービスにカーソルがある When `r` を押す Then そのサービスのコンテナが再起動し、状態が running のまま稼働時間表示がリセットされる
-- [ ] Given running のサービスにカーソルがある When `t` を押す Then そのサービスのログが follow モードで開く
+- [ ] Given 状態が none のサービスにカーソルがある When `u` を押す Then 行のプロジェクトの compose ファイルの場所で `docker compose -p <project> up -d <service>` が実行され、状態が running に更新される
+- [ ] Given running のサービスにカーソルがある When `d` を押す Then `docker compose -p <project> stop <service>` でそのサービスが停止し、状態が exited に更新される
+- [ ] Given running のサービスにカーソルがある When `r` を押す Then `docker compose -p <project> restart <service>` でコンテナが再起動し、状態が running のまま稼働時間表示がリセットされる
+- [ ] Given running のサービスにカーソルがある When `t` を押す Then `docker compose -p <project> logs -f <service>` のログが follow モードで開く
 - [ ] Given 状態が none のサービスにカーソルがある When `t` を押す Then コンテナが無い旨のメッセージが表示され、ターミナルは開かない
+- [ ] Given カレントディレクトリ外のプロジェクトのサービスにカーソルがある When `u` / `d` / `r` / `t` を押す Then カレントディレクトリに関係なく行のプロジェクトが操作される
+- [ ] Given compose ファイルの場所が分からないプロジェクトのサービスにカーソルがある When `u` を押す Then `<サービス名> は compose ファイルの場所が分からないため起動できません` と警告され、docker は実行されない
+- [ ] Given compose ファイルの場所が分からないプロジェクトのサービスにカーソルがある When `d` / `r` / `t` を押す Then プロジェクト名の名指しだけで実行でき、操作は成功する
 
 **エピック**: EP-3
 
@@ -189,14 +197,16 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 #### US-010: compose プロジェクト単位で起動・停止する
 
 - **As a** Neovim 開発者
-- **I want to** プロジェクト全体を up -d / down する
+- **I want to** カーソル行のプロジェクト全体を up -d / down する
 - **So that** 開発環境の一括起動・一括破棄ができる
 
 **受け入れ基準**:
 
-- [ ] Given compose プロジェクトのディレクトリにいる When サービス一覧で `U` を押す Then プロジェクト全体が `docker compose up -d` で起動し、一覧の各サービスのコンテナが作成・起動される（処理を終えてすぐ終了するサービスは exited になり得る）
-- [ ] Given プロジェクトが起動している When `D` を押して確認に `y` と答える Then プロジェクト全体が `docker compose down` で停止・破棄され、各サービスが none になる
+- [ ] Given いずれかのプロジェクトのサービス行にカーソルがある When サービス一覧で `U` を押す Then その行のプロジェクト全体が、そのプロジェクトの compose ファイルの場所で `docker compose -p <project> up -d` により起動し、そのプロジェクトの各サービスのコンテナが作成・起動される（処理を終えてすぐ終了するサービスは exited になり得る）
+- [ ] Given プロジェクトが起動している When `D` を押して確認に `y` と答える Then その行のプロジェクト全体が `docker compose -p <project> down` で停止・破棄され、そのプロジェクトの各サービスが none になる
 - [ ] Given `D` の確認プロンプトが表示されている When `n` で答える Then プロジェクトは停止されない
+- [ ] Given compose ファイルの場所が分からないプロジェクトの行にカーソルがある When `U` を押す Then `<プロジェクト名> は compose ファイルの場所が分からないため起動できません` と警告され、docker は実行されない
+- [ ] Given compose ファイルの場所が分からないプロジェクトの行にカーソルがある When `D` を押して確認に `y` と答える Then プロジェクト名の名指しで破棄が実行され、そのプロジェクトの行は一覧から消える（サービス名の逆算元となるコンテナが無くなるため）
 
 **エピック**: EP-3
 
@@ -262,7 +272,7 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 - [ ] Given docker コマンドが PATH に無い When 一覧を開く Then docker が見つからない旨のメッセージが表示され、空ウィンドウは開かない
 - [ ] Given docker デーモンが停止している When 一覧を開く Then デーモンに接続できない旨のメッセージが表示される
 - [ ] Given docker ソケットへのアクセス権限が無い（`permission denied`） When 一覧を開く Then 権限が不足している旨のメッセージが表示され、デーモン未起動のメッセージとは区別される
-- [ ] Given docker compose サブコマンドが使えない When サービス一覧を開く Then compose が利用できない旨のメッセージが表示され、コンテナ一覧など他の機能は引き続き使える
+- [ ] Given docker compose サブコマンドが使えない When サービス一覧を開く Then `docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。` が表示され、サービス一覧は開かず、コンテナ一覧など他の機能は引き続き使える
 
 **エピック**: EP-4
 
@@ -426,7 +436,7 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 
 - [ ] Given コンテナ一覧を開いている When ビュー切替キーでイメージ一覧を選ぶ Then イメージ一覧が同じウィンドウに表示される
 - [ ] Given ビューを切り替えた When 元のビューへ戻る Then 直前に見ていた行にカーソルが復元される
-- [ ] Given compose プロジェクト外のディレクトリにいる When サービス一覧へ切り替える Then compose プロジェクト内ではない旨のメッセージが表示され、切替前のビューが維持される
+- [ ] Given カレントディレクトリが compose プロジェクト外である When サービス一覧へ切り替える Then 存在する compose プロジェクトのサービス一覧が同じウィンドウに表示される
 
 **エピック**: EP-5
 
@@ -547,7 +557,6 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 | ID | 内容 | 理由 |
 | --- | --- | --- |
 | WN-001 | Docker Hub のイメージ検索・pull | 今回のスコープ外（denops-docker.vim にはあるが優先度が低い） |
-| WN-002 | カレントディレクトリ外の compose プロジェクトへの up/down 等の compose 操作 | lazydocker 同様、compose ファイルのパス解決が必要になるため見送る。該当コンテナ単体の操作は US-002 で可能 |
 | WN-003 | Docker Swarm / Kubernetes 連携 | k8s.nvim の領域 |
 | WN-004 | イメージのビルド（`docker build`） | ビルドコンテキストの指定 UI が必要になり、スコープが膨らむため |
 | WN-005 | volume / network の作成 | 作成は compose か docker CLI で行うのが通常のため |
@@ -574,4 +583,4 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 | Must | 15 | US-001〜US-015 |
 | Should | 12 | US-016〜US-027 |
 | Could | 4 | US-028〜US-031 |
-| Won't | 8 | WN-001〜WN-008 |
+| Won't | 7 | WN-001, WN-003〜WN-008 |

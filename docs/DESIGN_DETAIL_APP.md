@@ -64,8 +64,10 @@ lua/docker/init.lua                setup / open / close、キーからアクシ�
 lua/docker/config.lua              デフォルト設定・キーマップ定義・合成・検証
 lua/docker/notify.lua              利用者への通知（情報・警告・エラー）
 lua/docker/format.lua              出力テンプレートの組み立てと NDJSON の解析
-lua/docker/resources/registry.lua  リソース種別ごとの宣言的定義
+lua/docker/resources/registry.lua  リソース種別ごとの宣言的定義（サービス種別の取得は service_loader へ委譲）
 lua/docker/resources/fields.lua    生データから表示値を取り出すヘルパ（状態・ポート・経過時間）
+lua/docker/resources/service_loader.lua compose サービス一覧の取得（3 種の取得を並列に実行して突き合わせる）
+lua/docker/resources/services.lua  サービス行の組み立て（1 プロジェクト分・全プロジェクト分）とラベルからのサービス名の逆算
 lua/docker/state/store.lua         リソースストアと購読者への通知
 lua/docker/state/view.lua          ビュー状態の生成と更新（不変更新）
 lua/docker/state/stack.lua         ビュースタック
@@ -77,7 +79,7 @@ lua/docker/handlers/jobs.lua       ジョブ台帳（VimLeavePre で一括終了
 lua/docker/handlers/terminal.lua   ターミナルバッファでのコマンド実行
 lua/docker/adapters/docker/cli.lua      docker コマンドの実行（単発）
 lua/docker/adapters/docker/events.lua   docker events の購読と再購読
-lua/docker/adapters/docker/compose.lua  docker compose CLI の実行と compose プロジェクトの解決
+lua/docker/adapters/docker/compose.lua  docker compose CLI の実行、compose プロジェクトの列挙と解決
 lua/docker/views/list.lua          一覧ビュー
 lua/docker/views/inspect.lua       詳細ビュー
 lua/docker/views/help.lua          ヘルプビュー
@@ -150,15 +152,28 @@ M.subscribe(opts)
 -- adapters/docker/compose.lua
 ---@class docker.ComposeProject
 ---@field name string
----@field working_dir string
----@field service_names string[]
+---@field working_dir string          compose ファイルのあるディレクトリ（分からなければ空文字列）
+---@field service_names string[]      サービス名の全件（未起動を含む）。名前の昇順
 
----@param cwd string
----@param on_done fun(result: docker.Result)  data は docker.ComposeProject
-M.resolve_project(cwd, on_done)
+---@class docker.ComposeProjectListing
+---@field name string
+---@field config_files string         compose ファイルのパス（複数ある場合はカンマ区切り）
 
----@param subcommand string[]  例: { "up", "-d", "web" }
----@param cwd string
+---@class docker.ComposeResult : docker.Result
+---@field reason "outside"|"unavailable"|"invalid"|nil  失敗の区分（[5.3](#53-compose)）
+
+--- 存在する compose プロジェクトを列挙する（`compose ls -a`。停止中のプロジェクトも含む）
+---@param on_done fun(result: docker.ComposeResult)  data は docker.ComposeProjectListing[]
+M.list_projects(on_done)
+
+--- 1 つのプロジェクトの定義を解決する。project_name を渡すと `-p` で名指しする
+---@param cwd string  compose ファイルを探す作業ディレクトリ
+---@param on_done fun(result: docker.ComposeResult)  data は docker.ComposeProject
+---@param opts { project_name: string|nil }|nil
+M.resolve_project(cwd, on_done, opts)
+
+---@param subcommand string[]  例: { "-p", "shop", "up", "-d", "web" }
+---@param cwd string|nil       compose ファイルを必要とする操作でのみ渡す
 ---@param on_done fun(result: docker.Result)
 M.run(subcommand, cwd, on_done)
 ```
@@ -173,8 +188,10 @@ M.run(subcommand, cwd, on_done)
 ---@class docker.ResourceDefinition
 ---@field kind string                    "container" | "image" | "volume" | "network" | "service"
 ---@field display_name string
----@field list_args fun(): string[]      一覧取得の docker 引数
----@field id fun(item: table): string    識別子の取り出し
+---@field empty_text string              0 件のときに一覧へ出す 1 行（例: サービスでは「compose プロジェクトがありません」）
+---@field list_args fun(): string[]|nil  一覧取得の docker 引数（load を持つ種別では持たない）
+---@field load fun(ctx: docker.ServiceLoadContext, on_done: fun(result: docker.ServiceLoadResult))|nil  一覧が docker の単一コマンドで取れない種別の取得（[3.5](#35-compose-サービス一覧の組み立て)）
+---@field id fun(item: table): string    識別子の取り出し（サービスは `<プロジェクト名>/<サービス名>`）
 ---@field columns docker.ColumnDef[]
 ---@field status_column integer|nil      ハイライト対象のカラム位置（1 始まり）
 ---@field status fun(item: table): string|nil
@@ -212,6 +229,46 @@ store.list(kind)
 store.subscribe(listener)
 ```
 
+### 3.5 compose サービス一覧の組み立て
+
+`resources/service_loader.lua` が、[5.3](#53-compose) の 3 種の取得を突き合わせて `docker.Service`（[4.3](#43-compose-サービス)）の配列を作る。リソース定義（`resources/registry.lua`）はサービス種別の `load` からこれを呼ぶだけにし、多段の非同期を宣言的定義の外へ出す。コンテナ一覧の取得引数は呼び出し側から受け取る（リソース定義を参照し返すと循環参照になるため）。
+
+```lua
+-- resources/service_loader.lua
+---@class docker.ServiceLoadContext
+---@field cwd string              ビューを開いた時点の作業ディレクトリ（BR-003）
+---@field container_args string[] コンテナ一覧を取る docker 引数
+
+---@class docker.ServiceLoadResult : docker.Result
+---@field warning string|nil  一覧は出せるが利用者に伝えることがある場合の文言（BR-016）
+---                          生成するのはここまでで、通知と重複抑止は
+---                          handlers/lifecycle.lua の announce_warning が行う
+
+---@param ctx docker.ServiceLoadContext
+---@param on_done fun(result: docker.ServiceLoadResult)  data は docker.Service[]
+M.load(ctx, on_done)
+```
+
+行の組み立てそのもの（`resources/services.lua`）は外界に触れない純関数として分ける。
+
+```lua
+-- resources/services.lua
+---@param project docker.ComposeProject
+---@param containers table[]
+---@return docker.Service[]   1 プロジェクト分。サービス名 × コンテナのラベルで突き合わせる
+M.assemble(project, containers)
+
+---@param project_name string
+---@param containers table[]
+---@return string[]           コンテナのラベルから逆算したサービス名（実体のあるものだけ。BR-024）
+M.derive_service_names(project_name, containers)
+
+---@param projects docker.ComposeProject[]
+---@param containers table[]
+---@return docker.Service[]   プロジェクト名の昇順で連結した全プロジェクト分
+M.assemble_all(projects, containers)
+```
+
 ## 4. データ構造
 
 永続化を行わないため、データベーススキーマは存在しない。ここではメモリ上の構造を定義する。
@@ -233,6 +290,7 @@ store.subscribe(listener)
 | `compose_project` | `.Label "com.docker.compose.project"` | compose プロジェクト名 | 非 compose 由来のとき空文字列 |
 | `compose_service` | `.Label "com.docker.compose.service"` | compose サービス名 | 同上 |
 | `compose_oneoff` | `.Label "com.docker.compose.oneoff"` | `"True"` のとき単発コンテナ | 通常は空文字列 |
+| `compose_working_dir` | `.Label "com.docker.compose.project.working_dir"` | そのプロジェクトの compose ファイルがあるディレクトリ。一覧の表示には使わず、サービス一覧の組み立て（[5.3](#53-compose)）と起動系操作の実行場所（[4.5](#45-状態変更操作の一貫性)）の逆算に使う | 非 compose 由来のとき空文字列 |
 
 ラベル未設定時は `nil` ではなく空文字列が返る（PoC で確認済み）。compose 由来かの判定は `compose_project ~= "" and compose_service ~= ""` とし、`compose_oneoff == "True"` のコンテナはサービスに紐付けない（BR-006）。
 
@@ -248,12 +306,18 @@ store.subscribe(listener)
 
 ### 4.3 compose サービス
 
-| フィールド | 説明 |
-| --- | --- |
-| `project` | プロジェクト名（`docker compose config --format json` の `.name`） |
-| `name` | サービス名（同 `.services` のキー） |
-| `container` | 紐付くコンテナ（無ければ `nil`） |
-| `status` | `container` があればそのコンテナの `state`、無ければ `"none"`（BR-005） |
+`docker.Service`。一覧は全プロジェクトを統合して出すため、行の識別子はプロジェクト名とサービス名の複合キー `<プロジェクト名>/<サービス名>` とする（別プロジェクトの同名サービスが衝突しない）。
+
+| フィールド | 説明 | 空になる条件 |
+| --- | --- | --- |
+| `project` | プロジェクト名（`compose ls` の `Name`、`docker compose -p <project> config --format json` の `.name`、またはコンテナのラベル `com.docker.compose.project`） | なし |
+| `name` | サービス名（`config --format json` の `.services` のキー、またはコンテナのラベル `com.docker.compose.service` からの逆算） | なし |
+| `container` | 紐付くコンテナ名 | 紐付くコンテナが無いとき空文字列 |
+| `container_id` | 紐付くコンテナ ID（ドリルダウンとログの対象） | 同上 |
+| `status` | 紐付くコンテナの `state`。無ければ `"none"`（BR-005） | なし |
+| `working_dir` | そのプロジェクトの compose ファイルがあるディレクトリ。一覧の列には出さず、起動系の操作（`u` / `U`）の実行場所としてのみ使う | 場所が分からないとき空文字列（起動できない。BR-024） |
+
+同じサービスにコンテナが複数ある場合（scale）は稼働中のものを代表にする。`docker compose run` が作る単発コンテナ（`compose_oneoff == "True"`）はサービスの実体として扱わない（BR-006）。
 
 ### 4.4 イベント
 
@@ -274,12 +338,14 @@ store.subscribe(listener)
 | コンテナの起動・停止・再起動・強制終了・一時停止・再開 | `u` / `d` / `r` / `<C-k>` / `p` / `P` | `docker start\|stop\|restart\|kill\|pause\|unpause <id>` | 単一コマンド | 前提状態の検査を事前に行う（BR-007） |
 | コンテナ・イメージ・ボリューム・ネットワークの削除 | `D` | `docker rm\|rmi\|volume rm\|network rm <id>` | 単一コマンド | 強制削除オプションは付けない（BR-002） |
 | 複数選択の一括削除 | Visual + `D` | 対象ごとに削除コマンド | 対象ごとに独立 | 一部失敗しても他は実行し、失敗分をまとめて通知する（原子性は保証しない） |
-| サービスの起動・停止・再起動 | `u` / `d` / `r` | `docker compose up -d\|stop\|restart <service>` | 単一コマンド | デタッチで実行する（BR-023） |
-| プロジェクトの起動・破棄 | `U` / `D` | `docker compose up -d` / `docker compose down` | 単一コマンド | 途中で失敗すると一部のサービスのみ起動した状態になり得る。一覧は実際の状態を反映する |
+| サービスの起動・停止・再起動 | `u` / `d` / `r` | `docker compose -p <project> up -d\|stop\|restart <service>` | 単一コマンド | デタッチで実行する（BR-023）。`up` のみ行の `working_dir` で実行する |
+| プロジェクトの起動・破棄 | `U` / `D` | `docker compose -p <project> up -d` / `docker compose -p <project> down` | 単一コマンド | 途中で失敗すると一部のサービスのみ起動した状態になり得る。一覧は実際の状態を反映する。`up -d` のみ行の `working_dir` で実行する |
 | 使い捨てコンテナの起動 | `r`（イメージ一覧） | `docker run --rm -it --entrypoint sh <image>` | 単一コマンド | ターミナルジョブとして起動し、シェル終了時に `--rm` で自動削除される。同一イメージからの複数起動は許可する（対象が毎回別のコンテナになるため BR-009 の排他対象にしない） |
 | ファイルのコピー・書き戻し | `ct` / `cf` / `:w` | `docker cp` | 単一コマンド | — |
 
-いずれの操作も、同一対象への同種の操作は同時に 1 つまでとする（BR-009）。この排他は実行中操作の台帳で行い、docker 側のロックには依存しない。
+compose の操作はすべて行のプロジェクトを `-p <project>` で名指しし、compose ファイルのパス（`-f`）は渡さない。作業ディレクトリを指定するのは compose ファイルの定義そのものが要る起動系（`u` / `U`）だけで、その行の `working_dir` が空なら docker を呼ばずに「`<対象名>` は compose ファイルの場所が分からないため起動できません」と警告する（BR-024）。停止・再起動・破棄はプロジェクト名の名指しだけで済むため、compose ファイルが読めなくても実行できる。
+
+いずれの操作も、同一対象への同種の操作は同時に 1 つまでとする（BR-009）。この排他は実行中操作の台帳で行い、docker 側のロックには依存しない。サービスの排他対象は `<プロジェクト名>/<サービス名>`、プロジェクトの排他対象はプロジェクト名とする。
 
 ## 5. docker コマンド仕様
 
@@ -290,7 +356,7 @@ PoC で確定した形式をそのまま用いる。テンプレートの組み�
 コンテナの取得コマンド（`--no-trunc` は必須。既定では ID が 12 文字、Command が 20 文字に切り詰められる）:
 
 ```
-docker ps -a --no-trunc --format '{"id":{{json .ID}},"name":{{json .Names}},"image":{{json .Image}},"state":{{json .State}},"status":{{json .Status}},"ports":{{json .Ports}},"command":{{json .Command}},"created_at":{{json .CreatedAt}},"compose_project":{{json (.Label "com.docker.compose.project")}},"compose_service":{{json (.Label "com.docker.compose.service")}},"compose_oneoff":{{json (.Label "com.docker.compose.oneoff")}}}'
+docker ps -a --no-trunc --format '{"id":{{json .ID}},"name":{{json .Names}},"image":{{json .Image}},"state":{{json .State}},"status":{{json .Status}},"ports":{{json .Ports}},"command":{{json .Command}},"created_at":{{json .CreatedAt}},"compose_project":{{json (.Label "com.docker.compose.project")}},"compose_service":{{json (.Label "com.docker.compose.service")}},"compose_oneoff":{{json (.Label "com.docker.compose.oneoff")}},"compose_working_dir":{{json (.Label "com.docker.compose.project.working_dir")}}}'
 ```
 
 - 各フィールドを `{{json ...}}` で個別にエスケープするため、値にカンマ・改行・引用符・バックスラッシュが含まれても 1 レコード 1 行が保たれる
@@ -313,20 +379,50 @@ docker events --format '{{json .}}'
 
 ### 5.3 compose
 
+サービス一覧は docker の単一コマンドでは取れないため、次の 4 段階で組み立てる（実装は `resources/service_loader.lua`、フローは [7.3](#73-compose-サービス一覧の組み立て)）。
+
+**段階 1**: 3 本を並列に実行し、すべて揃ってから次へ進む。
+
+| コマンド | 得るもの | 位置づけ |
+| --- | --- | --- |
+| `docker compose ls -a --format json` | 存在する全プロジェクトの `Name` と `ConfigFiles` | コンテナのラベル由来のため、どのディレクトリから実行しても効く。`-a` で停止中のプロジェクトも含む |
+| `docker ps -a --no-trunc --format ...`（[5.1](#51-一覧取得)） | 全コンテナ。ラベル `com.docker.compose.project` / `.service` / `.project.working_dir` を含む | サービスの実体と、compose ファイルの所在 |
+| `docker compose config --format json`（カレントディレクトリで実行） | そのディレクトリのプロジェクト名とサービス名の全件 | 一度も起動していないプロジェクトはコンテナが無く `compose ls` にも現れないため、この経路でのみ一覧へ合流する（BR-003） |
+
+compose を呼ぶ 2 本が失敗したときは stderr を 3 つに分ける（終了コードだけでは区別できない。docker のバージョンで文言が変わる点に注意）。`compose ls` の失敗と `docker ps` の失敗は一覧そのものが作れないためビューを開かず、カレントディレクトリの `config` の失敗は一覧の作り方を変えるだけで済む。
+
+| stderr | 区分 | 適用対象 | 扱い |
+| --- | --- | --- | --- |
+| `is not a docker command` または `unknown command` を含む | `unavailable` | `compose ls` | **compose サブコマンドが利用できない**。「docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。」を通知してビューを開かない。コンテナ一覧など他の機能は引き続き使える（US-014） |
+| `no configuration file provided` を含む | `outside` | カレントディレクトリの `config` | **カレントディレクトリが compose プロジェクト外**。正常系として扱い、何も通知せず他のプロジェクトだけで一覧を作る。どのディレクトリでも一覧は開けるので、この区分に独自の案内文は持たせない |
+| それ以外 | `invalid` | カレントディレクトリの `config` | **compose ファイルが不正**。ビューは開いたうえで、docker の stderr をそのまま警告として 1 回だけ通知する（BR-016）。イベントで取り直すたびに同じ文言は繰り返さない |
+
+`compose ls` が `unavailable` 以外の理由で失敗した場合も、プロジェクトの集合そのものが作れないため理由を問わずビューを開かず、docker の stderr をそのまま通知する。段階 3 の `-p` 付き `config` の失敗はここでは分類せず、すべて逆算へ落とす（BR-024）。
+
+**段階 2**（純関数）: プロジェクト名で重複排除して集合を作る。カレントディレクトリ由来のものはサービス定義まで分かっているので、同名なら優先する。各プロジェクトの `working_dir`（compose ファイルのある場所）は次の優先順で決める。
+
+| 優先順 | 出典 | 値の例 | 空になる条件 |
+| --- | --- | --- | --- |
+| 1 | カレントディレクトリの `config` が解決したプロジェクトは、そのカレントディレクトリ | `/Users/me/shop` | カレントディレクトリが compose プロジェクト外のとき、この経路は使えない |
+| 2 | そのプロジェクトのコンテナのラベル `com.docker.compose.project.working_dir` | `/Users/me/shop` | compose v2.17 より前が作ったコンテナにはラベルが無い |
+| 3 | `compose ls` の `ConfigFiles` の先頭（カンマ区切り。基底となる compose ファイル）のディレクトリ部分 | `/Users/me/shop`（`ConfigFiles` が `/Users/me/shop/compose.yaml` のとき） | `ConfigFiles` が空のとき |
+| — | どれも得られなければ空文字列 | `""` | — |
+
+空文字列は「compose ファイルの場所が分からない」を表し、起動系の操作を拒否する根拠になる（BR-024）。場所が得られてもそのディレクトリが実在しない（移動・削除された）場合はここでは弾かず、docker の `working directory not found` をそのまま提示する（BR-016）。
+
+**段階 3**（並列）: サービス定義が未解決のプロジェクトごとに、その `working_dir` で次を実行する。
+
 ```
-docker compose config --format json
+docker compose -p <project> config --format json
 ```
 
-1 回の実行で次の 3 つを得る:
+- `-p` で名指しするのは、ディレクトリ名から決まる既定のプロジェクト名と実際の名前が `COMPOSE_PROJECT_NAME` や `-p` 起動でずれるため
+- トップレベルの `name` がプロジェクト名、`services` のキーがサービス名の全件（未起動のサービスも含む）。キーの順序は保証されないため名前の昇順に並べ替える。`config --services` は出力順が実行ごとに変わるため使わない
+- `working_dir` が空のプロジェクトは実行しない。実行して失敗した場合も含め、コンテナのラベル `com.docker.compose.service` からサービス名を逆算する（実体のあるサービスのみ。定義されていて起動していないサービスは原理的に分からないので出ない。BR-024）
 
-- **compose プロジェクト内かの判定**: 終了コード 0 なら内側。非 0 のときは stderr を見て 3 つに分ける（終了コードだけでは区別できない）
-  - `'compose' is not a docker command` 相当 → **compose サブコマンドが利用できない**。その旨を通知し、コンテナ一覧など他の機能は引き続き使えるようにする（US-014）
-  - `no configuration file provided` を含む → **compose プロジェクト外**
-  - それ以外 → **compose ファイルが不正**。compose の stderr をそのまま提示する
-- **プロジェクト名**: トップレベルの `name`
-- **サービス名の全件**: `services` のキー（未起動のサービスも含む）
+**段階 4**: プロジェクト名の昇順、各プロジェクト内はサービス名の昇順で行を連結する。サービスとコンテナの突き合わせはラベルで行い、単発コンテナは除外する（BR-006）。対応するコンテナが無いサービスは状態 `none`（BR-005）。
 
-`config --services` は出力順が実行ごとに変わるため使わない。サービス操作は `docker compose <subcommand> <service>` を、ビューを開いた時点の作業ディレクトリで実行する（BR-003）。
+操作は行のプロジェクトを `-p` で名指しして実行する（[4.5](#45-状態変更操作の一貫性)）。
 
 ### 5.4 その他の操作
 
@@ -334,6 +430,7 @@ docker compose config --format json
 | --- | --- |
 | 詳細表示 | `docker inspect <id>` |
 | ログ追従 | `docker logs -f <id>`（ターミナル） |
+| サービスのログ追従 | `docker compose -p <project> logs -f <service>`（ターミナル） |
 | シェル起動 | `docker exec -it <id> sh -c '<bash があれば bash、なければ sh>'`（ターミナル、BR-019） |
 | コマンド実行 | `docker exec -it <id> <command>`（ターミナル） |
 | 使い捨て実行 | `docker run --rm -it --entrypoint sh <image>`（ターミナル） |
@@ -412,8 +509,8 @@ docker compose config --format json
 | `d` | `stop` | サービスを停止する |
 | `r` | `restart` | サービスを再起動する |
 | `t` | `logs` | サービスのログを追従する |
-| `U` | `project_up` | プロジェクト全体を起動する |
-| `D` | `project_down` | プロジェクト全体を破棄する（確認あり） |
+| `U` | `project_up` | 行のプロジェクト全体を起動する |
+| `D` | `project_down` | 行のプロジェクト全体を破棄する（確認あり） |
 | `gd` | `drilldown` | このサービスのコンテナへ移動する |
 
 **詳細ビュー / ヘルプビュー**: `q` で直前の一覧に戻る（BR-018）。
@@ -539,27 +636,40 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Ctrl as コントローラ
+    participant Loader as サービス一覧の組み立て
     participant CP as compose アダプタ
     participant CLI as docker CLI アダプタ
-    participant Proj as compose プロジェクト
     participant View as サービス一覧
 
-    Ctrl->>CP: resolve_project(cwd)
-    CP->>CP: docker compose config --format json
+    Ctrl->>Loader: load(cwd)
+    Note over Ctrl,Loader: コンテナ一覧の引数はリソース定義（registry）が<br/>この呼び出しに添える
 
-    alt 終了コード 0
-        CP-->>Ctrl: name とサービス名の全件
-        Ctrl->>CLI: コンテナ一覧を取得
-        CLI-->>Ctrl: コンテナ集合
-        Ctrl->>Proj: サービス名 × コンテナのラベルで突き合わせ
-        Note over Proj: 単発コンテナ（oneoff=True）は除外<br/>対応が無いサービスは状態 none
-        Proj-->>View: サービス一覧
-    else 終了コード 非 0 かつ stderr に「設定ファイルが無い」
-        CP-->>Ctrl: compose プロジェクト外
-        Ctrl-->>View: メッセージのみ表示（ビューは開かない）
-    else 終了コード 非 0（それ以外）
-        CP-->>Ctrl: compose ファイルが不正
-        Ctrl-->>View: compose のエラーをそのまま通知
+    par プロジェクトの列挙
+        Loader->>CP: list_projects()
+        CP-->>Loader: Name と ConfigFiles（停止中も含む）
+    and コンテナの取得
+        Loader->>CLI: run(ps -a --no-trunc --format ...)
+        CLI-->>Loader: コンテナ集合（compose ラベル付き）
+    and カレントディレクトリの解決
+        Loader->>CP: resolve_project(cwd)
+        CP-->>Loader: プロジェクト名とサービス名の全件
+    end
+
+    alt compose サブコマンドが使えない、または docker ps が失敗
+        Loader-->>Ctrl: エラー
+        Ctrl-->>View: エラーを通知（ビューは開かない）
+    else それ以外
+        Note over Loader: cwd がプロジェクト外なら何も添えない（正常系）<br/>compose ファイルが不正なら警告の文言を結果に添える（BR-016）<br/>通知と重複抑止はコントローラ側が行う
+        Loader->>Loader: プロジェクト名で重複排除し working_dir を決める
+        par 定義が未解決のプロジェクトごと
+            Loader->>CP: resolve_project(working_dir, project_name)
+            CP-->>Loader: サービス名の全件（未起動を含む）
+        end
+        Note over Loader: working_dir が空、または config に失敗した<br/>プロジェクトはコンテナのラベルから逆算（BR-024）
+        Loader->>Loader: サービス名 × コンテナのラベルで突き合わせ
+        Note over Loader: 単発コンテナ（oneoff=True）は除外<br/>対応が無いサービスは状態 none<br/>プロジェクト名の昇順で連結
+        Loader-->>Ctrl: 全プロジェクトのサービス一覧
+        Ctrl-->>View: サービス一覧（PROJECT 列付き）
     end
 ```
 
@@ -601,8 +711,9 @@ sequenceDiagram
 | --- | --- | --- |
 | 環境エラー（回復不能・利用者起因） | docker 未検出、デーモン未起動、ソケット権限不足 | 3 状況を区別した独自の文言で通知し、ビューを開かない（BR-016 の例外） |
 | 環境エラー（compose のみ） | `docker compose` サブコマンドが利用できない | その旨を通知し、サービス一覧を開かない。他のリソースのビューは引き続き利用できる |
+| 部分的な取得失敗（回復可能・利用者起因） | カレントディレクトリの compose ファイルが不正 | 他のプロジェクトで一覧は開いたうえで、docker の stderr をそのまま警告として通知する。イベントで取り直すたびに同じ文言は繰り返さない（BR-016） |
 | 環境エラー（起動時） | Neovim が 0.10 未満 | `setup()` の時点で検出し、対応バージョンを示すメッセージを通知したうえで、コマンドとキーマップを登録せず機能を無効化する（以降どの操作でも実行時エラーを出さない） |
-| 操作の前提エラー（回復可能・利用者起因） | 停止中コンテナへの kill、コンテナの無いサービスのログ | docker を呼ばずに警告を通知する（BR-007） |
+| 操作の前提エラー（回復可能・利用者起因） | 停止中コンテナへの kill、コンテナの無いサービスのログ、compose ファイルの場所が分からないプロジェクトの起動 | docker を呼ばずに警告を通知する（BR-007、BR-024） |
 | docker 実行エラー（回復可能） | 使用中イメージの削除、ポート競合、実行中コンテナの削除 | docker の stderr をそのまま通知し、内部状態は変更しない（BR-002, BR-016） |
 | ストリーム切断（回復可能・システム起因） | デーモン再起動、ネットワーク断 | 自動再購読を試み、規定回数失敗したら手動更新を促す（BR-013） |
 | 解析エラー（回復不能・システム起因） | docker の出力が JSON として解析できない | 該当行を読み飛ばし、読み飛ばした件数をデバッグログに残す。全件失敗した場合はエラーとして通知する |
@@ -643,8 +754,8 @@ sequenceDiagram
 - G4 検証: `make test-file FILE=lua/docker/handlers/terminal_spec.lua`（ターミナル起動時の引数と、バッファ破棄でジョブ台帳が空になることを検証）。台帳が空になることは実プロセスの不在を保証しないため、バッファを閉じたときに実プロセスが残らないことは G_E2E のシナリオ（ログ追従のターミナルを開いて閉じ、`docker logs -f` のプロセスが残っていないことを確認するステップ）で検証する
 - G5 検証: `make test-file FILE=lua/docker/views/inspect_spec.lua`（詳細ビューの内容と、閉じたときのカーソル位置復元を検証）
 - G6 検証: `make test-file FILE=lua/docker/resources/registry_spec.lua`（images / volumes / networks の一覧定義と削除コマンドを検証）＋ `make test-file FILE=lua/docker/handlers/actions_delete_spec.lua`（確認プロンプトを経る削除経路が全リソース種別で共通に働くことを検証）＋ `make test-file FILE=lua/docker/views/list_spec.lua`（各種別の一覧が描画されることを検証）
-- G7 検証: `make test-file FILE=lua/docker/adapters/docker/compose_spec.lua`（`config --format json` の解析、compose 外／compose 不正／compose サブコマンド不在の 3 区分、未起動サービスが `none` になることを検証）
-- G8 検証: `make test-file FILE=lua/docker/handlers/actions_compose_spec.lua`（サービス単位・プロジェクト単位の各キーが発行する compose 引数を検証）
+- G7 検証: `make test-file FILE=lua/docker/resources/service_loader_spec.lua`（3 種の取得の突き合わせ、`working_dir` の決定の優先順、定義を引けないプロジェクトでコンテナのラベルからサービス名が逆算されること、未起動サービスが `none` になることを検証）＋ `make test-file FILE=lua/docker/adapters/docker/compose_spec.lua`（`compose ls -a --format json` と `-p` 付き `config --format json` の解析、compose 外／compose 不正／compose サブコマンド不在の 3 区分を検証）＋ `make test-file FILE=lua/docker/handlers/lifecycle_service_spec.lua`（プロジェクト外でもビューが開くこと、0 件の文言、compose ファイル不正の警告が取り直しのたびに繰り返されないことを検証）
+- G8 検証: `make test-file FILE=lua/docker/handlers/actions_compose_spec.lua`（サービス単位・プロジェクト単位の各キーが `-p <project>` 付きで発行する compose 引数、起動系のみ行の `working_dir` で実行されること、`working_dir` が空の行では docker を呼ばずに警告することを検証）
 - G9 検証: `make test-file FILE=lua/docker/adapters/docker/events_spec.lua`（チャンク分割された入力の組み立てと、イベントからストア更新までの経路を検証）＋ `make test-file FILE=lua/docker/handlers/render_spec.lua`（偽の時計でデバウンス幅を検査し、イベント受信から 1 秒以内に描画要求が出ることを検証）。実環境での 1 秒以内の反映は G_E2E でも確認する
 - G10 検証: `make test-file FILE=lua/docker/handlers/actions_refresh_spec.lua`（`R` による再取得と再描画、カーソル位置の保持、購読が停止していた場合の再開を検証）＋ `make test-file FILE=lua/docker/adapters/docker/events_reconnect_spec.lua`（切断検知・自動再購読・手動更新への切り替えを検証）
 - G11 検証: `make test-file FILE=lua/docker/adapters/docker/cli_spec.lua`（docker 未検出・デーモン未起動・権限不足の 3 状況で異なるメッセージが返ることを検証）＋ `make test-file FILE=lua/docker/adapters/docker/compose_spec.lua`（compose サブコマンド不在が他の 3 状況と区別されることを検証）
@@ -655,7 +766,7 @@ sequenceDiagram
 `scripts/e2e.sh` の内容:
 
 1. docker が利用できることを確認する（できなければ終了コード 2）
-2. 検証用の compose プロジェクトとスタンドアロンコンテナを一時ディレクトリに作成し起動する
+2. 検証用の compose プロジェクト 2 つとスタンドアロンコンテナを一時ディレクトリに作成し起動する（一覧が全プロジェクトを統合すること、操作が行のプロジェクトだけに効くことを確かめるため 2 つ用意する）
 3. headless の Neovim を起動し、実際の docker に対して次を通しで実行して各段階を assert する（Must の全ユースケースを網羅する）
    - `:Docker containers` を開き、停止中を含む全コンテナが表示され、compose 由来のコンテナに PROJECT / SERVICE が入り、非 compose のコンテナが空欄で表示されること（US-001）
    - 対象コンテナを停止 → 一覧の STATUS が変わること、再度起動できること（US-002）
@@ -663,8 +774,8 @@ sequenceDiagram
    - シェルを起動して終了できること、停止中のコンテナではシェルが開かないこと（US-005）
    - 詳細ビューを開いて閉じ、カーソル位置が戻ること（US-006）
    - 確認プロンプトを経てコンテナを削除でき、`y` 以外では削除されないこと（US-003）
-   - `:Docker services` を開き、未起動のサービスが `none` で表示されること、サービス単位の起動が反映されること（US-008、US-009）
-   - `U` でプロジェクトが起動し、`D` の確認を経て破棄され各サービスが `none` に戻ること（US-010）
+   - compose プロジェクトの外のディレクトリで `:Docker services` を開き、2 つのプロジェクトが PROJECT 列付きで並び、未起動のサービスが `none` で表示され、サービス単位の起動が反映されること（US-008、US-009、G7）
+   - `D` の確認を経て破棄されるのが行のプロジェクトだけで、もう一方のプロジェクトが巻き添えにならないこと（US-010、G8）
    - `:Docker images` / `volumes` / `networks` が一覧表示され、イメージを削除できること（US-007）
    - `?` でヘルプが表示され、そのビューの有効なキーが並ぶこと（US-015）
    - 別プロセスでコンテナを停止し、1 秒以内に一覧へ反映されること（US-011）
@@ -695,6 +806,7 @@ PoC で採取した実際の docker 出力を `tests/fixtures/` に置き、解�
 - ラベル値に偽の `com.docker.compose.project=` を仕込んだコンテナ（誤った値を掴まないことの検証）
 - compose 由来でないコンテナ（compose 列が空文字列になること）
 - 単発コンテナ（`oneoff=True` がサービスに紐付かないこと）
+- `com.docker.compose.project.working_dir` ラベルが空のコンテナ（compose ファイルの場所が分からないプロジェクトとして扱われること）
 - 行の途中で分割されたイベントのチャンク列
 
 ### 10.4 実行コマンド

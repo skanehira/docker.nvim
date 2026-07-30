@@ -30,14 +30,14 @@
 
 **目的**: Neovim から離れずに Docker のリソースを閲覧・操作できるようにし、`docker ps` や `docker compose logs` のためにターミナルを往復する手間をなくす。
 
-**スコープに含むもの**: コンテナ・イメージ・ボリューム・ネットワークの一覧と操作、docker compose のサービス／プロジェクト操作、コンテナがどの compose プロジェクトのどのサービス由来かの可視化、`docker events` によるライブ更新。
+**スコープに含むもの**: コンテナ・イメージ・ボリューム・ネットワークの一覧と操作、存在するすべての compose プロジェクトを統合したサービス一覧と、そのサービス／プロジェクト操作、コンテナがどの compose プロジェクトのどのサービス由来かの可視化、`docker events` によるライブ更新。
 
 **スコープに含まないもの（非ゴール）**:
 
 | 非ゴール | 理由 |
 | --- | --- |
 | Docker Hub のイメージ検索・pull | 利用頻度が低く、代替（`docker pull`）が容易 |
-| カレントディレクトリ外の compose プロジェクトへの compose 操作 | compose ファイルのパス解決が必要になり複雑さに見合わない。該当コンテナ単体の操作は可能 |
+| compose ファイルの場所が分からないプロジェクトの起動（`u` / `U`） | 起動には compose ファイルの定義そのものが要り、場所の推測は誤った定義での起動につながる。停止・再起動・破棄・ログはプロジェクト名の名指しで実行できる（BR-024） |
 | Docker Swarm / Kubernetes 連携 | k8s.nvim の領域 |
 | イメージのビルド（`docker build`） | ビルドコンテキスト指定の UI が必要でスコープが膨らむ |
 | volume / network の作成 | compose か docker CLI で行うのが通常 |
@@ -71,8 +71,8 @@
 - G4: `t` / `a` / `e` でターミナルバッファが開き、そのバッファを閉じると対応する docker の子プロセスが 0 件になる
 - G5: `<CR>` で inspect の JSON が表示され、`q` で直前の一覧に戻ってカーソル位置が復元される
 - G6: `:Docker images` / `:Docker volumes` / `:Docker networks` がそれぞれ一覧表示され、`D` の確認を経て削除できる
-- G7: compose プロジェクトのディレクトリで `:Docker services` を実行すると、コンテナが起動していないサービスが状態 `none` として表示される
-- G8: サービス一覧で `u` / `d` / `r` / `t` がサービス単位に、`U` / `D` がプロジェクト単位に作用する
+- G7: compose プロジェクトの外のディレクトリで `:Docker services` を実行しても、存在するすべての compose プロジェクトのサービスが PROJECT 列付きで並び、コンテナが起動していないサービスが状態 `none` として表示される
+- G8: サービス一覧で `u` / `d` / `r` / `t` がサービス単位に、`U` / `D` がプロジェクト単位に作用し、いずれも行のプロジェクトを `-p` で名指しして実行される（他のプロジェクトを巻き込まない）
 - G9: 一覧を開いている状態で別プロセスがコンテナを起動・停止すると、1 秒以内に一覧の該当行が更新される
 - G10: `R` を押すと一覧が再取得され、イベント購読が切断されていれば再開される
 - G11: docker 未検出・デーモン未起動・ソケット権限不足・`docker compose` サブコマンド不在の 4 状況が、それぞれ区別できるメッセージで通知される
@@ -105,7 +105,7 @@ flowchart TB
             subgraph domain[ドメイン層]
                 Store[リソースストア]
                 Registry[リソース定義]
-                Compose[compose プロジェクト]
+                Compose["compose サービス一覧の組み立て"]
             end
 
             subgraph views[ビュー層]
@@ -139,6 +139,9 @@ flowchart TB
     Render --> views
     Registry --> views
     Registry --> CLI
+    Registry --> Compose
+    Compose --> CLI
+    Compose --> ComposeCLI
     Compose --> Store
     CLI -->|docker コマンド| Docker
     ComposeCLI -->|docker compose| Docker
@@ -157,7 +160,7 @@ flowchart TB
 | 実装言語 | Lua（Neovim 0.10 以上） | Neovim の標準実行環境。外部ランタイムを要求しない |
 | Docker との通信 | `docker` CLI のサブプロセス実行 | Engine API を直接叩くと HTTP と Unix ソケットを自前実装することになる。CLI なら DOCKER_HOST・docker context・SSH 越し接続の解決を CLI に任せられる |
 | 一覧の取得形式 | フィールドごとに `{{json ...}}` で組み立てた NDJSON（`--no-trunc` 付き） | PoC で `--format json` の `Labels` が解析不能と判明したため（[1.6](#16-検討した代替案)） |
-| compose 情報の取得 | `docker compose config --format json` | 1 回の実行で判定・プロジェクト名・サービス全件が取れ、出力順が安定する |
+| compose 情報の取得 | 4 経路の組み合わせ: `docker compose ls -a --format json`（プロジェクトの列挙）＋ コンテナの compose ラベル（サービスの実体と compose ファイルの所在）＋ カレントディレクトリでの `docker compose config --format json`（未起動プロジェクトの合流。BR-003）＋ `docker compose -p <project> config --format json`（各プロジェクトのサービス定義の全件） | 前 2 者はコンテナのラベル由来のため、compose プロジェクトの外から実行しても全プロジェクトを列挙できる。一度も起動していないプロジェクトはラベルに現れないので、3 番目でのみ拾える。`config` は未起動のサービスも含めて全件が取れ、`-p` で名指しすればディレクトリ名から決まる既定名とのずれで取り違えない |
 | ライブ更新 | `docker events --format '{{json .}}'` の単一ジョブ購読 | 1 本のストリームで container / image / volume / network すべてのイベントが取れることを PoC で確認 |
 | UI 基盤 | Neovim 標準 API（`nvim_open_win` の `border` / `title`、`winbar`、extmark、`zindex`） | PoC で nui.nvim と比較し、コード量に差が無く（63 行 対 64 行）、nui は headless テストで Neovim が落ちるため |
 | 非同期実行 | `vim.system`（単発）/ `vim.fn.jobstart`（ストリーム・ターミナル） | Neovim 0.10 以降の標準機能。追加依存が不要 |
@@ -174,8 +177,9 @@ flowchart TB
 | --- | --- | --- | --- |
 | Docker との通信手段 | docker CLI のサブプロセス実行 | Docker Engine API を Unix ソケットで直接叩く | HTTP のチャンク応答処理を Lua で自前実装することになる。DOCKER_HOST・docker context・SSH 越し接続・TLS の解決も自前になり、対応環境が CLI より狭まる。denops-docker.vim は Deno のソケット API があったため API を選べたが、Lua には同等の土台が無い |
 | 一覧の出力形式 | フィールドごとに `{{json ...}}` を並べた NDJSON | `docker ps --format json` | `Labels` が全ラベルをカンマ連結した 1 本の文字列で、compose が付与する `com.docker.compose.project.config_files` の値自体にカンマを含む。さらにラベル値に `,com.docker.compose.project=偽値` を仕込むと同名キーが複数現れ、先頭一致でも末尾一致でも誤った値を掴むことを実測した（[FEASIBILITY.md の PoC 結果](FEASIBILITY.md#docker-list-json-labels--verified-confidence-09)） |
-| compose サービスの取得 | `docker compose config --format json` | `docker compose config --services` | 25 回の実行で出力順が 3 通りに揺れ、一覧の行順が実行のたびに変わる |
-| compose プロジェクト名の解決 | `docker compose config --format json` の `.name` | カレントディレクトリ名をプロジェクト名とみなす（lazydocker 方式） | `-p` 指定・`COMPOSE_PROJECT_NAME`・`name:` ディレクティブ・サブディレクトリからの実行の 4 ケースで誤る。ただし `.name` が取れない場合の縮退先としては残す |
+| サービス一覧の対象範囲 | `docker compose ls -a` の列挙とコンテナの compose ラベル（`com.docker.compose.project` / 同 `.project.working_dir`）から、存在する全プロジェクトを逆算する | カレントディレクトリで `docker compose config` を 1 回実行し、そのプロジェクトだけを扱う | compose ディレクトリの外では一覧が空になり、`:Docker services` を開く前に `cd` を強いる。ラベル由来なら停止中のプロジェクトも含めて列挙でき、compose ファイルの所在まで同時に分かる |
+| compose サービス定義の取得 | `docker compose -p <project> config --format json` | `docker compose config --services` | 25 回の実行で出力順が 3 通りに揺れ、一覧の行順が実行のたびに変わる |
+| compose プロジェクト名の解決 | `compose ls` の `Name` とコンテナのラベル `com.docker.compose.project`（操作は `-p <project>` で名指しする） | カレントディレクトリ名をプロジェクト名とみなす（lazydocker 方式） | `-p` 指定・`COMPOSE_PROJECT_NAME`・`name:` ディレクティブ・サブディレクトリからの実行の 4 ケースで誤る |
 | UI 基盤 | Neovim 標準 API のみ | nui.nvim を唯一のランタイム依存として採用（k8s.nvim 方式） | 同等のビューを実装したコード量が 63 行 対 64 行で差が無く、依存を増やす利点が無い。さらに nui は headless テストで 10 回中 10 回 Neovim を SIGSEGV させ、レイアウトを決定的に検証するテストが書けない |
 | ライブ更新の方式 | `docker events` の購読 | 一定間隔のポーリング（`docker ps` の再実行） | ポーリングは反映が遅れ、間隔を詰めるとデーモンへの負荷が上がる。イベント購読は PoC で取りこぼし 0 件を確認済み。ただし切断時の縮退先としてポーリングではなく手動更新（`R`）を用意する |
 
@@ -185,7 +189,8 @@ flowchart TB
 - `docker` コマンドが PATH 上にあること。compose 機能には `docker compose` サブコマンドが必要（無い場合も compose 以外の機能は動作する）
 - ランタイムの Lua ライブラリ依存は持たない
 - 対象プラットフォームは macOS と Linux。Windows は検証対象外とする
-- compose 操作の対象は、ビューを開いた時点のカレントディレクトリで解決されるプロジェクトのみ
+- サービス一覧は存在するすべての compose プロジェクトを対象とし、各操作は行のプロジェクトを `-p` で名指しして実行する。カレントディレクトリは一覧を開いた時点で固定し、そのディレクトリの compose プロジェクト（未起動でラベルに現れないもの）を一覧へ合流させることと、そのプロジェクトの compose ファイルの場所を決めることに使う（BR-003）
+- compose の定義を引けないプロジェクト（compose ファイルの場所が分からない、または場所で `config` に失敗した）は、コンテナが実在するサービスのみ一覧に出す。起動（`u` / `U`）は場所が分からないときだけ docker を呼ばずに警告し、停止・再起動・破棄・ログはプロジェクト名の名指しで実行する（BR-024）
 
 ### 1.8 未解決の論点 (Open Issues)
 
@@ -213,7 +218,7 @@ flowchart TB
 | コマンド定義（`plugin/`） | `:Docker <サブコマンド>` の定義とコントローラへの委譲 | コントローラ |
 | コントローラ（`init.lua`） | `setup()` の受け付け、ビューを開く・閉じる、キーからアクションへのディスパッチ | 設定・ハンドラ層・ビュー層 |
 | 設定（`config.lua`） | デフォルト設定と利用者設定の合成、キーマップ定義の保持と検証 | なし |
-| リソース定義（`resources/`） | リソース種別ごとの取得コマンド・カラム・行への変換・状態の取り出しを宣言的に保持 | なし |
+| リソース定義（`resources/`） | リソース種別ごとの取得コマンド・カラム・行への変換・状態の取り出しを宣言的に保持。単一コマンドで取れない compose サービス一覧のみ、複数の取得結果の突き合わせも担う | なし（compose サービス一覧の組み立てのみアダプタ層） |
 | リソースストア（`state/`） | 観測したリソースの保持、更新の通知（Observer） | なし |
 | ハンドラ層（`handlers/`） | アクションの実行、描画の集約とデバウンス、ビューのライフサイクル、実行中操作とジョブの台帳 | ドメイン層・アダプタ層・ビュー層 |
 | ビュー層（`views/`, `ui/`） | ビュー状態のバッファへの投影、ウィンドウとキーマップの管理 | リソース定義・UI ヘルパ |
@@ -223,10 +228,12 @@ flowchart TB
 
 ```
 plugin/ → init.lua → handlers/ → { state/, resources/, adapters/, views/ }
+                                    resources/ → adapters/（compose サービス一覧の組み立てのみ）
                                     views/ → ui/, resources/
 ```
 
 - 依存は上から下への一方向。`state/` と `adapters/` はビューを知らない
+- `resources/` は原則として外界に触れないが、compose サービス一覧だけは 3 種の取得結果を突き合わせる多段の非同期処理になるためアダプタ層を呼ぶ。呼ぶのはこの組み立てモジュールに限り、宣言的定義（`resources/registry.lua`）からは分離する
 - 外界（docker コマンドの実行・時刻・ジョブ起動）はすべてアダプタ層に閉じ込め、テストでは差し替えられるようにする（[設計原則](../../../.claude/rules/core/design.md) の「外界は DI」）
 - リソース種別の追加は「リソース定義の追加 ＋ キーマップ定義の追加」で完結させ、ビューやハンドラの分岐を増やさない
 
@@ -237,7 +244,7 @@ plugin/ → init.lua → handlers/ → { state/, resources/, adapters/, views/ }
 | エンティティ | 識別子 | 保持場所 |
 | --- | --- | --- |
 | コンテナ / イメージ / ボリューム / ネットワーク | ID または名前 | リソースストア |
-| compose サービス | プロジェクト名 ＋ サービス名 | compose プロジェクト |
+| compose サービス | プロジェクト名 ＋ サービス名（`<プロジェクト名>/<サービス名>`） | リソースストア |
 | ビュー | ビュー種別 | ビュースタック |
 | 実行中操作 | 対象 ID ＋ 操作名 | 実行中操作の台帳 |
 
