@@ -45,6 +45,9 @@ local CONTAINER_FIELDS = {
   { key = "compose_project", expr = format.label_expr("com.docker.compose.project") },
   { key = "compose_service", expr = format.label_expr("com.docker.compose.service") },
   { key = "compose_oneoff", expr = format.label_expr("com.docker.compose.oneoff") },
+  -- compose ファイルの場所。プロジェクトの外から一覧を出すときに、定義を引く場所と
+  -- 起動系の操作を実行する場所をこれで逆算する。一覧の表示には使わない。
+  { key = "compose_working_dir", expr = format.label_expr("com.docker.compose.project.working_dir") },
 }
 
 local IMAGE_FIELDS = {
