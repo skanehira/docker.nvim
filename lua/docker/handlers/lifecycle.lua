@@ -551,7 +551,8 @@ function M.open(kind, on_open)
         def = def,
         cwd = cwd,
         project = loaded.project,
-        window = window.open({ title = def.display_name }),
+        -- 折り返すと 1 行が画面 2 行になり、winbar の見出しと桁が合わなくなる。
+        window = window.open({ title = def.display_name, wrap = false }),
         state = view.new(kind),
       }
       views[kind] = handle

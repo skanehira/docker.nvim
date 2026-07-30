@@ -20,6 +20,27 @@ describe("docker.ui.window", function()
     return handle
   end
 
+  --- 実際に画面へ出る winbar。オプションの生の値には切り詰めの書式が入るため、
+  --- 描画結果で確かめる。
+  ---@param handle docker.Window
+  ---@return string
+  local function rendered_winbar(handle)
+    return vim.api.nvim_eval_statusline(vim.wo[handle.winid].winbar, {
+      winid = handle.winid,
+      maxwidth = vim.api.nvim_win_get_width(handle.winid),
+      use_winbar = true,
+    }).str
+  end
+
+  --- 窓を細くして、見出しがはみ出す状況を作る。
+  ---@param handle docker.Window
+  ---@param width integer
+  local function narrow(handle, width)
+    local config = vim.api.nvim_win_get_config(handle.winid)
+    config.width = width
+    vim.api.nvim_win_set_config(handle.winid, config)
+  end
+
   describe("open", function()
     it("エディタ基準のフロートウィンドウを開く", function()
       local handle = open()
@@ -41,7 +62,15 @@ describe("docker.ui.window", function()
       -- 見出しをバッファに入れないことで、カーソル行とデータ行の添字が 1 対 1 になる。
       local handle = open({ winbar = "NAME  IMAGE  STATUS" })
 
-      assert.are.equal("NAME  IMAGE  STATUS", vim.wo[handle.winid].winbar)
+      assert.are.equal("NAME  IMAGE  STATUS", rendered_winbar(handle))
+    end)
+
+    it("折り返しの有無を指定できる", function()
+      -- 一覧は折り返すと行と画面行がずれ、見出しと桁が合わなくなる。
+      local wrapped = open({ title = "Wrapped" })
+      local clipped = open({ title = "Clipped", wrap = false })
+
+      assert.are.same({ true, false }, { vim.wo[wrapped.winid].wrap, vim.wo[clipped.winid].wrap })
     end)
 
     it("バッファは書き込み対象にならない設定になる", function()
@@ -87,6 +116,132 @@ describe("docker.ui.window", function()
 
       local config = vim.api.nvim_win_get_config(handle.winid)
       assert.are.equal(math.floor((vim.o.columns - config.width) / 2), config.col)
+    end)
+  end)
+
+  describe("set_winbar", function()
+    local HEADER = "NAME  IMAGE  STATUS  PORTS  PROJECT  SERVICE"
+
+    it("はみ出すときは末尾を落とす", function()
+      -- 既定では先頭が落ちて `<` が付く。本文は右端でクリップされるので、
+      -- 見出しだけが左へずれて桁が合わなくなる。
+      local handle = open()
+      narrow(handle, 20)
+
+      window.set_winbar(handle, HEADER)
+
+      assert.are.equal("NAME  IMAGE  STATUS>", rendered_winbar(handle))
+    end)
+
+    it("収まるときはそのまま出す", function()
+      local handle = open()
+      narrow(handle, #HEADER)
+
+      window.set_winbar(handle, HEADER)
+
+      assert.are.equal(HEADER, rendered_winbar(handle))
+    end)
+
+    it("横スクロールすると見出しもその分ずれる", function()
+      -- 追従しないと、スクロールした先で見出しと列が食い違う。
+      local handle = open()
+      narrow(handle, 20)
+      window.set_lines(handle, { string.rep("x", 200) })
+      window.set_winbar(handle, HEADER)
+
+      vim.api.nvim_win_call(handle.winid, function()
+        vim.fn.winrestview({ leftcol = 6 })
+      end)
+      window.sync_winbar(handle)
+
+      -- 6 桁ぶん先頭を落とし、幅 20 に収まらない末尾が `>` に潰れる。
+      assert.are.equal("IMAGE  STATUS  PORT>", rendered_winbar(handle))
+    end)
+
+    it("カーソル移動を合図に見出しが追従する", function()
+      -- 明示的に呼ばなくても、操作しただけで追従すること。
+      local handle = open()
+      narrow(handle, 20)
+      window.set_lines(handle, { string.rep("x", 200) })
+      window.set_winbar(handle, HEADER)
+      assert.are.equal("NAME  IMAGE  STATUS>", rendered_winbar(handle))
+
+      vim.api.nvim_win_call(handle.winid, function()
+        vim.fn.winrestview({ leftcol = 6 })
+      end)
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = handle.bufnr })
+
+      assert.are.equal("IMAGE  STATUS  PORT>", rendered_winbar(handle))
+    end)
+
+    it("カーソルが動かないスクロールでも追従する", function()
+      -- `zl` / `zh` はカーソルを動かさずに横へ送る。CursorMoved だけを見ていると
+      -- このとき見出しが取り残される。
+      local handle = open()
+      narrow(handle, 20)
+      window.set_lines(handle, { string.rep("x", 200) })
+      window.set_winbar(handle, HEADER)
+
+      vim.api.nvim_win_call(handle.winid, function()
+        vim.fn.winrestview({ leftcol = 6 })
+      end)
+      vim.api.nvim_exec_autocmds("WinScrolled", { buffer = handle.bufnr })
+
+      assert.are.equal("IMAGE  STATUS  PORT>", rendered_winbar(handle))
+    end)
+
+    it("全角の見出しも表示幅で切る", function()
+      -- バイト単位で落とすと、全角の見出しでは切る位置がずれる。
+      local handle = open()
+      narrow(handle, 20)
+      window.set_winbar(handle, "名前  イメージ  状態")
+
+      vim.api.nvim_win_call(handle.winid, function()
+        vim.fn.winrestview({ leftcol = 6 })
+      end)
+      window.sync_winbar(handle)
+
+      assert.are.equal("イメージ  状態", rendered_winbar(handle))
+    end)
+
+    it("見出しに%が入っても書式として解釈しない", function()
+      -- winbar は statusline 書式なので、素通しすると `%d` 等が展開される。
+      local handle = open()
+
+      window.set_winbar(handle, "USE%  MEM%")
+
+      assert.are.equal("USE%  MEM%", rendered_winbar(handle))
+    end)
+
+    it("複数の窓で見出しが混ざらない", function()
+      local containers = open({ title = "Containers" })
+      local images = open({ title = "Images" })
+      narrow(containers, 20)
+      narrow(images, 20)
+      window.set_winbar(containers, HEADER)
+      window.set_winbar(images, "REPOSITORY  TAG")
+
+      vim.api.nvim_win_call(containers.winid, function()
+        vim.fn.winrestview({ leftcol = 6 })
+      end)
+      window.sync_winbar(containers)
+
+      assert.are.same(
+        { "IMAGE  STATUS  PORT>", "REPOSITORY  TAG" },
+        { rendered_winbar(containers), rendered_winbar(images) }
+      )
+    end)
+
+    it("描き直しても追従の仕掛けが増えない", function()
+      -- 再描画のたびに張り重ねると、スクロール 1 回で何度も走る。
+      local handle = open()
+
+      window.set_winbar(handle, HEADER)
+      window.set_winbar(handle, HEADER)
+      window.set_winbar(handle, HEADER)
+
+      local watchers = vim.api.nvim_get_autocmds({ buffer = handle.bufnr, event = "CursorMoved" })
+      assert.are.equal(1, #watchers)
     end)
   end)
 

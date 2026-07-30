@@ -8,11 +8,14 @@ local M = {}
 ---@class docker.Window
 ---@field bufnr integer
 ---@field winid integer
+---@field winbar_text string|nil  見出しの全文 (横スクロールで切り直すため保持する)
+---@field winbar_watched boolean|nil
 
 ---@class docker.WindowOpts
 ---@field title string
 ---@field winbar string|nil
 ---@field zindex integer|nil
+---@field wrap boolean|nil
 
 --- エディタに対する大きさの割合。
 local WIDTH_RATIO = 0.8
@@ -91,14 +94,76 @@ function M.open(opts)
   local overrides = "NormalFloat:Normal,FloatBorder:Normal"
   vim.wo[winid].winhighlight = minimal ~= "" and (minimal .. "," .. overrides) or overrides
 
-  if opts.winbar then
-    vim.wo[winid].winbar = opts.winbar
+  if opts.wrap ~= nil then
+    vim.wo[winid].wrap = opts.wrap
   end
   vim.wo[winid].cursorline = true
 
   local handle = { bufnr = bufnr, winid = winid }
   open_windows[winid] = handle
+  if opts.winbar then
+    M.set_winbar(handle, opts.winbar)
+  end
   return handle
+end
+
+--- 先頭から指定した表示幅ぶんを落とす。バイト単位で切ると全角の見出しでずれる。
+---@param text string
+---@param columns integer
+---@return string
+local function drop_columns(text, columns)
+  if columns <= 0 then
+    return text
+  end
+  for index = 1, vim.fn.strchars(text) do
+    if vim.fn.strdisplaywidth(vim.fn.strcharpart(text, 0, index)) >= columns then
+      return vim.fn.strcharpart(text, index)
+    end
+  end
+  return ""
+end
+
+--- 現在の横スクロール量。
+---@param winid integer
+---@return integer
+local function left_column(winid)
+  return vim.api.nvim_win_call(winid, function()
+    return vim.fn.winsaveview().leftcol
+  end)
+end
+
+--- 保持した見出しを、今の横スクロール位置に合わせて描き直す。
+---@param handle docker.Window
+function M.sync_winbar(handle)
+  if not handle.winbar_text or not vim.api.nvim_win_is_valid(handle.winid) then
+    return
+  end
+  -- `%<` を末尾に置くと、はみ出したときに先頭ではなく末尾が落ちる。
+  -- 既定は先頭を落とすため、右端でクリップされる本文と食い違う。
+  local visible = drop_columns(handle.winbar_text, left_column(handle.winid))
+  vim.wo[handle.winid].winbar = visible:gsub("%%", "%%%%") .. "%<"
+end
+
+--- 見出しを設定する。横スクロールしても列と食い違わないよう追従させる。
+---@param handle docker.Window
+---@param text string
+function M.set_winbar(handle, text)
+  handle.winbar_text = text
+  M.sync_winbar(handle)
+
+  if handle.winbar_watched then
+    return
+  end
+  handle.winbar_watched = true
+  -- WinScrolled は zl / zh を、CursorMoved はカーソル移動由来のスクロールを拾う。
+  -- バッファローカルなので、バッファが消えれば一緒に消える。
+  vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {
+    buffer = handle.bufnr,
+    desc = "docker.nvim: 横スクロールに見出しを追従させる",
+    callback = function()
+      M.sync_winbar(handle)
+    end,
+  })
 end
 
 --- 行を差し替える。書き込み不可のまま呼べるよう、一時的に解除して戻す。

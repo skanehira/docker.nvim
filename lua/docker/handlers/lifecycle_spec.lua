@@ -152,6 +152,70 @@ describe("docker.handlers.lifecycle", function()
     end)
   end)
 
+  describe("一覧の桁揃え", function()
+    --- 実際に画面へ出る見出し。
+    ---@param handle docker.ViewHandle
+    ---@return string
+    local function rendered_winbar(handle)
+      return vim.api.nvim_eval_statusline(vim.wo[handle.window.winid].winbar, {
+        winid = handle.window.winid,
+        maxwidth = vim.api.nvim_win_get_width(handle.window.winid),
+        use_winbar = true,
+      }).str
+    end
+
+    it("行が長くても画面行とデータ行の数が一致する", function()
+      -- 折り返すと 1 行が画面 2 行になり、以降の行が下へずれて見出しと対応しなくなる。
+      cli._set_executor(function(cmd, opts, on_exit)
+        if cmd[2] == "ps" then
+          on_exit({
+            code = 0,
+            stderr = "",
+            stdout = vim.json.encode({
+              id = "abc123",
+              name = "web",
+              image = "alpine",
+              state = "running",
+              status = "Up 5 days",
+              ports = string.rep("0.0.0.0:5001->5000/tcp, ", 20),
+              command = "sleep",
+              created_at = "now",
+              compose_project = "",
+              compose_service = "",
+              compose_oneoff = "",
+            })
+              .. "\n"
+              .. '{"id":"def456","name":"db","image":"postgres","state":"running","status":"Up 1 day",'
+              .. '"ports":"","command":"sleep","created_at":"now","compose_project":"",'
+              .. '"compose_service":"","compose_oneoff":""}\n',
+          })
+          return
+        end
+        fake_docker(cmd, opts, on_exit)
+      end)
+
+      local handle = assert(open_view("container"))
+
+      local buffer_lines = vim.api.nvim_buf_line_count(handle.window.bufnr)
+      assert.are.equal(2, buffer_lines, "2 件が並ぶこと")
+      assert.are.equal(buffer_lines, vim.api.nvim_win_text_height(handle.window.winid, {}).all)
+    end)
+
+    it("横スクロールすると見出しも一緒に動く", function()
+      local handle = assert(open_view("container"))
+      local before = rendered_winbar(handle)
+      assert.are.equal("NAME", before:sub(1, 4), before)
+
+      vim.api.nvim_win_call(handle.window.winid, function()
+        vim.fn.winrestview({ leftcol = 6 })
+      end)
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = handle.window.bufnr })
+
+      local after = rendered_winbar(handle)
+      assert.are.equal(before:sub(7, 10), after:sub(1, 4), ("before=%s after=%s"):format(before, after))
+    end)
+  end)
+
   describe("close", function()
     it("ビューを閉じる", function()
       local handle = assert(open_view("container"))

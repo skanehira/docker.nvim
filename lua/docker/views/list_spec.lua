@@ -1,5 +1,6 @@
 local list = require("docker.views.list")
 local registry = require("docker.resources.registry")
+local tbl = require("docker.ui.table")
 
 --- 一覧取得で得られるコンテナの生データ。指定した項目だけ上書きする。
 ---@param overrides table|nil
@@ -128,6 +129,37 @@ describe("docker.views.list", function()
         window.close(handle)
         handle = nil
       end
+    end)
+
+    it("行が長くて収まらなくても見出しと本文の桁が一致する", function()
+      -- 収まらないとき、winbar は既定では先頭が落ちるため見出しだけが左へずれる。
+      handle = window.open({ title = "Containers", wrap = false })
+
+      local built = list.render(handle, def, {
+        container({ id = "1", name = "web", ports = string.rep("0.0.0.0:5001->5000/tcp, ", 8) }),
+      })
+
+      -- 画面に出ている見出しが、行と同じ幅で組んだ見出しの先頭と一致すること。
+      -- 末尾の 1 桁は切り詰めの印に潰れる。
+      local width = vim.api.nvim_win_get_width(handle.winid)
+      local rendered = vim.api.nvim_eval_statusline(vim.wo[handle.winid].winbar, {
+        winid = handle.winid,
+        maxwidth = width,
+        use_winbar = true,
+      }).str
+      assert.are.equal(built.winbar:sub(1, width - 1) .. ">", rendered)
+
+      -- 全ての列で、見出しと本文の開始桁が揃っていること。
+      local headers = {}
+      for _, column in ipairs(def.columns) do
+        table.insert(headers, column.header)
+      end
+      local header_starts, row_starts = {}, {}
+      for index = 1, #headers do
+        table.insert(header_starts, (tbl.column_span(headers, built.widths, index)))
+        table.insert(row_starts, (tbl.column_span(built.rows[1], built.widths, index)))
+      end
+      assert.are.same(header_starts, row_starts)
     end)
 
     it("ウィンドウに行と見出しを反映する", function()

@@ -111,9 +111,7 @@ function M.render(handle, def, items, opts)
   end
 
   window.set_lines(handle, built.lines)
-  if vim.api.nvim_win_is_valid(handle.winid) then
-    vim.wo[handle.winid].winbar = built.winbar
-  end
+  window.set_winbar(handle, built.winbar)
 
   highlight.clear(handle.bufnr)
   local status_of = def.status
