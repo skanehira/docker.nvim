@@ -91,9 +91,9 @@ CD（デプロイ）は存在しないため、パイプラインは CI のみ�
 
 | ジョブ | 実行環境 | 内容 | 失敗の扱い |
 | --- | --- | --- | --- |
-| `test` | `ubuntu-latest`、Neovim 0.10.0 と stable のマトリクス | plenary.nvim を取得し `make test` を実行する（単体・結合テスト） | 必須。失敗でマージ不可 |
+| `test` | `ubuntu-latest`、Neovim 0.10.0 と stable のマトリクス | plenary.nvim を取得し `make spec-layout-check` / `make plugin-check` / `make test` を実行する | 必須。失敗でマージ不可 |
 | `lint` | `ubuntu-latest` | `make lint`（luacheck） | 必須 |
-| `format` | `ubuntu-latest` | `make format-check`（stylua の差分チェック） | 必須 |
+| `format` | `ubuntu-latest` | stylua-action で `--check lua/ plugin/ tests/`（ローカルの `make format-check` と同等） | 必須 |
 | `typecheck` | `ubuntu-latest` | `make typecheck`（lua-language-server） | 必須 |
 | `e2e` | `ubuntu-latest`（ランナー同梱の docker を使用） | `make test-e2e`（`scripts/e2e.sh`）。実際の docker デーモンに対する G_E2E の通し確認 | 必須 |
 
@@ -102,7 +102,8 @@ CD（デプロイ）は存在しないため、パイプラインは CI のみ�
 - Neovim のバージョン固定に `0.10.0` を含めるのは、[DESIGN.md の制約](DESIGN.md#17-制約と前提)で下限を 0.10 としているため。stable との 2 本立てで、下限と最新の両方の互換を守る
 - `e2e` ジョブは GitHub ホストランナーに同梱されている docker を使う。追加のサービスコンテナ設定は不要
 - macOS ランナーでの実行は行わない。docker が同梱されておらず、実行時間とコストに見合わないため。macOS での動作は開発者のローカルで `make test-e2e` を実行して確認する
-- テストの依存（plenary.nvim）は各ジョブで `git clone` して取得する。プラグインマネージャは CI では使わない
+- テストの依存（plenary.nvim）は各ジョブで取得する。プラグインマネージャは CI では使わない
+- **判定を下す道具はすべて版を固定する**。アクションを SHA で固定しても、実際に緑赤を決める道具（plenary.nvim・luacheck・StyLua・lua-language-server・検証用の docker イメージ）が浮動していれば、コードを変えていないのに CI の結果が変わって原因を追えなくなる。固定値はワークフロー冒頭の `env` に集約し、1 箇所で見渡せるようにする。StyLua は開発環境と同じ版に揃え、ローカルで通る整形が CI で落ちないようにする
 
 ### 3.3 リポジトリ設定
 
@@ -112,6 +113,13 @@ CD（デプロイ）は存在しないため、パイプラインは CI のみ�
 | ブランチ保護 | `main` への直接プッシュを禁止し、プルリクエストと CI の全ジョブ成功を必須にする |
 | GitHub Environments | 該当なし（デプロイ先が無いため） |
 | 承認ステップ | 該当なし（単一開発者のため。将来コントリビュータが増えた時点で見直す） |
+| アクションの版管理 | `uses:` はコミット SHA で固定し、末尾に `# vX.Y.Z` を書く。更新は dependabot（`package-ecosystem: github-actions`、週次）に任せる。メジャー更新は SHA 固定と別コミットにする |
+
+アクションの版管理の補足:
+
+- 浮動タグ（`@v4` 等）はタグの付け替えで参照先が変わる。同じコミットに対して CI の結果が変わりうるため、SHA で固定する
+- 固定したままでは脆弱性修正が届かないので、更新経路として `.github/dependabot.yml` を置く。固定と自動更新はセットで初めて意味を持つ
+- 「SHA へ固定する」変更と「バージョンを上げる」変更を 1 コミットに混ぜない。CI が落ちたときにどちらが原因か切り分けられなくなる
 
 ### 3.4 ロールバック
 
@@ -165,3 +173,4 @@ CD（デプロイ）は存在しないため、パイプラインは CI のみ�
 - CI-2 検証: `test` ジョブが Neovim 0.10.0 と stable の 2 通りで実行されていること（マトリクスの展開を Checks 画面で確認）
 - CI-3 検証: 意図的にテストを失敗させたコミットで、`main` へのマージがブロックされること（ブランチ保護の動作確認、初回設定時に 1 度だけ実施）
 - CI-4 検証 (手動): `.github/workflows/ci.yml` に `secrets` の参照が無いことを確認する（`rg 'secrets\.' .github/workflows/` が `GITHUB_TOKEN` 以外を返さないこと）
+- CI-5 検証 (手動): 全ての `uses:` が 40 桁のコミット SHA で固定されていることを確認する（`rg -c 'uses: ' .github/workflows/ci.yml` と `rg -c 'uses: [^@]+@[0-9a-f]{40} # ' .github/workflows/ci.yml` の件数が一致すること）

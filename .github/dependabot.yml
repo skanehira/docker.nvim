@@ -1,0 +1,11 @@
+version: 2
+
+# uses: をコミット SHA で固定しているため、放置すると脆弱性修正が届かない。
+# 固定と自動更新はセットで初めて意味を持つ。
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "🔧 chore"
