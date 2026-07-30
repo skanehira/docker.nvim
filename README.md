@@ -121,6 +121,14 @@ require("docker").setup({
 
 未知のビュー種別やアクション名を書いた場合は、その項目だけ無視して警告する。
 
+### 配色
+
+列見出しは `DockerHeader`、STATUS 列は状態ごとに `DockerStatusRunning` / `DockerStatusExited` / `DockerStatusPaused` / `DockerStatusCreated` / `DockerStatusRestarting` / `DockerStatusDead` / `DockerStatusNone` で描く。いずれも `default` 指定なので、先に定義しておけばそちらが優先される。
+
+```lua
+vim.api.nvim_set_hl(0, "DockerHeader", { fg = "#7aa2f7", bold = true })
+```
+
 ## 設計上の約束
 
 - 削除に `-f` は付けない。実行中コンテナの削除は docker に拒否させ、そのエラーをそのまま見せる

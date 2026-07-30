@@ -180,6 +180,24 @@ keymaps ~
 
     未知のビュー種別やアクション名は、その項目だけ無視して警告します。
 
+                                                          *docker-highlights*
+配色~
+    列見出しは DockerHeader、STATUS 列は状態ごとに次のグループで描きます。
+
+        DockerHeader            列見出し
+        DockerStatusRunning     実行中
+        DockerStatusExited      終了済み
+        DockerStatusPaused      一時停止
+        DockerStatusCreated     作成済み
+        DockerStatusRestarting  再起動中
+        DockerStatusDead        異常終了
+        DockerStatusNone        コンテナが無いサービス
+
+    いずれも `default` 指定なので、先に定義しておけばそちらが優先されます。
+>lua
+    vim.api.nvim_set_hl(0, "DockerHeader", { fg = "#7aa2f7", bold = true })
+<
+
 ==============================================================================
 6. 動作の約束                                                *docker-behavior*
 
