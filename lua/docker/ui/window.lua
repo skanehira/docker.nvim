@@ -13,7 +13,6 @@ local M = {}
 
 ---@class docker.WindowOpts
 ---@field title string
----@field winbar string|nil
 ---@field zindex integer|nil
 ---@field wrap boolean|nil
 
@@ -101,9 +100,6 @@ function M.open(opts)
 
   local handle = { bufnr = bufnr, winid = winid }
   open_windows[winid] = handle
-  if opts.winbar then
-    M.set_winbar(handle, opts.winbar)
-  end
   return handle
 end
 

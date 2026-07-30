@@ -58,13 +58,6 @@ describe("docker.ui.window", function()
       assert.are.equal("Containers", config.title[1][1])
     end)
 
-    it("カラム見出しをwinbarに入れる", function()
-      -- 見出しをバッファに入れないことで、カーソル行とデータ行の添字が 1 対 1 になる。
-      local handle = open({ winbar = "NAME  IMAGE  STATUS" })
-
-      assert.are.equal("NAME  IMAGE  STATUS", rendered_winbar(handle))
-    end)
-
     it("折り返しの有無を指定できる", function()
       -- 一覧は折り返すと行と画面行がずれ、見出しと桁が合わなくなる。
       local wrapped = open({ title = "Wrapped" })
