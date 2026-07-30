@@ -86,18 +86,16 @@ describe("docker.adapters.docker.compose", function()
   end)
 
   describe("3つの失敗を区別する", function()
-    it("composeプロジェクト外だとわかるメッセージを返す", function()
+    it("composeプロジェクト外だとわかる区分を返す", function()
       -- 実機 (compose v5.1.2) の文言。
+      -- プロジェクト外は正常系として扱うので、独自の案内文は持たせない。
       stub({ code = 1, stderr = "no configuration file provided: not found" })
 
       local result = resolve()
 
       assert.is_false(result.ok)
       assert.are.equal("outside", result.reason)
-      assert.are.equal(
-        "ここは docker compose プロジェクトではありません。compose.yaml のあるディレクトリで開いてください。",
-        result.error
-      )
+      assert.are.equal("no configuration file provided: not found", result.error)
     end)
 
     it("composeサブコマンドが使えないとわかるメッセージを返す", function()
@@ -144,10 +142,7 @@ describe("docker.adapters.docker.compose", function()
 
       -- 区分だけでなく、利用者に見える文言も取り違えていないこと。
       assert.are.same({
-        {
-          reason = "outside",
-          message = "ここは docker compose プロジェクトではありません。compose.yaml のあるディレクトリで開いてください。",
-        },
+        { reason = "outside", message = "no configuration file provided: not found" },
         {
           reason = "unavailable",
           message = "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",

@@ -19,7 +19,7 @@ local M = {}
 local NONE = "none"
 
 --- compose の定義とコンテナ一覧から、サービスの一覧を組み立てる。
---- 並びは compose の定義順 (呼び出し側で並べ替え済み) を保つ。
+--- 並びは呼び出し側が渡した service_names の順 (サービス名の昇順) をそのまま保つ。
 ---@param project docker.ComposeProject
 ---@param containers table[]
 ---@return docker.Service[]

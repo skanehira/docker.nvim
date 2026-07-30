@@ -21,8 +21,6 @@ local M = {}
 ---@class docker.ComposeResult : docker.Result
 ---@field reason "outside"|"unavailable"|"invalid"|nil 失敗の区分
 
-local MESSAGE_OUTSIDE =
-  "ここは docker compose プロジェクトではありません。compose.yaml のあるディレクトリで開いてください。"
 local MESSAGE_UNAVAILABLE =
   "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。"
 
@@ -46,8 +44,11 @@ local function classify(stderr)
   if contains(stderr, "is not a docker command") or contains(stderr, "unknown command") then
     return "unavailable", MESSAGE_UNAVAILABLE
   end
+  -- プロジェクト外は呼び出し側が正常系として扱うため、区分だけを返す。
+  -- 独自の案内文は持たせない (どのディレクトリでも一覧は開けるので、
+  -- 「compose.yaml のある場所で開き直せ」という誘導が成り立たない)。
   if contains(stderr, "no configuration file provided") then
-    return "outside", MESSAGE_OUTSIDE
+    return "outside", stderr
   end
   -- 内容が一定でないため、docker の出力をそのまま提示する (BR-016)。
   return "invalid", stderr
