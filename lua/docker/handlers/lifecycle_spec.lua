@@ -8,6 +8,21 @@ describe("docker.handlers.lifecycle", function()
   local notified
   local original_notify
 
+  --- 接続確認と一覧取得の両方に応える偽の docker。
+  local function fake_docker(cmd, _, on_exit)
+    if cmd[2] == "version" then
+      on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+    else
+      on_exit({
+        code = 0,
+        stderr = "",
+        stdout = '{"id":"abc123","name":"web","image":"alpine","state":"running","status":"Up 5 days",'
+          .. '"ports":"","command":"sleep","created_at":"now","compose_project":"",'
+          .. '"compose_service":"","compose_oneoff":""}\n',
+      })
+    end
+  end
+
   before_each(function()
     notified = {}
     config._reset()
@@ -19,20 +34,7 @@ describe("docker.handlers.lifecycle", function()
     vim.notify = function(msg, level)
       table.insert(notified, { msg = msg, level = level })
     end
-    -- 接続確認と一覧取得の両方に応える偽の docker。
-    cli._set_executor(function(cmd, _, on_exit)
-      if cmd[2] == "version" then
-        on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
-      else
-        on_exit({
-          code = 0,
-          stderr = "",
-          stdout = '{"id":"abc123","name":"web","image":"alpine","state":"running","status":"Up 5 days",'
-            .. '"ports":"","command":"sleep","created_at":"now","compose_project":"",'
-            .. '"compose_service":"","compose_oneoff":""}\n',
-        })
-      end
-    end)
+    cli._set_executor(fake_docker)
   end)
 
   --- ビューが開き終わるまで待つ (docker への接続確認が非同期のため)。
@@ -318,6 +320,48 @@ describe("docker.handlers.lifecycle", function()
 
       assert.is_nil(lifecycle.get("image"), "残っていた一覧も外へ移れば閉じること")
       assert.is_false(vim.api.nvim_win_is_valid(images.window.winid))
+    end)
+
+    it("コンテナ内のファイルを開いた後でも一覧を開き直せる", function()
+      -- 一覧のフロートのバッファを差し替えると、bufhidden=wipe の一覧バッファが
+      -- 破棄されたままウィンドウだけが残り、以後 open が「既存ビューへ移動」に
+      -- 捕まって一覧が二度と描画されなくなる。
+      local file_edit = require("docker.handlers.file_edit")
+      local handle = assert(open_view("container"))
+      local original_input = vim.ui.input
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("/etc/hosts")
+      end
+      -- `cp` だけ横取りし、一覧の取得は既定の偽 docker のまま通す。
+      cli._set_executor(function(cmd, opts, on_exit)
+        if cmd[2] == "cp" then
+          vim.fn.writefile({ "127.0.0.1 localhost" }, cmd[4])
+          on_exit({ code = 0, stdout = "", stderr = "" })
+          return
+        end
+        fake_docker(cmd, opts, on_exit)
+      end)
+
+      vim.api.nvim_set_current_win(handle.window.winid)
+      lifecycle.dispatch_for_test(handle, "edit_file")
+      assert(
+        vim.wait(3000, function()
+          return vim.bo.buftype == "acwrite"
+        end),
+        "編集バッファが開かなかった"
+      )
+      vim.ui.input = original_input
+      local edit_bufnr = vim.api.nvim_get_current_buf()
+
+      -- 一覧は閉じ、開き直すと中身が描かれる。
+      assert.is_nil(lifecycle.get("container"), "一覧が閉じること")
+      local reopened = assert(open_view("container"))
+      local lines = vim.api.nvim_buf_get_lines(reopened.window.bufnr, 0, -1, false)
+      assert.is_truthy(lines[1]:find("web", 1, true), lines[1])
+
+      file_edit._reset()
+      vim.api.nvim_buf_delete(edit_bufnr, { force = true })
     end)
 
     it("ビューを閉じた後はウィンドウ移動の監視が残らない", function()
