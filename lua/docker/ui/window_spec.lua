@@ -60,12 +60,26 @@ describe("docker.ui.window", function()
       assert.are.equal(60, vim.api.nvim_win_get_config(upper.winid).zindex)
     end)
 
-    it("本体と外枠の背景をエディタと同じにする", function()
+    it("本体と外枠の背景をエディタと同じにし、minimalの指定も残す", function()
       -- 既定のままだと本文は NormalFloat の背景で塗られ、winbar だけが
       -- 透過して見える。背景を Normal に寄せてフロート全体を揃える。
+      -- あわせて style="minimal" が入れる EndOfBuffer の打ち消しを消さない。
+      -- 上書きすると、EndOfBuffer に背景色を持つカラースキームで
+      -- データ行より下だけ別色になる。
       local handle = open()
 
-      assert.are.equal("NormalFloat:Normal,FloatBorder:Normal", vim.wo[handle.winid].winhighlight)
+      -- 並び順に左右されないよう、対応表に開いて比べる。
+      local winhighlight = vim.wo[handle.winid].winhighlight
+      local mapping = {}
+      for pair in winhighlight:gmatch("[^,]+") do
+        local from, to = pair:match("^([^:]*):(.*)$")
+        mapping[from] = to
+      end
+      assert.are.same({ EndOfBuffer = "", NormalFloat = "Normal", FloatBorder = "Normal" }, mapping)
+
+      -- 追記の仕方を誤ると同じ指定が二重に入る。対応表では潰れて見えない。
+      local _, occurrences = winhighlight:gsub("NormalFloat:", "")
+      assert.are.equal(1, occurrences, winhighlight)
     end)
 
     it("エディタの中央に配置する", function()

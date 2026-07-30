@@ -84,7 +84,12 @@ function M.open(opts)
   -- 既定の NormalFloat は背景色を持つため、winbar だけが透過して見える。
   -- 本体と外枠をエディタの Normal に寄せ、背景を透過している環境では
   -- フロート全体が透ける。
-  vim.wo[winid].winhighlight = "NormalFloat:Normal,FloatBorder:Normal"
+  -- style="minimal" が入れる指定 (EndOfBuffer の打ち消し) は代入で消さず
+  -- 追記する。消すと EndOfBuffer に背景色を持つカラースキームで
+  -- データ行より下だけ別色になる。
+  local minimal = vim.wo[winid].winhighlight
+  local overrides = "NormalFloat:Normal,FloatBorder:Normal"
+  vim.wo[winid].winhighlight = minimal ~= "" and (minimal .. "," .. overrides) or overrides
 
   if opts.winbar then
     vim.wo[winid].winbar = opts.winbar
