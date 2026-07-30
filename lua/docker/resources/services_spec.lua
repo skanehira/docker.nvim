@@ -36,8 +36,18 @@ describe("docker.resources.services", function()
           container = "shop-web-1",
           container_id = "abc123",
           status = "running",
+          working_dir = "/work/shop",
         },
       }, items)
+    end)
+
+    it("compose ファイルのある場所を各行に持たせる", function()
+      -- 起動系の操作は compose ファイルが読める場所でしか実行できないため、
+      -- 行ごとにその場所を持たせて操作側が参照できるようにする。
+      local items = services.assemble(project({ "web", "never-started" }), { container() })
+
+      assert.are.equal("/work/shop", items[1].working_dir)
+      assert.are.equal("/work/shop", items[2].working_dir)
     end)
 
     it("対応するコンテナが無いサービスは状態がnoneになる", function()
@@ -143,6 +153,111 @@ describe("docker.resources.services", function()
 
     it("サービスが0件なら空を返す", function()
       assert.are.same({}, services.assemble(project({}), { container() }))
+    end)
+  end)
+
+  describe("derive_service_names", function()
+    -- compose ファイルを読めないプロジェクトでは定義を引けない。
+    -- そのときはコンテナのラベルからサービス名を逆算する。
+    it("そのプロジェクトのコンテナからサービス名を取り出す", function()
+      local names = services.derive_service_names("shop", {
+        container({ compose_service = "web" }),
+        container({ id = "2", compose_service = "db" }),
+      })
+
+      assert.are.same({ "db", "web" }, names)
+    end)
+
+    it("同じサービスの複数コンテナを1つにまとめる", function()
+      local names = services.derive_service_names("shop", {
+        container({ id = "1", name = "shop-web-1", compose_service = "web" }),
+        container({ id = "2", name = "shop-web-2", compose_service = "web" }),
+      })
+
+      assert.are.same({ "web" }, names)
+    end)
+
+    it("別プロジェクトのコンテナは含めない", function()
+      local names = services.derive_service_names("shop", {
+        container({ compose_service = "web" }),
+        container({ id = "2", compose_project = "blog", compose_service = "cms" }),
+      })
+
+      assert.are.same({ "web" }, names)
+    end)
+
+    it("単発コンテナはサービスとして数えない", function()
+      -- BR-006: `docker compose run` が作るコンテナはサービスの実体ではない。
+      local names = services.derive_service_names("shop", {
+        container({ compose_service = "worker", compose_oneoff = "True" }),
+      })
+
+      assert.are.same({}, names)
+    end)
+
+    it("該当するコンテナが無ければ空を返す", function()
+      assert.are.same({}, services.derive_service_names("shop", {}))
+    end)
+  end)
+
+  describe("assemble_all", function()
+    it("複数プロジェクトのサービスを1つの一覧にまとめる", function()
+      local items = services.assemble_all({
+        { name = "shop", working_dir = "/work/shop", service_names = { "web" } },
+        { name = "blog", working_dir = "/work/blog", service_names = { "cms" } },
+      }, {
+        container({ compose_project = "shop", compose_service = "web" }),
+        container({ id = "b1", name = "blog-cms-1", compose_project = "blog", compose_service = "cms" }),
+      })
+
+      assert.are.same({
+        {
+          project = "blog",
+          name = "cms",
+          container = "blog-cms-1",
+          container_id = "b1",
+          status = "running",
+          working_dir = "/work/blog",
+        },
+        {
+          project = "shop",
+          name = "web",
+          container = "shop-web-1",
+          container_id = "abc123",
+          status = "running",
+          working_dir = "/work/shop",
+        },
+      }, items)
+    end)
+
+    it("プロジェクトは名前順に並ぶ", function()
+      -- 取得元の順序は実行のたびに変わりうる。行の並びを実行ごとに変えない。
+      local items = services.assemble_all({
+        { name = "zeta", working_dir = "/z", service_names = { "a" } },
+        { name = "alpha", working_dir = "/a", service_names = { "a" } },
+        { name = "mid", working_dir = "/m", service_names = { "a" } },
+      }, {})
+
+      local names = {}
+      for _, item in ipairs(items) do
+        table.insert(names, item.project)
+      end
+      assert.are.same({ "alpha", "mid", "zeta" }, names)
+    end)
+
+    it("同名のサービスが別プロジェクトにあっても両方出す", function()
+      local items = services.assemble_all({
+        { name = "shop", working_dir = "/work/shop", service_names = { "web" } },
+        { name = "blog", working_dir = "/work/blog", service_names = { "web" } },
+      }, {})
+
+      assert.are.equal(2, #items)
+      assert.are.equal("blog", items[1].project)
+      assert.are.equal("shop", items[2].project)
+    end)
+
+    it("プロジェクトが0件なら空を返す", function()
+      assert.are.same({}, services.assemble_all({}, { container() }))
     end)
   end)
 end)

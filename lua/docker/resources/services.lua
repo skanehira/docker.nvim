@@ -13,6 +13,7 @@ local M = {}
 ---@field container string      紐付くコンテナ名 (無ければ空文字列)
 ---@field container_id string   紐付くコンテナ ID (無ければ空文字列)
 ---@field status string         コンテナの状態。紐付くコンテナが無ければ "none"
+---@field working_dir string    compose ファイルのある場所 (分からなければ空文字列)
 
 --- 起動していないサービスの状態。
 local NONE = "none"
@@ -46,7 +47,45 @@ function M.assemble(project, containers)
       container = item and item.name or "",
       container_id = item and item.id or "",
       status = item and fields.state(item) or NONE,
+      working_dir = project.working_dir,
     })
+  end
+  return items
+end
+
+--- コンテナのラベルからサービス名を逆算する。
+--- compose ファイルを読めないプロジェクトでは定義を引けないため、実体のあるサービスだけを
+--- 一覧に出す。定義されているが起動していないサービス (BR-005) はこの経路では分からない。
+---@param project_name string
+---@param containers table[]
+---@return string[] 常に同じ順序
+function M.derive_service_names(project_name, containers)
+  local seen, names = {}, {}
+  for _, item in ipairs(containers) do
+    local owner = fields.service_of(item)
+    if owner and owner.project == project_name and not seen[owner.service] then
+      seen[owner.service] = true
+      table.insert(names, owner.service)
+    end
+  end
+  table.sort(names)
+  return names
+end
+
+--- 複数プロジェクトのサービスを 1 つの一覧にまとめる。
+--- プロジェクトの取得順は実行のたびに変わりうるので、名前順に並べて行の並びを安定させる。
+---@param projects docker.ComposeProject[]
+---@param containers table[]
+---@return docker.Service[]
+function M.assemble_all(projects, containers)
+  local ordered = vim.deepcopy(projects)
+  table.sort(ordered, function(a, b)
+    return a.name < b.name
+  end)
+
+  local items = {}
+  for _, project in ipairs(ordered) do
+    vim.list_extend(items, M.assemble(project, containers))
   end
   return items
 end
