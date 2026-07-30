@@ -41,6 +41,9 @@ remove_leftovers() {
   if [ -f "$WORKDIR/compose.yaml" ]; then
     (cd "$WORKDIR" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true
   fi
+  if [ -f "$WORKDIR/proj2/compose.yaml" ]; then
+    (cd "$WORKDIR/proj2" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true
+  fi
   for name in $(docker ps -a --format '{{.Names}}' 2>/dev/null | grep "^${PREFIX}" || true); do
     docker rm -f "$name" >/dev/null 2>&1 || true
   done
@@ -63,7 +66,9 @@ trap cleanup EXIT INT TERM
 # 前回の残骸を掃除してから始める
 remove_leftovers
 
-# 2. 検証用の compose プロジェクトとスタンドアロンコンテナを作る
+# 2. 検証用の compose プロジェクトとスタンドアロンコンテナを作る。
+# 一覧は全プロジェクトを統合して出すため、プロジェクトを 2 つ用意して
+# 「他のプロジェクトも見えること」と「操作が行のプロジェクトだけに効くこと」を確かめる。
 cat > "$WORKDIR/compose.yaml" <<EOF
 name: ${PREFIX}-proj
 services:
@@ -75,13 +80,23 @@ services:
     command: sleep 600
 EOF
 
+mkdir -p "$WORKDIR/proj2"
+cat > "$WORKDIR/proj2/compose.yaml" <<EOF
+name: ${PREFIX}-proj2
+services:
+  api:
+    image: ${IMAGE}
+    command: sleep 600
+EOF
+
 # セットアップの失敗を握り潰すと、シナリオが偶然通ってしまう。
 setup() {
   docker run -d --name "${PREFIX}-standalone" "$IMAGE" sleep 600 >/dev/null &&
     docker run -d --name "${PREFIX}-doomed" "$IMAGE" sleep 600 >/dev/null &&
     docker volume create "${PREFIX}-vol" >/dev/null &&
     docker network create "${PREFIX}-net" >/dev/null &&
-    (cd "$WORKDIR" && docker compose up -d web >/dev/null 2>&1)
+    (cd "$WORKDIR" && docker compose up -d web >/dev/null 2>&1) &&
+    (cd "$WORKDIR/proj2" && docker compose up -d api >/dev/null 2>&1)
 }
 if ! setup; then
   echo "e2e: 検証用リソースの用意に失敗しました" >&2

@@ -7,7 +7,6 @@ local jobs = require("docker.handlers.jobs")
 local lifecycle = require("docker.handlers.lifecycle")
 
 local PREFIX = assert(vim.env.DOCKER_NVIM_E2E_PREFIX, "scripts/e2e.sh 経由で実行すること")
-local WORKDIR = assert(vim.env.DOCKER_NVIM_E2E_WORKDIR)
 --- 検証用のイメージ。タグ付きで渡されることもある。
 local E2E_IMAGE = vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine"
 
@@ -338,16 +337,22 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
     )
   end)
 
-  it("US-008 / US-009 / G7 / G8: サービス一覧と compose 操作", function()
-    vim.cmd("cd " .. vim.fn.fnameescape(WORKDIR))
+  it("US-008 / US-009 / G7 / G8: compose プロジェクトの外からサービス一覧と compose 操作", function()
+    -- compose ファイルの無い場所から開く。プロジェクトの所在はコンテナの
+    -- ラベルから逆算されるので、どのプロジェクトも一覧に並ぶ。
+    vim.cmd("cd " .. vim.fn.fnameescape(vim.env.HOME or "/"))
     local handle = open_view("service")
 
-    -- 未起動のサービスは none で並ぶ
+    -- 2 つのプロジェクトが PROJECT 列付きで並ぶ
+    wait_for_line(handle, PREFIX .. "-proj2")
+    wait_for_line(handle, PREFIX .. "-proj ")
+
+    -- 起動していないサービスも、ラベル経由で引いた定義から none で並ぶ
     wait_for_line(handle, "never-started")
     local none_line = rows(handle)[assert(line_of(handle, "never-started"))]
     assert.is_truthy(none_line:find("none", 1, true), none_line)
 
-    -- サービス単位の起動が反映される
+    -- サービス単位の起動が反映される (compose ファイルのある場所は行が持っている)
     act_on(handle, "never-started", "up")
     assert(
       vim.wait(60000, function()
@@ -358,27 +363,28 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
     )
   end)
 
-  it("US-010: D でプロジェクトを破棄すると各サービスが none に戻る", function()
-    vim.cmd("cd " .. vim.fn.fnameescape(WORKDIR))
+  it("US-010: D で破棄されるのは行のプロジェクトだけ", function()
+    vim.cmd("cd " .. vim.fn.fnameescape(vim.env.HOME or "/"))
     local handle = open_view("service")
     wait_for_line(handle, "web")
+    wait_for_line(handle, "api")
 
     vim.ui.input = function(_, on_confirm)
       on_confirm("y")
     end
     act_on(handle, "web", "project_down")
 
+    -- 破棄したプロジェクトのサービスは一覧から消える (定義を引く場所ごと無くなる)。
     assert(
       vim.wait(60000, function()
-        for _, line in ipairs(rows(handle)) do
-          if line:find("running", 1, true) then
-            return false
-          end
-        end
-        return #rows(handle) > 0
+        return line_of(handle, PREFIX .. "-proj ") == nil
       end, 200),
       "破棄が反映されない:\n" .. table.concat(rows(handle), "\n")
     )
+
+    -- もう一方のプロジェクトは巻き添えにならない。
+    local api_line = rows(handle)[assert(line_of(handle, "api"), table.concat(rows(handle), "\n"))]
+    assert.is_truthy(api_line:find("running", 1, true), api_line)
   end)
 
   it("US-013: docker の実行中も Neovim が止まらない", function()
