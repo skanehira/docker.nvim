@@ -79,6 +79,8 @@ describe("docker.resources.registry", function()
       assert.is_truthy(args:find('(.Label "com.docker.compose.project")', 1, true))
       assert.is_truthy(args:find('(.Label "com.docker.compose.service")', 1, true))
       assert.is_truthy(args:find('(.Label "com.docker.compose.oneoff")', 1, true))
+      -- compose ファイルの場所。プロジェクトの外から定義を引くのに使う。
+      assert.is_truthy(args:find('(.Label "com.docker.compose.project.working_dir")', 1, true))
       assert.is_nil(args:find("{{json .Labels}}", 1, true))
     end)
 
@@ -176,17 +178,24 @@ describe("docker.resources.registry", function()
       def = assert(registry.get("service"))
     end)
 
-    it("カラムはSERVICE_STATUS_CONTAINERの順に並ぶ", function()
+    it("カラムはPROJECT_SERVICE_STATUS_CONTAINERの順に並ぶ", function()
+      -- 一覧は全プロジェクトを統合して出すので、どのプロジェクトの行かを示す。
       local headers = {}
       for _, column in ipairs(def.columns) do
         table.insert(headers, column.header)
       end
 
-      assert.are.same({ "SERVICE", "STATUS", "CONTAINER" }, headers)
+      assert.are.same({ "PROJECT", "SERVICE", "STATUS", "CONTAINER" }, headers)
+    end)
+
+    it("PROJECTカラムは行のプロジェクト名を出す", function()
+      local item = { project = "shop", name = "web", status = "running", container = "shop-web-1" }
+
+      assert.are.equal("shop", def.columns[1].value(item))
     end)
 
     it("状態のカラム位置はSTATUSを指す", function()
-      assert.are.equal(2, def.status_column)
+      assert.are.equal(3, def.status_column)
       assert.are.equal("STATUS", def.columns[def.status_column].header)
     end)
 
@@ -345,7 +354,7 @@ describe("docker.resources.registry", function()
         image = "イメージがありません",
         volume = "ボリュームがありません",
         network = "ネットワークがありません",
-        service = "サービスが定義されていません",
+        service = "compose プロジェクトがありません",
       }, texts)
     end)
   end)

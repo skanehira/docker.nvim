@@ -249,7 +249,7 @@ describe("docker.views.list", function()
         image = { "REPOSITORY  TAG   SIZE  CREATED", "alpine      3.20  5MB   2 days ago" },
         volume = { "NAME  DRIVER  MOUNTPOINT", "v1    local   /var/lib/docker/volumes/v1" },
         network = { "NAME    DRIVER  SCOPE", "bridge  bridge  local" },
-        service = { "SERVICE  STATUS   CONTAINER", "web      running  shop-web-1" },
+        service = { "PROJECT  SERVICE  STATUS   CONTAINER", "shop     web      running  shop-web-1" },
       }
 
       local actual = {}
@@ -271,7 +271,7 @@ describe("docker.views.list", function()
         image = { "イメージがありません" },
         volume = { "ボリュームがありません" },
         network = { "ネットワークがありません" },
-        service = { "サービスが定義されていません" },
+        service = { "compose プロジェクトがありません" },
       }, actual)
     end)
   end)

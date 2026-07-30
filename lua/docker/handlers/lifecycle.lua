@@ -29,7 +29,7 @@ local M = {}
 ---@field state docker.ViewState
 ---@field subscription docker.EventSubscription|nil
 ---@field cwd string                       ビューを開いた時点の作業ディレクトリ (BR-003)
----@field project docker.ComposeProject|nil compose サービス一覧のときのみ
+---@field last_warning string|nil          直前に伝えた警告。同じ文言を繰り返さないために持つ
 
 --- 種別 -> 開いているビュー
 ---@type table<string, docker.ViewHandle>
@@ -74,6 +74,17 @@ function M.refresh_view(kind)
   end
 end
 
+--- 一覧は出せるが伝えることがある場合の通知。
+--- 一覧はイベントのたびに取り直すので、同じ文言をそのまま出すと積み上がる。
+---@param handle docker.ViewHandle
+---@param warning string|nil
+local function announce_warning(handle, warning)
+  if warning and warning ~= handle.last_warning then
+    notify.warn(warning)
+  end
+  handle.last_warning = warning
+end
+
 --- 一覧を取得してビューへ反映する。
 ---@param handle docker.ViewHandle
 ---@param on_done fun()|nil
@@ -87,10 +98,7 @@ local function fetch(handle, on_done)
       return
     end
 
-    -- サービス一覧は compose の解決結果 (プロジェクト名と作業ディレクトリ) も持ち帰る。
-    if result.project then
-      handle.project = result.project
-    end
+    announce_warning(handle, result.warning)
     store.replace_all(handle.kind, result.data)
     handle.state = view.with_items(handle.state, store.list(handle.kind))
     redraw(handle)
@@ -419,7 +427,6 @@ local function dispatch(handle, action)
     def = handle.def,
     item = list.item_at(visible, lnum),
     cwd = handle.cwd,
-    project = handle.project,
   })
 end
 
@@ -536,11 +543,12 @@ function M.open(kind, on_open)
       return finish(nil)
     end
 
-    -- compose の解決は開いた時点の作業ディレクトリで固定する (BR-003)。
+    -- 合流させる作業ディレクトリのプロジェクトは、開いた時点で固定する (BR-003)。
+    -- イベントで取り直すたびに引き直すと、その間に cd した分だけ一覧が動く。
     local cwd = vim.fn.getcwd()
 
-    -- 最初の取得が成功してからウィンドウを開く。compose プロジェクト外や
-    -- 取得失敗のときに空のフロートだけが残らないようにする (7.3)。
+    -- 最初の取得が成功してからウィンドウを開く。取得失敗のときに
+    -- 空のフロートだけが残らないようにする (7.3)。
     local function present(loaded)
       highlight.setup()
       -- 応答を待っている間に閉じられて開き直されると、受付が戻っているため
@@ -550,7 +558,6 @@ function M.open(kind, on_open)
         kind = kind,
         def = def,
         cwd = cwd,
-        project = loaded.project,
         -- 折り返すと 1 行が画面 2 行になり、winbar の見出しと桁が合わなくなる。
         window = window.open({ title = def.display_name, wrap = false }),
         state = view.new(kind),
@@ -562,6 +569,7 @@ function M.open(kind, on_open)
       handle.state = view.with_items(handle.state, store.list(kind))
       redraw(handle)
       subscribe_events(handle)
+      announce_warning(handle, loaded.warning)
       finish(handle)
     end
 

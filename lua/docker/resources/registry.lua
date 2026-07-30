@@ -214,7 +214,7 @@ definitions = {
     subcommand = "services",
     view_type = "service_list",
     display_name = "Services",
-    empty_text = "サービスが定義されていません",
+    empty_text = "compose プロジェクトがありません",
     -- サービス一覧は docker の単一コマンドで取れない。組み立ては service_loader が担う。
     load = function(ctx, on_done)
       service_loader.load({ cwd = ctx.cwd, container_args = definitions.container.list_args() }, on_done)
@@ -222,12 +222,14 @@ definitions = {
     id = function(item)
       return ("%s/%s"):format(tostring(item.project), tostring(item.name))
     end,
+    -- 一覧は全プロジェクトを統合して出すので、どのプロジェクトの行かを先頭に置く。
     columns = {
+      { header = "PROJECT", value = plain("project") },
       { header = "SERVICE", value = plain("name") },
       { header = "STATUS", value = plain("status") },
       { header = "CONTAINER", value = plain("container") },
     },
-    status_column = 2,
+    status_column = 3,
     status = plain("status"),
     -- サービスの状態はコンテナの状態から決まるので、コンテナのイベントで更新する。
     event_type = "container",
