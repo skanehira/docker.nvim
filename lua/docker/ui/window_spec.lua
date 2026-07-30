@@ -32,6 +32,24 @@ describe("docker.ui.window", function()
     }).str
   end
 
+  --- winbar に当たっているハイライト。`groups` は Neovim 0.11 で増えたので、
+  --- 0.10 でも取れる項目だけに絞って比べる。
+  ---@param handle docker.Window
+  ---@return { start: integer, group: string }[]
+  local function applied_highlights(handle)
+    local rendered = vim.api.nvim_eval_statusline(vim.wo[handle.winid].winbar, {
+      winid = handle.winid,
+      maxwidth = vim.api.nvim_win_get_width(handle.winid),
+      use_winbar = true,
+      highlights = true,
+    })
+    local applied = {}
+    for _, item in ipairs(rendered.highlights) do
+      table.insert(applied, { start = item.start, group = item.group })
+    end
+    return applied
+  end
+
   --- 窓を細くして、見出しがはみ出す状況を作る。
   ---@param handle docker.Window
   ---@param width integer
@@ -115,6 +133,11 @@ describe("docker.ui.window", function()
   describe("set_winbar", function()
     local HEADER = "NAME  IMAGE  STATUS  PORTS  PROJECT  SERVICE"
 
+    before_each(function()
+      -- 見出しのハイライトは本番では lifecycle が定義する。
+      require("docker.ui.highlight").setup()
+    end)
+
     it("はみ出すときは末尾を落とす", function()
       -- 既定では先頭が落ちて `<` が付く。本文は右端でクリップされるので、
       -- 見出しだけが左へずれて桁が合わなくなる。
@@ -149,6 +172,8 @@ describe("docker.ui.window", function()
 
       -- 6 桁ぶん先頭を落とし、幅 20 に収まらない末尾が `>` に潰れる。
       assert.are.equal("IMAGE  STATUS  PORT>", rendered_winbar(handle))
+      -- 切り直した後も色は乗ったままであること。
+      assert.are.same({ { start = 0, group = "DockerHeader" } }, applied_highlights(handle))
     end)
 
     it("カーソル移動を合図に見出しが追従する", function()
@@ -195,6 +220,15 @@ describe("docker.ui.window", function()
       window.sync_winbar(handle)
 
       assert.are.equal("イメージ  状態", rendered_winbar(handle))
+    end)
+
+    it("見出し全体に専用のハイライトを当てる", function()
+      local handle = open()
+      narrow(handle, 20)
+
+      window.set_winbar(handle, HEADER)
+
+      assert.are.same({ { start = 0, group = "DockerHeader" } }, applied_highlights(handle))
     end)
 
     it("見出しに%が入っても書式として解釈しない", function()

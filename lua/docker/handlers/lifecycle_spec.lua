@@ -201,6 +201,14 @@ describe("docker.handlers.lifecycle", function()
       assert.are.equal(buffer_lines, vim.api.nvim_win_text_height(handle.window.winid, {}).all)
     end)
 
+    it("一覧を開くと見出しの色が定義される", function()
+      -- winbar は未定義のグループを指しても黙って無視されるため、
+      -- 定義を呼び忘れると色が付かないまま気付けない。
+      open_view("container")
+
+      assert.are.equal(1, vim.fn.hlexists("DockerHeader"))
+    end)
+
     it("横スクロールすると見出しも一緒に動く", function()
       local handle = assert(open_view("container"))
       local before = rendered_winbar(handle)

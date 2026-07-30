@@ -3,6 +3,8 @@
 --- カラム見出しはバッファに入れず `winbar` に置く。見出し行をバッファに持たせると
 --- カーソル行とデータ行の添字がずれ、行番号の補正が必要になる。
 --- 重ね合わせは `zindex` で行い、上層を閉じたときに下層の内容とカーソル位置を残す。
+local highlight = require("docker.ui.highlight")
+
 local M = {}
 
 ---@class docker.Window
@@ -137,7 +139,8 @@ function M.sync_winbar(handle)
   -- `%<` を末尾に置くと、はみ出したときに先頭ではなく末尾が落ちる。
   -- 既定は先頭を落とすため、右端でクリップされる本文と食い違う。
   local visible = drop_columns(handle.winbar_text, left_column(handle.winid))
-  vim.wo[handle.winid].winbar = visible:gsub("%%", "%%%%") .. "%<"
+  local escaped = visible:gsub("%%", "%%%%")
+  vim.wo[handle.winid].winbar = "%#" .. highlight.header_group() .. "#" .. escaped .. "%*%<"
 end
 
 --- 見出しを設定する。横スクロールしても列と食い違わないよう追従させる。

@@ -1,6 +1,13 @@
 local highlight = require("docker.ui.highlight")
 
 describe("docker.ui.highlight", function()
+  after_each(function()
+    -- テストで直に定義した色を持ち越さない。
+    for _, group in ipairs({ "DockerHeader", "DockerStatusRunning" }) do
+      vim.api.nvim_set_hl(0, group, {})
+    end
+  end)
+
   describe("group_for", function()
     it("状態ごとに対応するハイライトグループを返す", function()
       local actual = {}
@@ -48,6 +55,32 @@ describe("docker.ui.highlight", function()
       }) do
         assert.is_truthy(vim.fn.hlexists(group) == 1, group .. " が定義されていること")
       end
+    end)
+
+    it("見出しの色を定義する", function()
+      -- 状態のグループと違い、見出しは denops-docker.vim の配色をそのまま使う。
+      highlight.setup()
+
+      assert.are.same(
+        { fg = tonumber("e2a478", 16), ctermfg = 216, default = true },
+        vim.api.nvim_get_hl(0, { name = "DockerHeader" })
+      )
+    end)
+
+    it("利用者が先に定義した色を上書きしない", function()
+      -- 見出しは色を直接指定し、状態はリンクで定義するので両方を確かめる。
+      vim.api.nvim_set_hl(0, "DockerHeader", { fg = "#123456" })
+      vim.api.nvim_set_hl(0, "DockerStatusRunning", { fg = "#654321" })
+
+      highlight.setup()
+
+      assert.are.same({
+        DockerHeader = { fg = tonumber("123456", 16) },
+        DockerStatusRunning = { fg = tonumber("654321", 16) },
+      }, {
+        DockerHeader = vim.api.nvim_get_hl(0, { name = "DockerHeader" }),
+        DockerStatusRunning = vim.api.nvim_get_hl(0, { name = "DockerStatusRunning" }),
+      })
     end)
   end)
 

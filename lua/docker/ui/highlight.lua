@@ -31,9 +31,22 @@ local LINKS = {
   [UNKNOWN_GROUP] = "Normal",
 }
 
+--- カラム見出しの配色。状態のグループと違い、意味の近い標準グループが無いため
+--- 参照元の denops-docker.vim と同じ色を直接指定する。
+--- 太字と下線は付けない (denops-docker.vim は cterm にしか指定しておらず、
+--- termguicolors 環境では色だけが乗るため、その見た目に合わせる)。
+local HEADER_GROUP = "DockerHeader"
+local HEADER_HL = { fg = "#e2a478", ctermfg = 216 }
+
 ---@return integer
 function M.namespace()
   return NAMESPACE
+end
+
+--- カラム見出しのハイライトグループ名。
+---@return string
+function M.header_group()
+  return HEADER_GROUP
 end
 
 --- ハイライトグループを定義する。既に利用者が定義していれば上書きしない。
@@ -41,6 +54,7 @@ function M.setup()
   for group, link in pairs(LINKS) do
     vim.api.nvim_set_hl(0, group, { link = link, default = true })
   end
+  vim.api.nvim_set_hl(0, HEADER_GROUP, vim.tbl_extend("force", HEADER_HL, { default = true }))
 end
 
 --- 状態に対応するハイライトグループ名を返す。
