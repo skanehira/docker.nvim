@@ -34,6 +34,40 @@ describe("docker.resources.service_loader", function()
     return table.concat(lines, "\n")
   end
 
+  --- コマンドの種類を表す名前。応答の指定と、返す順序の指定に使う。
+  ---@param cmd string[]
+  ---@return "ps"|"ls"|"config"|"cwd_config"
+  local function kind_of(cmd)
+    if cmd[2] == "ps" then
+      return "ps"
+    end
+    if cmd[3] == "ls" then
+      return "ls"
+    end
+    if cmd[3] == "-p" then
+      return "config"
+    end
+    return "cwd_config"
+  end
+
+  ---@param responses table
+  ---@param cmd string[]
+  ---@return table
+  local function response_for(responses, cmd)
+    local kind = kind_of(cmd)
+    if kind == "ps" then
+      return responses.ps or { code = 0, stdout = "" }
+    end
+    if kind == "ls" then
+      return responses.ls or { code = 0, stdout = "[]" }
+    end
+    if kind == "config" then
+      local per_project = responses.config or {}
+      return per_project[cmd[4]] or { code = 1, stderr = "no configuration file provided: not found" }
+    end
+    return responses.cwd_config or { code = 1, stderr = "no configuration file provided: not found" }
+  end
+
   --- コマンドの種類で応答を出し分ける偽の docker。
   --- responses:
   ---   ls        : { code, stdout } — `compose ls -a`
@@ -43,23 +77,48 @@ describe("docker.resources.service_loader", function()
   local function stub(responses)
     cli._set_executor(function(cmd, opts, on_exit)
       table.insert(runs, { cmd = cmd, opts = opts })
-
-      local function reply(out)
-        on_exit({ code = out.code or 0, stdout = out.stdout or "", stderr = out.stderr or "" })
-      end
-
-      if cmd[2] == "ps" then
-        return reply(responses.ps or { code = 0, stdout = "" })
-      end
-      if cmd[3] == "ls" then
-        return reply(responses.ls or { code = 0, stdout = "[]" })
-      end
-      if cmd[3] == "-p" then
-        local per_project = responses.config or {}
-        return reply(per_project[cmd[4]] or { code = 1, stderr = "no configuration file provided: not found" })
-      end
-      return reply(responses.cwd_config or { code = 1, stderr = "no configuration file provided: not found" })
+      local out = response_for(responses, cmd)
+      on_exit({ code = out.code or 0, stdout = out.stdout or "", stderr = out.stderr or "" })
     end)
+  end
+
+  --- 応答を保留し、任意の順序で返せる偽の docker。
+  --- docker の応答が返る順序は発行順とは限らないので、順序を変えても結果が変わらないことを見る。
+  ---@param responses table
+  ---@return { flush: fun(kind: string), pending: fun(): string[] }
+  local function deferred_stub(responses)
+    local queue = {}
+    cli._set_executor(function(cmd, opts, on_exit)
+      table.insert(runs, { cmd = cmd, opts = opts })
+      table.insert(queue, {
+        kind = kind_of(cmd),
+        deliver = function()
+          local out = response_for(responses, cmd)
+          on_exit({ code = out.code or 0, stdout = out.stdout or "", stderr = out.stderr or "" })
+        end,
+      })
+    end)
+
+    return {
+      --- 保留中の応答から、指定した種類のものを 1 つ返す。
+      flush = function(kind)
+        for index, entry in ipairs(queue) do
+          if entry.kind == kind then
+            table.remove(queue, index)
+            entry.deliver()
+            return
+          end
+        end
+        error("保留中の応答が無い: " .. kind)
+      end,
+      pending = function()
+        local kinds = {}
+        for _, entry in ipairs(queue) do
+          table.insert(kinds, entry.kind)
+        end
+        return kinds
+      end,
+    }
   end
 
   ---@param responses table
@@ -67,13 +126,15 @@ describe("docker.resources.service_loader", function()
   ---@return docker.ServiceLoadResult
   local function load(responses, cwd)
     stub(responses)
-    local captured
+    local captured, calls = nil, 0
     service_loader.load({
       cwd = cwd or "/elsewhere",
       container_args = { "ps", "-a", "--format", "{{json .}}" },
     }, function(result)
-      captured = result
+      captured, calls = result, calls + 1
     end)
+    -- 多段の非同期では、経路によって完了が二重に走る形の壊れ方をする。
+    assert.are.equal(1, calls)
     return assert(captured, "on_done was not called")
   end
 
@@ -107,7 +168,24 @@ describe("docker.resources.service_loader", function()
       })
 
       assert.is_true(result.ok)
-      assert.are.same({ "shop/never-started=none", "shop/web=exited" }, keys_of(result.data))
+      assert.are.same({
+        {
+          project = "shop",
+          name = "never-started",
+          container = "",
+          container_id = "",
+          status = "none",
+          working_dir = "/work/shop",
+        },
+        {
+          project = "shop",
+          name = "web",
+          container = "shop-web-1",
+          container_id = "abc123",
+          status = "exited",
+          working_dir = "/work/shop",
+        },
+      }, result.data)
     end)
 
     it("compose ファイルのある場所を各行に持たせる", function()
@@ -135,6 +213,23 @@ describe("docker.resources.service_loader", function()
       end
       assert.are.same({ "docker", "compose", "-p", "shop", "config", "--format", "json" }, config_run.cmd)
       assert.are.equal("/work/shop", config_run.opts.cwd)
+    end)
+
+    it("同じプロジェクトに場所を持たないコンテナが混じっていても場所を拾う", function()
+      -- 古い compose が作ったコンテナにはラベルが無い。1 件目で諦めない。
+      local result = load({
+        ls = { code = 0, stdout = '[{"Name":"shop"}]' },
+        ps = {
+          code = 0,
+          stdout = ndjson({
+            container({ id = "old", name = "shop-web-1", compose_working_dir = "" }),
+            container({ id = "new", name = "shop-web-2", compose_working_dir = "/work/shop" }),
+          }),
+        },
+        config = { shop = { code = 0, stdout = '{"name":"shop","services":{"web":{}}}' } },
+      })
+
+      assert.are.equal("/work/shop", result.data[1].working_dir)
     end)
 
     it("ラベルに場所が無ければ設定ファイルのパスから場所を決める", function()
@@ -215,6 +310,18 @@ describe("docker.resources.service_loader", function()
       assert.are.same({ "shop/never-started=none", "shop/web=running" }, keys_of(result.data))
     end)
 
+    it("作業ディレクトリで開いたプロジェクトの場所はラベルより優先する", function()
+      -- プロジェクトを別の場所へ移して起動前の状態。ラベルは移動前の場所を指したままなので、
+      -- 今いる場所を採らないと起動が古い定義で走る。
+      local result = load({
+        ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },
+        ps = { code = 0, stdout = ndjson({ container({ compose_working_dir = "/work/shop" }) }) },
+        cwd_config = { code = 0, stdout = '{"name":"shop","services":{"web":{}}}' },
+      }, "/work/shop-moved")
+
+      assert.are.equal("/work/shop-moved", result.data[1].working_dir)
+    end)
+
     it("作業ディレクトリがプロジェクト外でも一覧を返す", function()
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },
@@ -233,6 +340,60 @@ describe("docker.resources.service_loader", function()
 
       assert.is_true(result.ok)
       assert.are.same({}, result.data)
+    end)
+  end)
+
+  describe("応答が返る順序", function()
+    local RESPONSES = {
+      ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },
+      ps = { code = 0, stdout = ndjson({ container() }) },
+      cwd_config = { code = 1, stderr = "no configuration file provided: not found" },
+      config = { shop = { code = 0, stdout = '{"name":"shop","services":{"web":{},"never-started":{}}}' } },
+    }
+
+    --- 指定した順序で応答を返し、組み上がった一覧を得る。
+    ---@param order string[] 先に返す順に並べた種類 ("ls" / "ps" / "cwd_config")
+    ---@return docker.ServiceLoadResult
+    ---@return string[] 最後の 1 つを返す前の時点で、まだ完了していないことの記録
+    local function load_in_order(order)
+      local stubbed = deferred_stub(RESPONSES)
+      local captured
+      service_loader.load({
+        cwd = "/elsewhere",
+        container_args = { "ps", "-a", "--format", "{{json .}}" },
+      }, function(result)
+        captured = result
+      end)
+
+      local seen_before_last = {}
+      for index, kind in ipairs(order) do
+        if index == #order then
+          seen_before_last = keys_of(captured and captured.data or {})
+        end
+        stubbed.flush(kind)
+      end
+      -- 定義の取得はここまでの応答が揃ってから発行される。残りをすべて返す。
+      while #stubbed.pending() > 0 do
+        stubbed.flush(stubbed.pending()[1])
+      end
+
+      return assert(captured, "on_done was not called"), seen_before_last
+    end
+
+    it("最後の1つが返るまで一覧を組み立てない", function()
+      -- 揃う前に組み立てると、まだ取れていないコンテナ一覧を 0 件として扱ってしまう。
+      local result, before_last = load_in_order({ "ls", "cwd_config", "ps" })
+
+      assert.are.same({}, before_last)
+      assert.are.same({ "shop/never-started=none", "shop/web=running" }, keys_of(result.data))
+    end)
+
+    it("返る順序が変わっても同じ一覧になる", function()
+      local forward = load_in_order({ "ls", "ps", "cwd_config" })
+      local reversed = load_in_order({ "cwd_config", "ps", "ls" })
+
+      assert.are.same(forward.data, reversed.data)
+      assert.are.same({ "shop/never-started=none", "shop/web=running" }, keys_of(reversed.data))
     end)
   end)
 

@@ -426,7 +426,6 @@ local function dispatch(handle, action)
   actions.execute(action, {
     def = handle.def,
     item = list.item_at(visible, lnum),
-    cwd = handle.cwd,
   })
 end
 

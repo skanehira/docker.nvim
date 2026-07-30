@@ -136,15 +136,17 @@ describe("compose サービス一覧のビュー", function()
       }, vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
     end)
 
-    it("見出しはPROJECT_SERVICE_STATUS_CONTAINERになる", function()
+    it("見出しはPROJECT_SERVICE_STATUS_CONTAINERの順に並ぶ", function()
       stub({ containers = { container() } })
 
       local handle = assert(open_services())
 
-      local winbar = vim.wo[handle.window.winid].winbar
-      assert.is_truthy(winbar:find("PROJECT", 1, true), winbar)
-      assert.is_truthy(winbar:find("SERVICE", 1, true), winbar)
-      assert.is_truthy(winbar:find("CONTAINER", 1, true), winbar)
+      -- winbar にはハイライトの指定が混ざるので、見出しの語だけを順に取り出して見る。
+      local headers = {}
+      for word in vim.wo[handle.window.winid].winbar:gmatch("%u%u+") do
+        table.insert(headers, word)
+      end
+      assert.are.same({ "PROJECT", "SERVICE", "STATUS", "CONTAINER" }, headers)
     end)
 
     it("起動していないサービスは状態がnoneになる", function()
@@ -153,7 +155,7 @@ describe("compose サービス一覧のビュー", function()
 
       local handle = assert(open_services())
 
-      assert.is_truthy(vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("none", 1, true))
+      assert.are.same({ "shop     never-started  none" }, vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
     end)
 
     it("composeプロジェクト外でも全プロジェクトの一覧を出す", function()
@@ -200,7 +202,10 @@ describe("compose サービス一覧のビュー", function()
       assert.is_nil(open_services())
       assert.is_nil(lifecycle.get("service"))
       assert.are.equal(windows_before, #vim.api.nvim_list_wins(), "ウィンドウを増やさないこと")
-      assert.is_truthy(notified[#notified].msg:find("compose", 1, true), notified[#notified].msg)
+      assert.are.equal(
+        "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+        notified[#notified].msg
+      )
     end)
 
     it(
@@ -284,6 +289,28 @@ describe("compose サービス一覧のビュー", function()
       end))
 
       assert.are.equal(notified_before, #notified)
+    end)
+
+    it("警告の内容が変わったら伝え直す", function()
+      -- 抑止を「初回だけ通知」にすると、compose ファイルの壊れ方が変わっても気付けない。
+      local first = "yaml: mapping values are not allowed in this context"
+      local second = "yaml: did not find expected key"
+      stub({ containers = { container({ state = "running" }) }, cwd_stderr = first })
+      local handle = assert(open_services())
+      assert.are.equal(first, notified[#notified].msg)
+
+      stub({ containers = { container({ state = "exited" }) }, cwd_stderr = second })
+      event_handlers[1].on_stdout(vim.json.encode({
+        Type = "container",
+        Action = "die",
+        Actor = { ID = "abc123" },
+        time = 1,
+      }) .. "\n")
+      assert(vim.wait(2000, function()
+        return vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("exited", 1, true) ~= nil
+      end))
+
+      assert.are.equal(second, notified[#notified].msg)
     end)
   end)
 end)

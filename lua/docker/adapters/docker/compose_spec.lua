@@ -129,10 +129,9 @@ describe("docker.adapters.docker.compose", function()
       assert.are.equal(stderr, result.error)
     end)
 
-    it("3つの失敗はそれぞれ異なる区分になる", function()
+    it("3つの失敗はそれぞれ異なる区分と文言になる", function()
       -- G11: compose サブコマンド不在が他と区別できること。
-      local reasons, seen = {}, {}
-      local messages_differ = true
+      local outcomes = {}
       for _, stderr in ipairs({
         "no configuration file provided: not found",
         "docker: unknown command: docker compose",
@@ -140,16 +139,21 @@ describe("docker.adapters.docker.compose", function()
       }) do
         stub({ code = 1, stderr = stderr })
         local result = resolve()
-        table.insert(reasons, result.reason)
-        if seen[result.error] then
-          messages_differ = false
-        end
-        seen[result.error] = true
+        table.insert(outcomes, { reason = result.reason, message = result.error })
       end
 
-      assert.are.same({ "outside", "unavailable", "invalid" }, reasons)
       -- 区分だけでなく、利用者に見える文言も取り違えていないこと。
-      assert.is_true(messages_differ, "3 つの文言がすべて異なること")
+      assert.are.same({
+        {
+          reason = "outside",
+          message = "ここは docker compose プロジェクトではありません。compose.yaml のあるディレクトリで開いてください。",
+        },
+        {
+          reason = "unavailable",
+          message = "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+        },
+        { reason = "invalid", message = "yaml: mapping values are not allowed in this context" },
+      }, outcomes)
     end)
 
     it("出力が解析できないときは不正として扱う", function()

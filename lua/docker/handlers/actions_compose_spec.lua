@@ -70,21 +70,25 @@ describe("compose のサービス操作とプロジェクト操作", function()
       assert.are.equal("/work/shop", runs[1].opts.cwd)
     end)
 
-    it("composeファイルの場所が分からないサービスは起動しない", function()
+    it("composeファイルの場所が分からないサービスは起動せず理由を伝える", function()
       -- working_dir が失われたプロジェクトでは up を発行しても必ず失敗する。
       actions.execute("up", ctx(service({ status = "none", working_dir = "" })))
 
-      assert.are.same({}, runs)
+      assert.are.equal(
+        "web は compose ファイルの場所が分からないため起動できません",
+        notified[#notified].msg
+      )
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+      assert.are.same({}, runs)
     end)
 
-    it("stopはサービスを停止する", function()
+    it("runningのサービスでstopを押すと-p付きのstopを発行する", function()
       actions.execute("stop", ctx(service()))
 
       assert.are.same({ "docker", "compose", "-p", "shop", "stop", "web" }, runs[1].cmd)
     end)
 
-    it("restartはサービスを再起動する", function()
+    it("runningのサービスでrestartを押すと-p付きのrestartを発行する", function()
       actions.execute("restart", ctx(service()))
 
       assert.are.same({ "docker", "compose", "-p", "shop", "restart", "web" }, runs[1].cmd)
@@ -121,11 +125,12 @@ describe("compose のサービス操作とプロジェクト操作", function()
       }, starts)
     end)
 
-    it("コンテナが無いサービスのログではターミナルを開かない", function()
+    it("コンテナが無いサービスのログではターミナルを開かず理由を伝える", function()
       actions.execute("logs", ctx(service({ status = "none", container = "", container_id = "" })))
 
-      assert.are.same({}, opened)
+      assert.are.equal("web はコンテナが無いためログを表示できません", notified[#notified].msg)
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+      assert.are.same({}, opened)
     end)
 
     it("同じサービスへの同じ操作を二重に発行しない", function()
@@ -161,11 +166,15 @@ describe("compose のサービス操作とプロジェクト操作", function()
       assert.are.equal("/work/shop", runs[1].opts.cwd)
     end)
 
-    it("composeファイルの場所が分からないプロジェクトは起動しない", function()
+    it("composeファイルの場所が分からないプロジェクトは起動せず理由を伝える", function()
       actions.execute("project_up", ctx(service({ working_dir = "" })))
 
-      assert.are.same({}, runs)
+      assert.are.equal(
+        "shop は compose ファイルの場所が分からないため起動できません",
+        notified[#notified].msg
+      )
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+      assert.are.same({}, runs)
     end)
 
     it("project_downは確認でyと答えたときだけ破棄する", function()
@@ -182,13 +191,17 @@ describe("compose のサービス操作とプロジェクト操作", function()
     end)
 
     it("project_downの確認でnと答えると破棄しない", function()
+      local prompts = {}
       ---@diagnostic disable-next-line: duplicate-set-field
-      vim.ui.input = function(_, on_confirm)
+      vim.ui.input = function(opts, on_confirm)
+        table.insert(prompts, opts.prompt)
         on_confirm("n")
       end
 
       actions.execute("project_down", ctx(service()))
 
+      -- 確認まで到達したうえで発行していないこと。確認が出ないだけの実装と区別する。
+      assert.are.same({ "shop を破棄しますか? (y/N): " }, prompts)
       assert.are.same({}, runs)
     end)
 
