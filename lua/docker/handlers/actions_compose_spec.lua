@@ -13,6 +13,7 @@ local function service(overrides)
     container = "shop-web-1",
     container_id = "abc123",
     status = "running",
+    working_dir = "/work/shop",
   }, overrides or {})
 end
 
@@ -24,7 +25,7 @@ describe("compose のサービス操作とプロジェクト操作", function()
 
   ---@return docker.ActionContext
   local function ctx(item)
-    return { def = def, item = item, cwd = "/work/shop", project = { name = "shop", working_dir = "/work/shop" } }
+    return { def = def, item = item }
   end
 
   before_each(function()
@@ -59,46 +60,65 @@ describe("compose のサービス操作とプロジェクト操作", function()
       -- BR-023: 起動はデタッチで行う (Neovim をブロックしない)。
       actions.execute("up", ctx(service({ status = "none" })))
 
-      assert.are.same({ "docker", "compose", "up", "-d", "web" }, runs[1].cmd)
+      assert.are.same({ "docker", "compose", "-p", "shop", "up", "-d", "web" }, runs[1].cmd)
+    end)
+
+    it("upは行のプロジェクトのcomposeファイルがある場所で実行する", function()
+      -- up は compose ファイルを読めないと実行できない。
+      actions.execute("up", ctx(service({ status = "none" })))
+
+      assert.are.equal("/work/shop", runs[1].opts.cwd)
+    end)
+
+    it("composeファイルの場所が分からないサービスは起動しない", function()
+      -- working_dir が失われたプロジェクトでは up を発行しても必ず失敗する。
+      actions.execute("up", ctx(service({ status = "none", working_dir = "" })))
+
+      assert.are.same({}, runs)
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
     end)
 
     it("stopはサービスを停止する", function()
       actions.execute("stop", ctx(service()))
 
-      assert.are.same({ "docker", "compose", "stop", "web" }, runs[1].cmd)
+      assert.are.same({ "docker", "compose", "-p", "shop", "stop", "web" }, runs[1].cmd)
     end)
 
     it("restartはサービスを再起動する", function()
       actions.execute("restart", ctx(service()))
 
-      assert.are.same({ "docker", "compose", "restart", "web" }, runs[1].cmd)
+      assert.are.same({ "docker", "compose", "-p", "shop", "restart", "web" }, runs[1].cmd)
     end)
 
-    it("ビューを開いた時点の作業ディレクトリで実行する", function()
-      -- BR-003: compose の対象は開いた時点の cwd で解決したプロジェクト。
-      actions.execute("stop", ctx(service()))
+    it("停止と再起動は作業ディレクトリに依存せず実行する", function()
+      -- プロジェクト名で名指しすれば compose ファイルの場所は要らない。
+      actions.execute("stop", ctx(service({ working_dir = "" })))
 
-      assert.are.equal("/work/shop", runs[1].opts.cwd)
+      assert.are.same({ "docker", "compose", "-p", "shop", "stop", "web" }, runs[1].cmd)
+      assert.is_nil(runs[1].opts.cwd)
+    end)
+
+    it("行のプロジェクトを操作の対象にする", function()
+      -- 一覧は全プロジェクトを統合して出すので、対象は行ごとに変わる。
+      actions.execute("stop", ctx(service({ project = "blog", name = "cms", working_dir = "/work/blog" })))
+
+      assert.are.same({ "docker", "compose", "-p", "blog", "stop", "cms" }, runs[1].cmd)
     end)
 
     it("logsはサービスのログをターミナルで追う", function()
-      actions.execute("logs", ctx(service()))
-
-      assert.are.same({ "docker", "compose", "logs", "-f", "web" }, opened[1])
-    end)
-
-    it("logsもプロジェクトの作業ディレクトリで実行する", function()
-      -- cwd を渡さないと、別のディレクトリの compose プロジェクトのログを見てしまう。
-      local cwds = {}
+      -- プロジェクト名で名指しするので、compose ファイルの場所は要らない。
+      local starts = {}
       terminal._set_job_starter(function(cmd, cwd)
         table.insert(opened, cmd)
-        table.insert(cwds, cwd)
+        table.insert(starts, { cmd = cmd, cwd = cwd })
         return 100 + #opened
       end)
 
-      actions.execute("logs", ctx(service()))
+      actions.execute("logs", ctx(service({ working_dir = "" })))
 
-      assert.are.same({ "/work/shop" }, cwds)
+      assert.are.same({
+        { cmd = { "docker", "compose", "-p", "shop", "logs", "-f", "web" } },
+      }, starts)
     end)
 
     it("コンテナが無いサービスのログではターミナルを開かない", function()
@@ -137,7 +157,15 @@ describe("compose のサービス操作とプロジェクト操作", function()
     it("project_upはプロジェクト全体をデタッチで起動する", function()
       actions.execute("project_up", ctx(service()))
 
-      assert.are.same({ "docker", "compose", "up", "-d" }, runs[1].cmd)
+      assert.are.same({ "docker", "compose", "-p", "shop", "up", "-d" }, runs[1].cmd)
+      assert.are.equal("/work/shop", runs[1].opts.cwd)
+    end)
+
+    it("composeファイルの場所が分からないプロジェクトは起動しない", function()
+      actions.execute("project_up", ctx(service({ working_dir = "" })))
+
+      assert.are.same({}, runs)
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
     end)
 
     it("project_downは確認でyと答えたときだけ破棄する", function()
@@ -146,9 +174,11 @@ describe("compose のサービス操作とプロジェクト操作", function()
         on_confirm("y")
       end
 
-      actions.execute("project_down", ctx(service()))
+      actions.execute("project_down", ctx(service({ working_dir = "" })))
 
-      assert.are.same({ "docker", "compose", "down" }, runs[1].cmd)
+      -- 破棄は compose ファイルを読めなくても、プロジェクト名の名指しで実行できる。
+      assert.are.same({ "docker", "compose", "-p", "shop", "down" }, runs[1].cmd)
+      assert.is_nil(runs[1].opts.cwd)
     end)
 
     it("project_downの確認でnと答えると破棄しない", function()

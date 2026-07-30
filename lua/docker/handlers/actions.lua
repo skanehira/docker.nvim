@@ -15,8 +15,6 @@ local M = {}
 ---@class docker.ActionContext
 ---@field def docker.ResourceDefinition
 ---@field item table|nil
----@field cwd string|nil                    compose 操作を実行する作業ディレクトリ (BR-003)
----@field project docker.ComposeProject|nil compose サービス一覧のときのみ
 
 --- 状態を変えるコンテナ操作。
 --- `requires` を満たさない状態で呼ばれた場合、docker を呼ばずに警告する。
@@ -117,15 +115,17 @@ local function delete(ctx, item, label)
 end
 
 --- compose のサービス単位の操作。いずれもデタッチで実行する (BR-023)。
+--- `needs_config` は compose ファイルを読めないと実行できない操作。停止や破棄は
+--- プロジェクト名の名指しだけで済むが、起動は定義そのものを要る。
 local SERVICE_ACTIONS = {
-  up = { args = { "up", "-d" }, success = "%s を起動しました" },
+  up = { args = { "up", "-d" }, success = "%s を起動しました", needs_config = true },
   stop = { args = { "stop" }, success = "%s を停止しました" },
   restart = { args = { "restart" }, success = "%s を再起動しました" },
 }
 
 --- compose のプロジェクト単位の操作。
 local PROJECT_ACTIONS = {
-  project_up = { args = { "up", "-d" }, success = "%s を起動しました" },
+  project_up = { args = { "up", "-d" }, success = "%s を起動しました", needs_config = true },
   project_down = {
     args = { "down" },
     confirm = "%s を破棄しますか? (y/N): ",
@@ -265,31 +265,57 @@ function M.execute(name, ctx)
   local label = label_of(item)
 
   -- compose サービス一覧の操作は docker compose へ振り分ける。
+  -- 一覧は全プロジェクトを統合して出すので、対象は行のプロジェクトになる。
+  -- プロジェクト名で名指しすれば作業ディレクトリに依存せず操作できる。
   if ctx.def.kind == "service" then
-    local cwd = ctx.cwd or vim.fn.getcwd()
-    local project_name = ctx.project and ctx.project.name or tostring(item.project)
+    local project_name = tostring(item.project)
+    local working_dir = tostring(item.working_dir or "")
+
+    --- compose ファイルを要る操作は、その場所が分からなければ発行しない。
+    ---@param compose_spec table
+    ---@param target_id string
+    ---@param target_label string
+    ---@param args string[]
+    local function dispatch(compose_spec, target_id, target_label, args)
+      if compose_spec.needs_config and working_dir == "" then
+        notify.warn(
+          ("%s は compose ファイルの場所が分からないため起動できません"):format(target_label)
+        )
+        return
+      end
+      local cwd = compose_spec.needs_config and working_dir or nil
+      run_compose_exclusive(target_id, target_label, name, args, cwd, compose_spec.success)
+    end
+
+    ---@param compose_spec table
+    ---@return string[]
+    local function compose_args(compose_spec)
+      local args = { "-p", project_name }
+      vim.list_extend(args, compose_spec.args)
+      return args
+    end
 
     local project_spec = PROJECT_ACTIONS[name]
     if project_spec then
-      local args = vim.deepcopy(project_spec.args)
+      local args = compose_args(project_spec)
       if project_spec.confirm then
         vim.ui.input({ prompt = project_spec.confirm:format(project_name) }, function(answer)
           if answer ~= "y" and answer ~= "Y" then
             return
           end
-          run_compose_exclusive(project_name, project_name, name, args, cwd, project_spec.success)
+          dispatch(project_spec, project_name, project_name, args)
         end)
         return
       end
-      run_compose_exclusive(project_name, project_name, name, args, cwd, project_spec.success)
+      dispatch(project_spec, project_name, project_name, args)
       return
     end
 
     local service_spec = SERVICE_ACTIONS[name]
     if service_spec then
-      local args = vim.deepcopy(service_spec.args)
+      local args = compose_args(service_spec)
       table.insert(args, tostring(item.name))
-      run_compose_exclusive(("%s/%s"):format(project_name, item.name), label, name, args, cwd, service_spec.success)
+      dispatch(service_spec, ("%s/%s"):format(project_name, item.name), label, args)
       return
     end
 
@@ -299,7 +325,7 @@ function M.execute(name, ctx)
         notify.warn(("%s はコンテナが無いためログを表示できません"):format(label))
         return
       end
-      terminal.open_compose_logs(tostring(item.name), label, cwd)
+      terminal.open_compose_logs(project_name, tostring(item.name), label)
       return
     end
 

@@ -133,12 +133,13 @@ function M.open_shell(id, label)
 end
 
 --- compose サービスのログを追従する。
+--- プロジェクトを名指しするので、compose ファイルのある場所で実行する必要はない。
+---@param project string
 ---@param service string
 ---@param label string
----@param cwd string
 ---@return docker.Terminal
-function M.open_compose_logs(service, label, cwd)
-  return open({ "docker", "compose", "logs", "-f", service }, ("logs/%s"):format(label), cwd)
+function M.open_compose_logs(project, service, label)
+  return open({ "docker", "compose", "-p", project, "logs", "-f", service }, ("logs/%s"):format(label))
 end
 
 --- イメージから使い捨てのコンテナを起動してシェルを開く。
