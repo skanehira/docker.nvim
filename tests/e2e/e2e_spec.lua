@@ -8,6 +8,8 @@ local lifecycle = require("docker.handlers.lifecycle")
 
 local PREFIX = assert(vim.env.DOCKER_NVIM_E2E_PREFIX, "scripts/e2e.sh 経由で実行すること")
 local WORKDIR = assert(vim.env.DOCKER_NVIM_E2E_WORKDIR)
+--- 検証用のイメージ。タグ付きで渡されることもある。
+local E2E_IMAGE = vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine"
 
 ---@param cmd string[]
 ---@return string
@@ -238,7 +240,7 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
     wait_for_line(handle, PREFIX .. "-standalone")
 
     local name = PREFIX .. "-live"
-    sh({ "docker", "run", "-d", "--name", name, vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", "sleep", "300" })
+    sh({ "docker", "run", "-d", "--name", name, E2E_IMAGE, "sleep", "300" })
 
     local start = vim.fn.reltime()
     assert(
@@ -260,7 +262,7 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
     -- R が何もしなくても「一覧が残っている」だけなら通ってしまう。
     -- 別プロセスで作ったコンテナが R の後に現れることで、取り直しを確かめる。
     local name = PREFIX .. "-refresh"
-    sh({ "docker", "create", "--name", name, vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", "true" })
+    sh({ "docker", "create", "--name", name, E2E_IMAGE, "true" })
     -- events による自動更新と区別するため、購読を止めてから R を押す。
     assert(handle.subscription, "購読が張られていること").stop()
     vim.wait(300)
@@ -311,13 +313,14 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
       image_rows[1]:find("イメージがありません", 1, true),
       "実データが並ぶこと: " .. image_rows[1]
     )
-    wait_for_line(images, vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine")
+    -- イメージ一覧は REPOSITORY と TAG が別の列なので、タグを外した名前で探す。
+    wait_for_line(images, (E2E_IMAGE:gsub(":.*$", "")))
   end)
 
   it("US-007: イメージを削除できる", function()
     -- 検証用に別名のタグを付け、それを消す (元のイメージは残す)。
     local tag = PREFIX .. "-img:v1"
-    sh({ "docker", "tag", vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", tag })
+    sh({ "docker", "tag", E2E_IMAGE, tag })
 
     local handle = open_view("image")
     wait_for_line(handle, PREFIX .. "-img")
@@ -384,7 +387,7 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
     -- 実際に時間のかかる docker 実行を投げ、その戻りより先に制御が返ることを確かめる。
     -- 同期実行なら、この assert の時点で既に完了しているはず。
     local finished = false
-    cli.run({ "run", "--rm", vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", "sleep", "2" }, function()
+    cli.run({ "run", "--rm", E2E_IMAGE, "sleep", "2" }, function()
       finished = true
     end)
 
@@ -421,7 +424,7 @@ describe("G_E2E: docker.nvim の通しシナリオ", function()
 
     -- 停止中のコンテナでは開かない (BR-007)
     local stopped = PREFIX .. "-stopped"
-    sh({ "docker", "create", "--name", stopped, vim.env.DOCKER_NVIM_E2E_IMAGE or "alpine", "true" })
+    sh({ "docker", "create", "--name", stopped, E2E_IMAGE, "true" })
     -- シェルへ移った時点で一覧は閉じているので開き直す。
     handle = open_view("container")
     wait_for_line(handle, stopped)

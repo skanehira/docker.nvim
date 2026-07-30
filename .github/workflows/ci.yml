@@ -13,6 +13,15 @@ concurrency:
 permissions:
   contents: read
 
+# 緑赤を左右する道具は版を固定する。浮動させると、コードを変えていないのに
+# 判定が反転して原因が追えなくなる。
+env:
+  PLENARY_SHA: 74b06c6c75e4eeb3108ec01852001636d85a932b
+  LUACHECK_VERSION: 1.2.0
+  # ローカルの `make format` と同じ結果になるよう、開発環境と揃える。
+  STYLUA_VERSION: 2.5.2
+  E2E_IMAGE: alpine:3.22
+
 jobs:
   test:
     name: test (nvim ${{ matrix.neovim }})
@@ -31,7 +40,10 @@ jobs:
           version: ${{ matrix.neovim }}
 
       - name: plenary.nvim を取得する
-        run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim "$HOME/plenary.nvim"
+        run: |
+          git init "$HOME/plenary.nvim"
+          git -C "$HOME/plenary.nvim" fetch --depth 1 https://github.com/nvim-lua/plenary.nvim "$PLENARY_SHA"
+          git -C "$HOME/plenary.nvim" checkout FETCH_HEAD
 
       - name: spec の配置検査
         run: make spec-layout-check
@@ -53,9 +65,12 @@ jobs:
           luaVersion: "luajit-2.1"
 
       - uses: leafo/gh-actions-luarocks@35d062def313a7699a0d513e996bcf4352f05389 # v6.1.0
+        with:
+          # 既定値はアクションの版で変わるため明示する。
+          luaRocksVersion: "3.13.0"
 
       - name: luacheck を導入する
-        run: luarocks install luacheck
+        run: luarocks install luacheck "$LUACHECK_VERSION"
 
       - run: make lint
 
@@ -67,7 +82,7 @@ jobs:
       - uses: JohnnyMorganz/stylua-action@76fd70c03e6340ceaf673366712db9b20560b402 # v5.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          version: latest
+          version: ${{ env.STYLUA_VERSION }}
           args: --check lua/ plugin/ tests/
 
   typecheck:
@@ -81,7 +96,10 @@ jobs:
           version: stable
 
       - name: plenary.nvim を取得する
-        run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim "$HOME/plenary.nvim"
+        run: |
+          git init "$HOME/plenary.nvim"
+          git -C "$HOME/plenary.nvim" fetch --depth 1 https://github.com/nvim-lua/plenary.nvim "$PLENARY_SHA"
+          git -C "$HOME/plenary.nvim" checkout FETCH_HEAD
 
       - name: lua-language-server を導入する
         run: |
@@ -105,13 +123,16 @@ jobs:
           version: stable
 
       - name: plenary.nvim を取得する
-        run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim "$HOME/plenary.nvim"
+        run: |
+          git init "$HOME/plenary.nvim"
+          git -C "$HOME/plenary.nvim" fetch --depth 1 https://github.com/nvim-lua/plenary.nvim "$PLENARY_SHA"
+          git -C "$HOME/plenary.nvim" checkout FETCH_HEAD
 
       - name: docker が使えることを確認する
         run: docker version
 
       - name: 検証用イメージを取得する
-        run: docker pull alpine
+        run: docker pull "$E2E_IMAGE"
 
       - name: 通しシナリオ (実 docker)
-        run: PLENARY_PATH="$HOME/plenary.nvim" make test-e2e
+        run: PLENARY_PATH="$HOME/plenary.nvim" DOCKER_NVIM_E2E_IMAGE="$E2E_IMAGE" make test-e2e
