@@ -67,15 +67,15 @@ vim.keymap.set("n", "<leader>dc", "<Plug>(docker-containers)")
 
 **コンテナ一覧**
 
-| キー      | 操作                     | キー        | 操作                         |
-| --------- | ------------------------ | ----------- | ---------------------------- |
-| `u`       | 起動                     | `t`         | ログを追う                   |
-| `d`       | 停止                     | `a`         | シェルを開く                 |
-| `r`       | 再起動                   | `e`         | コマンドを実行               |
-| `<C-k>`   | 強制終了                 | `E`         | コンテナ内のファイルを編集   |
-| `p` / `P` | 一時停止 / 解除          | `ct` / `cf` | ホストへ / ホストから コピー |
-| `D`       | 削除（確認あり）         | `<C-o>`     | 公開ポートをブラウザで開く   |
-| `gd`      | このコンテナのイメージへ |             |                              |
+| キー      | 操作                     | キー    | 操作                       |
+| --------- | ------------------------ | ------- | -------------------------- |
+| `u`       | 起動                     | `t`     | ログを追う                 |
+| `d`       | 停止                     | `a`     | シェルを開く               |
+| `r`       | 再起動                   | `e`     | コマンドを実行             |
+| `<C-k>`   | 強制終了                 | `E`     | コンテナ内のファイルを編集 |
+| `p` / `P` | 一時停止 / 解除          | `ct`    | ホストからコンテナへコピー |
+| `D`       | 削除（確認あり）         | `cf`    | コンテナからホストへコピー |
+| `gd`      | このコンテナのイメージへ | `<C-o>` | 公開ポートをブラウザで開く |
 
 **イメージ一覧**: `r` 使い捨てコンテナでシェル / `D` 削除 / `gd` このイメージを使うコンテナへ
 
@@ -103,9 +103,11 @@ compose プロジェクトが 1 つも無いときは `compose プロジェク�
 
 一覧では `<C-d>` / `<C-u>` / `<C-b>` が Neovim 本来のスクロールとして使える（`<C-f>` だけは絞り込みに割り当てている）。
 
+`<C-f>` の絞り込みは、表示中の全カラムの値に対する部分一致（大文字小文字は区別しない）で、どれか 1 つに一致した行が残る。コンテナ一覧なら NAME / IMAGE / STATUS / PORTS / PROJECT / SERVICE のどれかに含まれていればよい。一致が 0 件のときは `コンテナがありません` のような種別ごとの 0 件表示になるので、絞り込み中かどうかは入力した文字列で判断する。プロンプト（`絞り込み (空で解除): `）を空のまま確定すると解除される。
+
 一覧は折り返さない。値が長くてウィンドウに収まらないときは右端で切れるので、`zl` や `l` で右へスクロールして読む。見出しもスクロールに合わせて動くので、どの列を見ているかは常に分かる。
 
-一覧の外のウィンドウへフォーカスが移ると一覧は自動で閉じる。`t` でログを開いたとき、`a` でシェルに入ったとき、`E` でコンテナ内のファイルを開いたときに、一覧がその裏へ残り続けない。詳細（`<CR>`）・ヘルプ（`?`）・別の一覧（`gd` / `<Tab>`）へ移ったときは閉じない。
+フロート以外のウィンドウへフォーカスが移ると一覧は自動で閉じる。`t` でログを開いたとき、`a` でシェルに入ったとき、`E` でコンテナ内のファイルを開いたときに、一覧がその裏へ残り続けない。移動先がフロートなら閉じないので、詳細（`<CR>`）・ヘルプ（`?`）・別の一覧（`gd` / `<Tab>`）はもちろん、他のプラグインのフロートや `vim.ui.input` をフロートで実装している環境の入力欄へ移ったときもそのまま残る。
 
 ## 設定
 
@@ -131,7 +133,7 @@ require("docker").setup({
 
 ### 配色
 
-列見出しは `DockerHeader`、STATUS 列は状態ごとに `DockerStatusRunning` / `DockerStatusExited` / `DockerStatusPaused` / `DockerStatusCreated` / `DockerStatusRestarting` / `DockerStatusDead` / `DockerStatusNone` で描く。いずれも `default` 指定なので、先に定義しておけばそちらが優先される。
+列見出しは `DockerHeader`、STATUS 列は状態ごとに `DockerStatusRunning` / `DockerStatusExited` / `DockerStatusPaused` / `DockerStatusCreated` / `DockerStatusRestarting` / `DockerStatusDead` / `DockerStatusNone` で描く。これらのどれにも当てはまらない状態は `DockerStatusUnknown`（既定は `Normal` へリンク）になるので、配色を全部差し替えるならこれも含める。いずれも `default` 指定なので、先に定義しておけばそちらが優先される。
 
 ```lua
 vim.api.nvim_set_hl(0, "DockerHeader", { fg = "#7aa2f7", bold = true })
@@ -148,7 +150,7 @@ vim.api.nvim_set_hl(0, "DockerHeader", { fg = "#7aa2f7", bold = true })
 ## 開発
 
 ```bash
-make check     # lint / format / typecheck / plugin-check / test
+make check     # lint / format-check / typecheck / plugin-check / spec-layout-check / test
 make test      # 単体・結合テスト
 make test-e2e  # 実 docker に対する通しシナリオ（docker が必要）
 ```

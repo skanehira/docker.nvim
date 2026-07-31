@@ -1,5 +1,7 @@
 *docker.txt*    Neovim から Docker と docker compose を操作する
 
+                                                                 *docker.nvim*
+
 ==============================================================================
 CONTENTS                                                     *docker-contents*
 
@@ -13,10 +15,10 @@ CONTENTS                                                     *docker-contents*
 ==============================================================================
 1. 概要                                                  *docker-introduction*
 
-docker.nvim は Neovim から Docker を操作するプラグインです。コンテナ・イメージ・
-ボリューム・ネットワークに加え、docker compose のサービスを全プロジェクト
-まとめて一覧・操作できます。どのディレクトリで Neovim を開いていても、その
-マシンにある compose プロジェクトが 1 つの一覧に並びます。
+docker.nvim は Neovim から Docker を操作するプラグインです。コンテナ・
+イメージ・ボリューム・ネットワークに加え、docker compose のサービスを全
+プロジェクトまとめて一覧・操作できます。どのディレクトリで Neovim を開いて
+いても、そのマシンにある compose プロジェクトが 1 つの一覧に並びます。
 
 一覧は `docker events` を購読して自動更新されます。別のターミナルでコンテナを
 起動・停止しても、Neovim 側の一覧が 1 秒以内に追従します。
@@ -38,7 +40,7 @@ docker.nvim は Neovim から Docker を操作するプラグインです。コ�
 ==============================================================================
 3. コマンド                                                  *docker-commands*
 
-                                                                      *:Docker*
+                                                                     *:Docker*
 :Docker {kind}
     リソースの一覧を開きます。{kind} は次のいずれかです。
 
@@ -51,20 +53,20 @@ docker.nvim は Neovim から Docker を操作するプラグインです。コ�
     引数を省略した場合は使い方を表示します。
 
 Lua API~
-                                                          *docker.setup()*
+                                                              *docker.setup()*
 require("docker").setup({opts})
     設定を取り込みます。|docker-configuration| を参照してください。
 
-                                                           *docker.open()*
+                                                               *docker.open()*
 require("docker").open({kind})
     一覧を開きます。`:Docker {kind}` と同じです。
 
-                                                          *docker.close()*
+                                                              *docker.close()*
 require("docker").close()
     開いている一覧をすべて閉じます。
 
 <Plug> マッピング~
-                                             *<Plug>(docker-containers)*
+                                                   *<Plug>(docker-containers)*
 次のマッピングを公開しています。好きなキーへ割り当てられます。 >lua
     vim.keymap.set("n", "<leader>dc", "<Plug>(docker-containers)")
 <
@@ -91,6 +93,13 @@ require("docker").close()
 一覧では <C-d> / <C-u> / <C-b> が Neovim 本来のスクロールとして使えます
 (<C-f> だけは絞り込みに割り当てています)。
 
+<C-f> の絞り込みは、表示中の全カラムの値に対する部分一致 (大文字小文字は
+区別しない) で、どれか 1 つに一致した行が残ります。コンテナ一覧なら
+NAME / IMAGE / STATUS / PORTS / PROJECT / SERVICE のどれかに含まれていれば
+残ります。プロンプト (`絞り込み (空で解除): `) を空のまま確定すると解除され
+ます。一致が 0 件のときは `コンテナがありません` のような種別ごとの 0 件表示
+になるため、絞り込み中かどうかは入力した文字列で判断してください。
+
 一覧は折り返しません。値が長くてウィンドウに収まらないときは右端で切れる
 ので、zl や l で右へスクロールして読みます。見出しもスクロールに合わせて
 動くので、どの列を見ているかは常に分かります。
@@ -114,16 +123,17 @@ require("docker").close()
     gd          このコンテナのイメージへ移動する
 
 イメージ一覧~
-                                                       *docker-keymaps-image*
+                                                        *docker-keymaps-image*
     r           使い捨てコンテナでシェルを開く
     D           削除する (確認あり)
     gd          このイメージを使うコンテナへ移動する
 
 ボリューム・ネットワーク一覧~
+                              *docker-keymaps-volume* *docker-keymaps-network*
     D           削除する (確認あり)
 
 compose サービス一覧~
-                                                     *docker-keymaps-service*
+                                                      *docker-keymaps-service*
     u           サービスを起動する
     d           サービスを停止する
     r           サービスを再起動する
@@ -145,16 +155,20 @@ compose プロジェクトが 1 つも無いときは `compose プロジェク�
 1 行を出します。
 
 一括削除~
+                                                          *docker-bulk-delete*
 コンテナ・イメージ・ボリューム・ネットワークの一覧で、Visual モードで範囲を
 選んでから D を押すと、選択した行をまとめて削除できます。一部が失敗しても他は
 実行され、失敗した分がまとめて通知されます (compose サービス一覧の D は
 プロジェクトの破棄なので対象外です)。
 
 一覧を閉じる契機~
-q のほかに、一覧の外のウィンドウへフォーカスが移ったときにも一覧は閉じます。
-t でログを開いたとき、a でシェルに入ったとき、E でコンテナ内のファイルを
-開いたときに、一覧がその裏へ残り続けないようにするためです。詳細 (<CR>)・
-ヘルプ (?)・別の一覧 (gd / <Tab>) へ移ったときは閉じません。
+                                                           *docker-auto-close*
+q のほかに、フロート以外のウィンドウへフォーカスが移ったときにも一覧は閉じま
+す。t でログを開いたとき、a でシェルに入ったとき、E でコンテナ内のファイルを
+開いたときに、一覧がその裏へ残り続けないようにするためです。移動先がフロート
+なら閉じないので、詳細 (<CR>)・ヘルプ (?)・別の一覧 (gd / <Tab>) はもちろん、
+他のプラグインのフロートや、vim.ui.input をフロートで実装している環境の入力欄
+へ移ったときもそのまま残ります。
 
 ==============================================================================
 5. 設定                                                 *docker-configuration*
@@ -171,13 +185,13 @@ t でログを開いたとき、a でシェルに入ったとき、E でコン�
       },
     })
 <
-                                                             *docker-opt-debug*
+                                                            *docker-opt-debug*
 debug ~
     既定値: `false`
 
     実行した docker コマンドと終了コード、解析に失敗した行数を通知します。
 
-                                                           *docker-opt-keymaps*
+                                                          *docker-opt-keymaps*
 keymaps ~
     ビュー種別ごとに「アクション名 -> キー」で指定します。ビュー種別は次の
     とおりです。
@@ -189,13 +203,13 @@ keymaps ~
         network_list    ネットワーク一覧
         service_list    compose サービス一覧
 
-    指定しなかった項目は既定のままです。キーに `false` を渡すと、その割り当てを
-    外せます。同じキーをビュー種別ごとに別の操作へ割り当てられます (コンテナ
-    一覧の `r` は再起動、イメージ一覧の `r` は使い捨て実行)。
+    指定しなかった項目は既定のままです。キーに `false` を渡すと、その割り
+    当てを外せます。同じキーをビュー種別ごとに別の操作へ割り当てられます
+    (コンテナ一覧の `r` は再起動、イメージ一覧の `r` は使い捨て実行)。
 
     未知のビュー種別やアクション名は、その項目だけ無視して警告します。
 
-                                                          *docker-highlights*
+                                                           *docker-highlights*
 配色~
     列見出しは DockerHeader、STATUS 列は状態ごとに次のグループで描きます。
 
@@ -207,6 +221,10 @@ keymaps ~
         DockerStatusRestarting  再起動中
         DockerStatusDead        異常終了
         DockerStatusNone        コンテナが無いサービス
+        DockerStatusUnknown     上記のどれにも当てはまらない状態
+
+    DockerStatusUnknown は既定で `Normal` へリンクしているため、そのままでは
+    通常の文字色になります。配色を全部差し替えるならこれも指定してください。
 
     いずれも `default` 指定なので、先に定義しておけばそちらが優先されます。
 >lua
@@ -217,25 +235,31 @@ keymaps ~
 6. 動作の約束                                                *docker-behavior*
 
 削除~
+                                                      *docker-behavior-delete*
     削除に `-f` は付けません。実行中コンテナの削除は docker に拒否させ、その
     エラーをそのまま提示します。先に停止してから削除してください。
 
 前提を満たさない操作~
+                                                       *docker-behavior-guard*
     停止中のコンテナへの `<C-k>` のように前提を満たさない操作は、docker を
     呼ばずに警告します。
 
 重複した操作~
+                                                   *docker-behavior-exclusive*
     同じ対象への同じ操作は同時に 1 つまでです。実行中の行には `(実行中)` が
     付きます。
 
 子プロセス~
+                                                        *docker-behavior-jobs*
     ログやシェルで起動した子プロセスは台帳で追跡し、`:qa` で必ず停止します。
 
 イベント購読が切れたとき~
+                                                      *docker-behavior-events*
     待機時間を延ばしながら最大 5 回まで再購読を試みます。回復したときは一覧を
     取り直して整合させます。5 回失敗した場合は `R` による手動更新を促します。
 
 compose の対象~
+                                                     *docker-behavior-compose*
     サービス一覧は存在するすべての compose プロジェクトを対象とし、各操作は
     カーソル行のプロジェクトを `-p` で名指しして実行します。カレントディレクト
     リは一覧を開いた時点で固定し、そのディレクトリの compose プロジェクト
@@ -245,6 +269,7 @@ compose の対象~
     そのディレクトリで開き直すか、一度起動すれば以後は場所に関係なく並びます。
 
 compose ファイルの場所が分からないプロジェクト~
+                                              *docker-behavior-compose-nopath*
     コンテナのラベルにも `docker compose ls` の出力にも compose ファイルの場所
     が現れないプロジェクトでは、コンテナが実在するサービスだけを一覧に出しま
     す。起動 (u / U) は compose ファイルの定義そのものが要るため、docker を呼
@@ -255,6 +280,7 @@ compose ファイルの場所が分からないプロジェクト~
     行し、docker のエラーをそのまま表示します。
 
 compose ファイルが読めないとき~
+                                               *docker-behavior-compose-error*
     カレントディレクトリの compose ファイルが壊れていても一覧は開きます。
     docker のエラーをそのまま警告として 1 回だけ通知し、イベントで一覧を取り
     直すたびに同じ警告を繰り返すことはありません。

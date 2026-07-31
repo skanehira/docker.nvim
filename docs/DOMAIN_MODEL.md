@@ -4,6 +4,7 @@
 - 対象: docker.nvim
 - 前提ドキュメント: [GLOSSARY.md](GLOSSARY.md), [USECASES.md](USECASES.md)
 - 作成日: 2026-07-29
+- 最終更新日: 2026-07-31
 
 ## モデリングの前提
 
@@ -29,7 +30,7 @@ graph LR
     end
 
     subgraph ビュー表示コンテキスト
-        Stack[ビュースタック]
+        OpenViews[開いているビュー]
         View[ビュー]
     end
 
@@ -44,7 +45,7 @@ graph LR
     Config --> KeymapDef
     View -->|操作の要求| Ops
     Ops -->|docker コマンド| Docker
-    Stack o-- View
+    OpenViews o-- View
 ```
 
 依存の向きは「ビュー表示 → Docker リソース → docker CLI」の一方向とする。Docker リソースコンテキストはビューを知らない（状態変化の通知は購読者への通知として抽象化する）。
@@ -55,7 +56,7 @@ graph LR
 | --- | --- | --- | --- |
 | リソースストア | リソース種別ごとのリソース集合 | 1 つのリソース種別の一覧は、1 回の描画で矛盾なく見える | 一覧の再取得、docker イベントの受信 |
 | compose プロジェクト | プロジェクト名と compose サービスの集合 | サービス集合とその状態は同時に更新される | サービス定義の再取得、コンテナ状態の変化 |
-| ビュースタック | 積まれたビューとそれぞれのビュー状態 | 表示中のビューとカーソル位置は常に整合する | ビューを開く・閉じる・切り替える |
+| 開いているビュー | リソース種別ごとの一覧ビュー（リソース種別 → 一覧ビュー 1 つの写像）と、その上に重ね合わせた詳細ビュー・ヘルプビュー | 同じリソース種別の一覧ビューは同時に 1 つしか存在せず、そのビュー状態と描画内容は常に整合する | ビューを開く・閉じる・切り替える |
 | 実行中操作の台帳 | 実行中操作の集合 | 同一対象への同種の操作の重複を判定できる | 操作の開始・完了 |
 | 設定 | 全ビュー種別のキーマップ定義 | 起動時に一度合成され、以後変わらない | `setup()` の呼び出し |
 
@@ -95,12 +96,14 @@ classDiagram
         +string repository
         +string tag
         +string size
+        +string createdSince
     }
 
     class Volume {
         <<Entity>>
         +string name
         +string driver
+        +string mountpoint
     }
 
     class Network {
@@ -194,18 +197,19 @@ classDiagram
 
 ```mermaid
 classDiagram
-    class ViewStack {
+    class OpenViews {
         <<Aggregate Root>>
-        +List~View~ stack
-        +push(view)
-        +pop()
-        +current()
+        +Map~ResourceKind, View~ lists
+        +open(kind)
+        +close(kind)
+        +closeAll()
     }
 
     class View {
         <<Entity>>
         +ViewType type
         +ViewState state
+        +int zindex
         +onMounted()
         +onUnmounted()
         +render()
@@ -251,13 +255,12 @@ classDiagram
 
     class KeymapDefinition {
         <<Value Object>>
-        +Map~ActionName, KeyBinding~ bindings
+        +Map~ActionName, Key~ bindings
     }
 
-    class KeyBinding {
+    class Key {
         <<Value Object>>
-        +string key
-        +string description
+        +string value
     }
 
     class ActionName {
@@ -272,13 +275,13 @@ classDiagram
         +string error
     }
 
-    ViewStack "1" *-- "*" View
+    OpenViews "1" *-- "*" View
     View --> ViewState
     View --> ViewType
     OperationRegistry "1" *-- "*" RunningOperation
     RunningOperation --> OperationKey
     Config "1" *-- "*" KeymapDefinition
-    KeymapDefinition "1" *-- "*" KeyBinding
+    KeymapDefinition "1" *-- "*" Key
     KeymapDefinition --> ActionName
 ```
 
@@ -294,11 +297,11 @@ classDiagram
 | compose ラベル | 値オブジェクト | project / service / oneoff の組で等価性が決まる不変の値 |
 | ポートマッピング | 値オブジェクト | ホスト IP・ポートの組で等価。単体で識別する必要がない |
 | リソース定義 / カラム定義 | 値オブジェクト | 起動時に決まる不変の宣言。実行中に変化しない |
-| ビュー | エンティティ | ビュースタック上で個別に追跡され、状態を持つ |
-| ビュー状態 | 値オブジェクト | 表示情報の組。更新は新しい値への置き換えで行う |
+| ビュー | エンティティ | 一覧ビューはリソース種別で、詳細・ヘルプビューはウィンドウで個別に追跡され、状態を持つ |
+| ビュー状態 | 値オブジェクト | 表示情報の組。更新は新しい値への置き換えで行い、ビューを閉じるときに破棄する |
 | 実行中操作 | エンティティ | 対象と操作の組で識別され、開始から完了までのライフサイクルを持つ |
 | コマンド結果 | 値オブジェクト | 1 回の実行結果を表す不変の値 |
-| キーマップ定義 / キー割り当て | 値オブジェクト | 設定の合成結果として決まる不変の値 |
+| キーマップ定義 / キー | 値オブジェクト | 設定の合成結果として決まる不変の値。アクション名からキー文字列への対応だけを持ち、説明文は持たない |
 
 ## ドメインイベント
 
@@ -311,7 +314,7 @@ classDiagram
 | ストア更新 | リソースストア | 一覧の再取得、リソースの追加・更新・削除 | ビューが描画を要求する（デバウンスされる） |
 | 操作開始 | 実行中操作の台帳 | 操作が受け付けられた | ビューが実行中であることを表示する |
 | 操作完了 | 実行中操作の台帳 | docker コマンドが終了した | ビューが実行中表示を解除し、結果を通知する |
-| ビュー遷移 | ビュースタック | ビューを開く・閉じる・切り替える | 対象ビューの `onMounted` / `onUnmounted` が呼ばれ、購読の開始・終了が行われる |
+| ビュー遷移 | 開いているビュー | ビューを開く・閉じる・切り替える | 対象ビューの `onMounted` / `onUnmounted` が呼ばれ、購読の開始・終了が行われる。切り替えは切替先の `onMounted` を終えてから元のビューの `onUnmounted` を呼ぶ |
 
 ## 不変条件
 
@@ -323,10 +326,11 @@ classDiagram
 | INV-2 | compose サービスに紐付くコンテナは、同じプロジェクト名・サービス名のラベルを持ち、単発コンテナではない | BR-006 |
 | INV-3 | compose サービスの状態は、紐付くコンテナがあればそのコンテナ状態、無ければ `none` である | BR-005 |
 | INV-4 | 実行中操作の台帳に、同一の対象と操作の組が 2 つ以上存在しない | BR-009 |
-| INV-5 | ビュースタックの最上位のビューだけがキーマップを持ち、表示されている | BR-014 |
+| INV-5 | 一覧ビューのキーマップはその一覧バッファにローカルで、他のバッファ（詳細・ヘルプ・ターミナル・通常のバッファ）には及ばない。詳細ビュー・ヘルプビューが持つキーマップは、自分を閉じる `q` だけである | BR-014 |
 | INV-6 | 一覧ビューは、リソース種別ごとに同時に 1 つしか存在しない | BR-010 |
 | INV-7 | ビューが破棄されたとき、そのビューが開始したジョブは 1 つも残っていない | BR-011 |
 | INV-8 | ビューに設定されているキーは、すべてそのビュー種別のキーマップ定義に存在するアクションに対応する | BR-015 |
+| INV-9 | 詳細ビュー・ヘルプビューの `zindex`（詳細=150 / ヘルプ=200）は、一覧ビューの `zindex`（指定なしで Neovim 既定の 50）より常に大きい。重ね合わせた上層を閉じても下層の一覧は変更されない | BR-018 |
 
 ## 主要な振る舞い
 

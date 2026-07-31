@@ -5,6 +5,7 @@
 - 種別: 概要設計書
 - 対象: docker.nvim
 - 作成日: 2026-07-29
+- ステータス: 実装完了（2026-07-31 時点）
 - 詳細: [DESIGN_DETAIL_APP.md](DESIGN_DETAIL_APP.md)（アプリ実装） / [DESIGN_DETAIL_INFRA.md](DESIGN_DETAIL_INFRA.md)（CI・配布・運用）
 - 前提: [USER_STORIES.md](USER_STORIES.md) / [USECASES.md](USECASES.md) / [FEASIBILITY.md](FEASIBILITY.md) / [GLOSSARY.md](GLOSSARY.md) / [DOMAIN_MODEL.md](DOMAIN_MODEL.md)
 
@@ -16,9 +17,11 @@
   - [1.3 ゴール](#13-ゴール)
   - [1.4 全体構成図](#14-全体構成図)
   - [1.5 技術スタック](#15-技術スタック)
-  - [1.6 検討した代替案](#16-検討した代替案)
-  - [1.7 制約と前提](#17-制約と前提)
-  - [1.8 未解決の論点](#18-未解決の論点-open-issues)
+  - [1.6 決定一覧](#16-決定一覧)
+  - [1.7 検討した代替案](#17-検討した代替案)
+  - [1.8 制約と前提](#18-制約と前提)
+  - [1.9 未解決の論点](#19-未解決の論点-open-issues)
+  - [1.10 リスク](#110-リスク)
 - [2. アプリケーション概要](#2-アプリケーション概要)
 - [3. インフラ概要](#3-インフラ概要)
 
@@ -30,19 +33,20 @@
 
 **目的**: Neovim から離れずに Docker のリソースを閲覧・操作できるようにし、`docker ps` や `docker compose logs` のためにターミナルを往復する手間をなくす。
 
-**スコープに含むもの**: コンテナ・イメージ・ボリューム・ネットワークの一覧と操作、存在するすべての compose プロジェクトを統合したサービス一覧と、そのサービス／プロジェクト操作、コンテナがどの compose プロジェクトのどのサービス由来かの可視化、`docker events` によるライブ更新。
+**スコープに含むもの**: コンテナ・イメージ・ボリューム・ネットワークの一覧と操作、存在するすべての compose プロジェクトを統合したサービス一覧と、そのサービス／プロジェクト操作、コンテナがどの compose プロジェクトのどのサービス由来かの可視化、`docker events` によるライブ更新、`:Docker` のサブコマンド補完と引数なし起動時の使い方表示。
 
-**スコープに含まないもの（非ゴール）**:
+**スコープに含まないもの（非ゴール）**: [USER_STORIES.md](USER_STORIES.md) の Won't と 1 対 1 で対応させる。
 
-| 非ゴール | 理由 |
-| --- | --- |
-| Docker Hub のイメージ検索・pull | 利用頻度が低く、代替（`docker pull`）が容易 |
-| compose ファイルの場所が分からないプロジェクトの起動（`u` / `U`） | 起動には compose ファイルの定義そのものが要り、場所の推測は誤った定義での起動につながる。停止・再起動・破棄・ログはプロジェクト名の名指しで実行できる（BR-024） |
-| Docker Swarm / Kubernetes 連携 | k8s.nvim の領域 |
-| イメージのビルド（`docker build`） | ビルドコンテキスト指定の UI が必要でスコープが膨らむ |
-| volume / network の作成 | compose か docker CLI で行うのが通常 |
-| `:checkhealth` による自己診断 | 環境問題は起動時のメッセージで切り分けられる |
-| `:Docker` の引数なし起動とサブコマンド補完 | 今回はサブコマンドの明示指定のみ対応する |
+| 非ゴール | 対応 ID | 理由 |
+| --- | --- | --- |
+| Docker Hub のイメージ検索・pull | WN-001 | 利用頻度が低く、代替（`docker pull`）が容易 |
+| Docker Swarm / Kubernetes 連携 | WN-003 | k8s.nvim の領域 |
+| イメージのビルド（`docker build`） | WN-004 | ビルドコンテキスト指定の UI が必要でスコープが膨らむ |
+| volume / network の作成 | WN-005 | compose か docker CLI で行うのが通常 |
+| `:checkhealth` による自己診断 | WN-006 | 環境問題は起動時のメッセージで切り分けられる |
+| コンテナの CPU / メモリ使用率の表示 | WN-008 | コンテナごとに `docker stats` のストリームを張ることになり、優先度に見合わない |
+
+compose ファイルの場所が分からないプロジェクトでは起動（`u` / `U`）だけを行わない。これは非ゴールではなく縮退動作であり、条件と代替経路は [1.8](#18-制約と前提) に置く。
 
 ### 1.2 機能要件
 
@@ -62,6 +66,8 @@
 キーマップのカスタマイズ、使い捨てコンテナ実行、ボリューム／ネットワークの一覧・詳細・削除、イメージの詳細表示、公開ポートのブラウザ起動、ファイルのコピーと編集、ビュー間切替、進行表示と二重実行防止、全ビューのライブ更新、ドリルダウン、一括削除、pause / unpause、絞り込み。
 
 扱うリソース種別は container / image / volume / network / service の 5 種だが、このうちボリュームとネットワークは Must ではない（US-018 / US-019 は Should）。ただし実装順序としては、リソース定義の追加のみで済むためコンテナ・イメージと同じフェーズで扱う（[TODO.md](TODO.md) のフェーズ 8）。
+
+`:Docker` は `nargs = "?"` で定義し、サブコマンドを補完する。引数なしで呼ばれたときは受け付けられるサブコマンド名を並べた使い方を通知する（[DESIGN_DETAIL_APP.md の 6.1](DESIGN_DETAIL_APP.md#61-コマンド体系)）。
 
 ### 1.3 ゴール
 
@@ -84,6 +90,8 @@
 
 ### 1.4 全体構成図
 
+実線はモジュール間の `require` による依存（矢元が矢先を呼ぶ）。破線はコールバック（登録した側へ制御が戻る経路）を表す。依存元が多い共有ヘルパ（`notify.lua` / `format.lua` / `version.lua` / `resources/fields.lua` / `resources/ports.lua`）は線が輻輳するため図から省く（責務は [2.1](#21-主要コンポーネントと責務) の表を参照）。
+
 ```mermaid
 flowchart TB
     User[Neovim 開発者]
@@ -92,27 +100,31 @@ flowchart TB
         subgraph plugin[docker.nvim]
             Cmd[":Docker サブコマンド<br/>plugin/docker.lua"]
             Ctrl["コントローラ<br/>init.lua"]
-            Config["設定・キーマップ<br/>config.lua"]
+            Config["設定・キーマップ定義<br/>config.lua"]
 
             subgraph handlers[ハンドラ層]
+                Lifecycle[ビューのライフサイクル]
                 Actions[アクション実行]
                 Render[描画マネージャ]
-                Lifecycle[ビューのライフサイクル]
                 Ops[実行中操作の台帳]
                 Jobs[ジョブ台帳]
+                Term[ターミナル実行]
+                FileEdit[コンテナ内ファイルの編集]
             end
 
             subgraph domain[ドメイン層]
                 Store[リソースストア]
+                ViewState[ビュー状態]
                 Registry[リソース定義]
-                Compose["compose サービス一覧の組み立て"]
+                Loader["compose サービス一覧の組み立て"]
             end
 
             subgraph views[ビュー層]
                 List[一覧ビュー]
                 Inspect[詳細ビュー]
                 Help[ヘルプビュー]
-                Term[ターミナルビュー]
+                Keymaps[キーマップ解決]
+                UIHelper[UI ヘルパ]
             end
 
             subgraph adapter[アダプタ層]
@@ -127,30 +139,57 @@ flowchart TB
 
     User -->|コマンド・キー操作| Cmd
     Cmd --> Ctrl
-    Config --> Ctrl
-    Ctrl --> Actions
+    Ctrl --> Config
+    Ctrl --> Registry
     Ctrl --> Lifecycle
+
+    Lifecycle --> Actions
+    Lifecycle --> Render
+    Lifecycle --> Ops
+    Lifecycle --> Store
+    Lifecycle --> ViewState
+    Lifecycle --> Registry
+    Lifecycle --> CLI
+    Lifecycle --> Events
+    Lifecycle --> List
+    Lifecycle --> Inspect
+    Lifecycle --> Help
+    Lifecycle --> Keymaps
+    Lifecycle --> UIHelper
+
     Actions --> Ops
     Actions --> CLI
     Actions --> ComposeCLI
-    Ops --> Jobs
-    Lifecycle --> views
-    Store -->|状態変化の通知| Render
-    Render --> views
-    Registry --> views
-    Registry --> CLI
-    Registry --> Compose
-    Compose --> CLI
-    Compose --> ComposeCLI
-    Compose --> Store
+    Actions --> Term
+    Actions --> FileEdit
+    Term --> Jobs
+    FileEdit --> CLI
+    Events --> Jobs
+
+    Registry --> Loader
+    Loader --> CLI
+    Loader --> ComposeCLI
+
+    List --> UIHelper
+    Help --> UIHelper
+    Help --> Keymaps
+    Inspect --> UIHelper
+    Inspect --> CLI
+    Keymaps --> Config
+
+    ComposeCLI --> CLI
     CLI -->|docker コマンド| Docker
     ComposeCLI -->|docker compose| Docker
-    Docker -->|イベントストリーム| Events
-    Events --> Store
-    Events --> Jobs
     Term -->|ターミナルジョブ| Docker
-    Term --> Jobs
-    views -->|表示| User
+    Docker -->|イベントストリーム| Events
+
+    Events -.->|イベント受信| Lifecycle
+    Render -.->|デバウンス後の再描画| Lifecycle
+    Ops -.->|実行中表示の更新| Lifecycle
+
+    List -->|表示| User
+    Inspect -->|表示| User
+    Help -->|表示| User
 ```
 
 ### 1.5 技術スタック
@@ -159,7 +198,7 @@ flowchart TB
 | --- | --- | --- |
 | 実装言語 | Lua（Neovim 0.10 以上） | Neovim の標準実行環境。外部ランタイムを要求しない |
 | Docker との通信 | `docker` CLI のサブプロセス実行 | Engine API を直接叩くと HTTP と Unix ソケットを自前実装することになる。CLI なら DOCKER_HOST・docker context・SSH 越し接続の解決を CLI に任せられる |
-| 一覧の取得形式 | フィールドごとに `{{json ...}}` で組み立てた NDJSON（`--no-trunc` 付き） | PoC で `--format json` の `Labels` が解析不能と判明したため（[1.6](#16-検討した代替案)） |
+| 一覧の取得形式 | フィールドごとに `{{json ...}}` で組み立てた NDJSON（`--no-trunc` 付き） | PoC で `--format json` の `Labels` が解析不能と判明したため（[1.7](#17-検討した代替案)） |
 | compose 情報の取得 | 4 経路の組み合わせ: `docker compose ls -a --format json`（プロジェクトの列挙）＋ コンテナの compose ラベル（サービスの実体と compose ファイルの所在）＋ カレントディレクトリでの `docker compose config --format json`（未起動プロジェクトの合流。BR-003）＋ `docker compose -p <project> config --format json`（各プロジェクトのサービス定義の全件） | 前 2 者はコンテナのラベル由来のため、compose プロジェクトの外から実行しても全プロジェクトを列挙できる。一度も起動していないプロジェクトはラベルに現れないので、3 番目でのみ拾える。`config` は未起動のサービスも含めて全件が取れ、`-p` で名指しすればディレクトリ名から決まる既定名とのずれで取り違えない |
 | ライブ更新 | `docker events --format '{{json .}}'` の単一ジョブ購読 | 1 本のストリームで container / image / volume / network すべてのイベントが取れることを PoC で確認 |
 | UI 基盤 | Neovim 標準 API（`nvim_open_win` の `border` / `title`、`winbar`、extmark、`zindex`） | PoC で nui.nvim と比較し、コード量に差が無く（63 行 対 64 行）、nui は headless テストで Neovim が落ちるため |
@@ -169,9 +208,27 @@ flowchart TB
 | CI | GitHub Actions | リポジトリと同居し追加コストが無い |
 | Lint / 整形 / 型検査 | luacheck / stylua / lua-language-server | k8s.nvim で運用実績がある組み合わせ |
 
-### 1.6 検討した代替案
+### 1.6 決定一覧
 
-後から変更するコストが高い決定のみを挙げる。
+後から変更するコストが高い決定を 1 行ずつ並べる。同じ決定の説明は詳細節に重複させず、ここから参照先をたどる。
+
+| 決定 | 理由 | 詳細 |
+| --- | --- | --- |
+| docker との通信は `docker` CLI のサブプロセス実行で行う | Engine API を直接叩くと HTTP・Unix ソケット・DOCKER_HOST・context の解決まで Lua で自前実装することになる | [1.7](#17-検討した代替案) |
+| 一覧はフィールドごとに `{{json ...}}` を並べた NDJSON で取り、`Labels` は分割しない | `--format json` の `Labels` はラベル値のカンマと偽ラベルの混入で誤った値を掴む | [1.7](#17-検討した代替案) / [DESIGN_DETAIL_APP.md 5.1](DESIGN_DETAIL_APP.md#51-一覧取得) |
+| サービス一覧は存在するすべての compose プロジェクトを統合して 1 つの一覧に出す | compose ディレクトリの外でも一覧が開け、停止中のプロジェクトも列挙できる | [1.7](#17-検討した代替案) / [DESIGN_DETAIL_APP.md 5.3](DESIGN_DETAIL_APP.md#53-compose) |
+| compose の操作は行のプロジェクトを `-p <project>` で名指しし、`-f` は渡さない | ディレクトリ名から決まる既定のプロジェクト名は `-p` 起動・`COMPOSE_PROJECT_NAME`・`name:` ディレクティブでずれる | [DESIGN_DETAIL_APP.md 4.5](DESIGN_DETAIL_APP.md#45-状態変更操作の一貫性) |
+| compose ファイルの場所（`working_dir`）は「カレントディレクトリ → コンテナのラベル → `compose ls` の `ConfigFiles`」の優先順で逆算する | プロジェクトの外から起動系の操作を実行するには compose ファイルのある場所が要る | [DESIGN_DETAIL_APP.md 5.3](DESIGN_DETAIL_APP.md#53-compose) |
+| 場所が分からないプロジェクトでは起動（`u` / `U`）だけを拒否し、停止・再起動・破棄・ログはプロジェクト名の名指しで実行する（BR-024） | 起動には compose ファイルの定義そのものが要るが、その他はプロジェクト名だけで足りる | [1.8](#18-制約と前提) / [DESIGN_DETAIL_APP.md 4.5](DESIGN_DETAIL_APP.md#45-状態変更操作の一貫性) |
+| ライブ更新は `docker events` の購読で行い、切断時の縮退先は手動更新（`R`）にする | ポーリングは反映が遅れ、間隔を詰めるとデーモンへの負荷が上がる | [1.7](#17-検討した代替案) |
+| UI は Neovim 標準 API のみで作り、ランタイムの Lua ライブラリ依存を持たない | nui.nvim とコード量が変わらず、nui は headless テストで Neovim を落とす | [1.7](#17-検討した代替案) |
+| 一覧はフロートウィンドウで表示し、詳細・ヘルプはその上に `zindex` で重ねる | 上層を閉じたときに下層の内容とカーソル位置がそのまま残る | [2.3](#23-主要エンティティ) |
+| 既定のキー割り当ては denops-docker.vim を踏襲し、絞り込みだけ k8s.nvim と同じ `<C-f>` にする | 参照実装の割り当てをそのまま使い、独自のキー体系を増やさない。`/` を残すとそのバッファで Neovim 本来の検索が使える | [DESIGN_DETAIL_APP.md 6.2](DESIGN_DETAIL_APP.md#62-キーマップ) |
+| 実装は Must（US-001〜US-015）を通しで仕上げてから Should 以降へ進む。ただし Must と同じモジュールに手を入れる Should は同じフェーズに含める | モジュールの二度手間を避ける | [TODO.md](TODO.md) |
+
+### 1.7 検討した代替案
+
+[1.6](#16-決定一覧) の決定のうち、却下した案とその理由を残すものを挙げる。
 
 | 決定事項 | 採用案 | 却下案 | 却下理由 |
 | --- | --- | --- | --- |
@@ -183,7 +240,7 @@ flowchart TB
 | UI 基盤 | Neovim 標準 API のみ | nui.nvim を唯一のランタイム依存として採用（k8s.nvim 方式） | 同等のビューを実装したコード量が 63 行 対 64 行で差が無く、依存を増やす利点が無い。さらに nui は headless テストで 10 回中 10 回 Neovim を SIGSEGV させ、レイアウトを決定的に検証するテストが書けない |
 | ライブ更新の方式 | `docker events` の購読 | 一定間隔のポーリング（`docker ps` の再実行） | ポーリングは反映が遅れ、間隔を詰めるとデーモンへの負荷が上がる。イベント購読は PoC で取りこぼし 0 件を確認済み。ただし切断時の縮退先としてポーリングではなく手動更新（`R`）を用意する |
 
-### 1.7 制約と前提
+### 1.8 制約と前提
 
 - Neovim 0.10 以上（`vim.system` を使う）。CI では 0.10 と stable の 2 系統で検証する
 - `docker` コマンドが PATH 上にあること。compose 機能には `docker compose` サブコマンドが必要（無い場合も compose 以外の機能は動作する）
@@ -192,18 +249,17 @@ flowchart TB
 - サービス一覧は存在するすべての compose プロジェクトを対象とし、各操作は行のプロジェクトを `-p` で名指しして実行する。カレントディレクトリは一覧を開いた時点で固定し、そのディレクトリの compose プロジェクト（未起動でラベルに現れないもの）を一覧へ合流させることと、そのプロジェクトの compose ファイルの場所を決めることに使う（BR-003）
 - compose の定義を引けないプロジェクト（compose ファイルの場所が分からない、または場所で `config` に失敗した）は、コンテナが実在するサービスのみ一覧に出す。起動（`u` / `U`）は場所が分からないときだけ docker を呼ばずに警告し、停止・再起動・破棄・ログはプロジェクト名の名指しで実行する（BR-024）
 
-### 1.8 未解決の論点 (Open Issues)
+### 1.9 未解決の論点 (Open Issues)
 
 なし。
 
-決定済み（インタビューで解消した論点）:
+### 1.10 リスク
 
-- リソース使用量表示（US-032）は今回のスコープから外し、後回しにする。[USER_STORIES.md](USER_STORIES.md) の Won't（WN-008）へ移した
-- 一覧の絞り込み（US-031）のキーは `<C-f>` とする（k8s.nvim と同じ割り当て）。`/` を潰さないため、そのバッファで Neovim 本来の検索が引き続き使える
-
-- 一覧ビューの表示形態は**フロートウィンドウ**とする。詳細・ヘルプの重ね合わせを `zindex` で自然に扱えるため
-- ビュー切替は `<Tab>`（切替先を選択メニューから選ぶ）、ドリルダウンは `gd` とする
-- 実装は Must（US-001〜US-015）を 1 周目として通しで仕上げてから Should 以降に進む。ただし Must と同じモジュールに手を入れる Should（設定合成・操作の排他・単一バッファ化・ボリューム／ネットワーク・イメージ詳細）は、二度手間を避けるため同じフェーズに含める（対応は [TODO.md](TODO.md) の概要の表を参照）
+| リスク | 対策・状態 |
+| --- | --- |
+| 全 compose プロジェクトを 1 つの一覧に統合するため、別プロジェクトの行を対象に操作しかねない | 行の先頭に PROJECT 列を置いて所属を常に見せ、破棄（`D`）は確認プロンプトを必須にする。操作は行のプロジェクトを `-p` で名指しするため、他のプロジェクトは巻き込まない（G8 / [DESIGN_DETAIL_APP.md 4.5](DESIGN_DETAIL_APP.md#45-状態変更操作の一貫性)）。対処済み |
+| サービス一覧の取得コストが compose プロジェクト数に比例する（結果をキャッシュしないため、イベントのたびに取り直す） | 取得の各段階を並列に実行し、イベント由来の取り直しは 100 ms のデバウンスで 1 回にまとめる。実測値と G9（1 秒以内）が成立する前提は [DESIGN_DETAIL_APP.md 11.3](DESIGN_DETAIL_APP.md#113-実測で確定した値) に置く。監視継続 |
+| compose のラベル仕様（`com.docker.compose.project.working_dir`）に依存している | ラベルが無い環境（compose v2.17 より前が作ったコンテナ）向けに `compose ls` の `ConfigFiles` を第 2 の出典として持ち、どちらも得られない場合は起動系のみ拒否して縮退する（BR-024）。仕様変更は [DESIGN_DETAIL_APP.md 13](DESIGN_DETAIL_APP.md#13-依拠する外部事実) の再検証で検出する。監視継続 |
 
 ---
 
@@ -215,26 +271,32 @@ flowchart TB
 
 | コンポーネント | 責務 | 依存先 |
 | --- | --- | --- |
-| コマンド定義（`plugin/`） | `:Docker <サブコマンド>` の定義とコントローラへの委譲 | コントローラ |
-| コントローラ（`init.lua`） | `setup()` の受け付け、ビューを開く・閉じる、キーからアクションへのディスパッチ | 設定・ハンドラ層・ビュー層 |
-| 設定（`config.lua`） | デフォルト設定と利用者設定の合成、キーマップ定義の保持と検証 | なし |
+| コマンド定義（`plugin/`） | `:Docker <サブコマンド>` の定義・補完とコントローラへの委譲 | コントローラ・リソース定義・バージョン判定 |
+| コントローラ（`init.lua`） | `setup()` の受け付け、ビューを開く・閉じる、サブコマンド名からリソース種別への解決 | 設定・ハンドラ層・リソース定義・バージョン判定 |
+| 設定（`config.lua`） | デフォルト設定と利用者設定の合成、キーマップ定義の保持と検証 | 通知 |
+| バージョン判定（`version.lua`） | 要求 Neovim バージョン（0.10 以上）の判定と、満たさない場合の文言 | なし |
+| 通知（`notify.lua`） | `vim.notify` への通知の集約（情報・警告・エラー）とデバッグログの出し分け | なし |
+| 出力形式（`format.lua`） | docker の出力テンプレートの組み立てと NDJSON の解析。アダプタ層とリソース定義の双方から使うため、どちらにも属さない共有位置に置く | なし |
 | リソース定義（`resources/`） | リソース種別ごとの取得コマンド・カラム・行への変換・状態の取り出しを宣言的に保持。単一コマンドで取れない compose サービス一覧のみ、複数の取得結果の突き合わせも担う | なし（compose サービス一覧の組み立てのみアダプタ層） |
-| リソースストア（`state/`） | 観測したリソースの保持、更新の通知（Observer） | なし |
-| ハンドラ層（`handlers/`） | アクションの実行、描画の集約とデバウンス、ビューのライフサイクル、実行中操作とジョブの台帳 | ドメイン層・アダプタ層・ビュー層 |
-| ビュー層（`views/`, `ui/`） | ビュー状態のバッファへの投影、ウィンドウとキーマップの管理 | リソース定義・UI ヘルパ |
+| リソースストア（`state/`） | 観測したリソースの保持と、ビュー状態の不変更新 | なし |
+| ハンドラ層（`handlers/`） | アクションの実行、描画の集約とデバウンス、ビューのライフサイクル、実行中操作とジョブの台帳、ターミナル実行とコンテナ内ファイルの編集 | ドメイン層・アダプタ層・ビュー層 |
+| ビュー層（`views/`, `ui/`） | ビュー状態のバッファへの投影、ウィンドウとキーマップの管理 | 設定・UI ヘルパ（詳細ビューのみアダプタ層） |
 | アダプタ層（`adapters/`） | docker / docker compose CLI の実行、出力の解析、イベントストリームの購読 | なし（外界との境界） |
 
 ### 2.2 レイヤーと依存の方向
 
 ```
-plugin/ → init.lua → handlers/ → { state/, resources/, adapters/, views/ }
-                                    resources/ → adapters/（compose サービス一覧の組み立てのみ）
-                                    views/ → ui/, resources/
+plugin/  → init.lua → handlers/ → { state/, resources/, adapters/, views/, ui/ }
+init.lua → resources/registry.lua      サブコマンド名からリソース種別を解決する
+resources/service_loader.lua → adapters/   compose サービス一覧の組み立てのみ
+views/ → ui/, config.lua               詳細ビューのみ adapters/ も呼ぶ
+adapters/docker/compose.lua → adapters/docker/cli.lua
 ```
 
 - 依存は上から下への一方向。`state/` と `adapters/` はビューを知らない
-- `resources/` は原則として外界に触れないが、compose サービス一覧だけは 3 種の取得結果を突き合わせる多段の非同期処理になるためアダプタ層を呼ぶ。呼ぶのはこの組み立てモジュールに限り、宣言的定義（`resources/registry.lua`）からは分離する
-- 外界（docker コマンドの実行・時刻・ジョブ起動）はすべてアダプタ層に閉じ込め、テストでは差し替えられるようにする（[設計原則](../../../.claude/rules/core/design.md) の「外界は DI」）
+- `resources/` は原則として外界に触れないが、compose サービス一覧だけは 3 種の取得結果を突き合わせる多段の非同期処理になるためアダプタ層を呼ぶ。呼ぶのはこの組み立てモジュール（`resources/service_loader.lua`）に限り、宣言的定義（`resources/registry.lua`）からは分離する
+- 外界（docker コマンドの実行・時刻・ジョブ起動）はすべてアダプタ層に閉じ込め、テストでは差し替えられるようにする。外界に触れる処理はモジュール内部で直接呼ばず、差し替え口（`_set_executor` など）から注入する
+- 再描画はハンドラ層が起点になる。ストアはビューを知らず、購読者への通知にも依存しない（[DESIGN_DETAIL_APP.md 11.1](DESIGN_DETAIL_APP.md#111-採用パターン)）
 - リソース種別の追加は「リソース定義の追加 ＋ キーマップ定義の追加」で完結させ、ビューやハンドラの分岐を増やさない
 
 ### 2.3 主要エンティティ
@@ -245,18 +307,20 @@ plugin/ → init.lua → handlers/ → { state/, resources/, adapters/, views/ }
 | --- | --- | --- |
 | コンテナ / イメージ / ボリューム / ネットワーク | ID または名前 | リソースストア |
 | compose サービス | プロジェクト名 ＋ サービス名（`<プロジェクト名>/<サービス名>`） | リソースストア |
-| ビュー | ビュー種別 | ビュースタック |
+| ビュー | ビュー種別（`container` / `image` / `volume` / `network` / `service`） | ビューのライフサイクル（種別 → ハンドルの写像） |
 | 実行中操作 | 対象 ID ＋ 操作名 | 実行中操作の台帳 |
+
+ビューは種別ごとに 1 つだけ保持し、履歴のスタックは持たない。詳細・ヘルプは一覧を置き換えず、その上に `zindex` で重ねる。上層を `q` で閉じると下層の一覧の内容とカーソル位置がそのまま残るため、復元処理が要らない。
 
 ### 2.4 非機能要件（アプリ側）
 
-| 項目 | 目標 |
-| --- | --- |
-| 応答性 | docker コマンドの実行中に Neovim の入力がブロックされない（同期実行を使わない） |
-| 更新の反映 | イベント受信から画面反映まで 1 秒以内。連続イベントはデバウンスで 1 回にまとめる |
-| 一覧の描画 | コンテナ 200 件で初回描画 500 ms 以内（PoC `large-list-performance` で確定する） |
-| プロセス管理 | ビュー破棄時と Neovim 終了時に、プラグインが起動した子プロセスを 0 件にする |
-| 依存 | ランタイムの Lua ライブラリ依存を持たない |
+| 項目 | 目標 | 実測・状態 |
+| --- | --- | --- |
+| 応答性 | docker コマンドの実行中に Neovim の入力がブロックされない（同期実行を使わない） | 達成（G_E2E の US-013 のステップで確認） |
+| 更新の反映 | イベント受信から画面反映まで 1 秒以内。連続イベントはデバウンスで 1 回にまとめる | デバウンス幅 100 ms に確定（[DESIGN_DETAIL_APP.md 11.3](DESIGN_DETAIL_APP.md#113-実測で確定した値)） |
+| 一覧の描画 | コンテナ 200 件で初回描画 500 ms 以内 | 達成。`docker ps` の実行を含めて 20〜60 ms（[DESIGN_DETAIL_APP.md 11.3](DESIGN_DETAIL_APP.md#113-実測で確定した値)） |
+| プロセス管理 | ビュー破棄時と Neovim 終了時に、プラグインが起動した子プロセスを 0 件にする | 達成（G4 / G13） |
+| 依存 | ランタイムの Lua ライブラリ依存を持たない | 達成（`docker` コマンドのみ） |
 
 ### 2.5 テスト戦略（方針）
 
