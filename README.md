@@ -73,8 +73,6 @@ The full keymap list, the configuration options and the behavior this plugin pro
 | `:help docker-configuration` | `setup()` options and highlights                 |
 | `:help docker-behavior`      | promised behavior (deletion, exclusion, compose) |
 
-Note that the messages the plugin shows are in Japanese.
-
 ## Development
 
 ```bash

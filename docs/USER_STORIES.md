@@ -167,7 +167,7 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 - [ ] Given compose ファイルの場所が分からないプロジェクトがある When 一覧を表示する Then そのプロジェクトはコンテナが実在するサービスのみ表示される（未起動のサービスは行に出ない）
 - [ ] Given カレントディレクトリが compose プロジェクト外である When サービス一覧を開く Then 何も通知されず、他の compose プロジェクトのサービスが一覧表示される
 - [ ] Given カレントディレクトリの compose ファイルの記述が不正である When サービス一覧を開く Then 一覧は開き、docker のエラーメッセージが警告として 1 回だけ通知される（状態の取り直しのたびに同じ文言は繰り返さない）
-- [ ] Given compose プロジェクトが 1 つも存在しない When 一覧を表示する Then `compose プロジェクトがありません` が表示され、エラーにはならない
+- [ ] Given compose プロジェクトが 1 つも存在しない When 一覧を表示する Then `No compose projects` が表示され、エラーにはならない
 - [ ] Given `COMPOSE_FILE` 環境変数や compose のオーバーライドファイルでカレントディレクトリのプロジェクトが構成されている When サービス一覧を開く Then `docker compose` CLI が解決したのと同じサービス集合が表示される（compose ファイルの探索規則はプラグイン側で実装せず CLI に委ねる）
 
 **エピック**: EP-3
@@ -500,7 +500,7 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 
 - [ ] Given `:Docker ` まで入力している When コマンドライン補完を実行する Then `containers` / `images` / `volumes` / `networks` / `services` が候補として並ぶ
 - [ ] Given `:Docker co` まで入力している When コマンドライン補完を実行する Then 入力済みの前置に前方一致する `containers` だけが候補になる
-- [ ] Given 引数を付けていない When `:Docker` を実行する Then `使い方: :Docker {containers|images|volumes|networks|services}` が警告として通知され、一覧は開かない
+- [ ] Given 引数を付けていない When `:Docker` を実行する Then `Usage: :Docker {containers|images|volumes|networks|services}` が警告として通知され、一覧は開かない
 - [ ] Given 受け付けられない文字列を渡した When `:Docker foo` を実行する Then 同じ使い方のメッセージが通知され、一覧は開かない
 - [ ] Given 単数形のリソース種別名を渡した When `:Docker container` を実行する Then コンテナ一覧が開く（複数形のサブコマンド名と単数形のリソース種別名の双方を受け付ける）
 - [ ] Given リソース種別を追加した When 補完と使い方のメッセージを見る Then 追加した種別のサブコマンド名が両方に現れる（候補も文言もリソース定義の一覧から生成する）
@@ -565,8 +565,8 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 **受け入れ基準**:
 
 - [ ] Given 一覧ビューを開いている When `<C-f>` を押して文字列を入力する Then 表示中のカラムの値のいずれか 1 つでもその文字列を含む行だけが表示される（大文字小文字は区別しない。例: コンテナ一覧で `nginx` と入力すると NAME が `web` でも IMAGE が `nginx:latest` の行は残る）
-- [ ] Given フィルタが適用されている When `<C-f>` を押してプロンプト `絞り込み (空で解除): ` を空のまま確定する Then フィルタが解除され、全行が再び表示される
-- [ ] Given フィルタの結果が 0 件になった When 一覧を見る Then そのリソース種別の 0 件文言（コンテナ一覧なら `コンテナがありません`）が 1 行だけ表示される
+- [ ] Given フィルタが適用されている When `<C-f>` を押してプロンプト `Filter (empty to clear): ` を空のまま確定する Then フィルタが解除され、全行が再び表示される
+- [ ] Given フィルタの結果が 0 件になった When 一覧を見る Then そのリソース種別の 0 件文言（コンテナ一覧なら `No containers`）が 1 行だけ表示される
 - [ ] Given 一覧ビューを開いている When `/` を押す Then Neovim 本来の検索が動作する（絞り込みには `/` を使わない）
 
 **エピック**: EP-5

@@ -100,10 +100,9 @@ The <C-f> filter is a case-insensitive substring match against the values of
 all displayed columns, and a row is kept when any one of them matches. In the
 container list it is kept when the text is contained in NAME / IMAGE /
 STATUS / PORTS / PROJECT / SERVICE. Confirming the prompt
-(`絞り込み (空で解除): `) while it is empty clears the filter. When nothing
-matches, the view falls back to the empty text of that kind, such as
-`コンテナがありません`, so tell whether a filter is active by the text you
-typed.
+(`Filter (empty to clear): `) while it is empty clears the filter. When
+nothing matches, the view falls back to the empty text of that kind, such as
+`No containers`, so tell whether a filter is active by the text you typed.
 
 Lists do not wrap. A value too long for the window is cut off at the right
 edge, so scroll right with zl or l to read it. The header scrolls with the
@@ -158,7 +157,7 @@ u / d / r / U run at the moment you press them, so check the PROJECT column
 first when several projects are listed.
 
 When there is no compose project at all, the list shows the single line
-`compose プロジェクトがありません`.
+`No compose projects`.
 
 Bulk delete~
                                                           *docker-bulk-delete*
@@ -259,7 +258,7 @@ Operations whose precondition is not met~
 Duplicated operations~
                                                    *docker-behavior-exclusive*
     The same operation on the same target runs one at a time. A row being
-    operated on is marked with `(実行中)`.
+    operated on is marked with `(busy)`.
 
 Child processes~
                                                         *docker-behavior-jobs*

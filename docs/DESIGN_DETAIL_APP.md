@@ -225,7 +225,7 @@ M.run(subcommand, cwd, on_done)
 ---@field subcommand string              `:Docker` に渡す引数（例: "containers"）
 ---@field view_type string               キーマップを引くビュー種別（例: "container_list"。[6.2](#62-キーマップ)）
 ---@field display_name string
----@field empty_text string              0 件のときに一覧へ出す 1 行（例: サービスでは「compose プロジェクトがありません」）
+---@field empty_text string              0 件のときに一覧へ出す 1 行（例: サービスでは「No compose projects」）
 ---@field list_args fun(): string[]|nil  一覧取得の docker 引数（load を持つ種別では持たない）
 ---@field item_args fun(id: string): string[]|nil    1 件だけ取り直す docker 引数（イベント受信時に使う）
 ---@field delete_args fun(item: table): string[]|nil 削除の docker 引数（強制削除オプションは付けない。BR-002）
@@ -503,7 +503,7 @@ docker compose -p <project> config --format json
 | `:Docker volumes` | ボリューム一覧を開く |
 | `:Docker networks` | ネットワーク一覧を開く |
 | `:Docker services` | compose サービス一覧を開く |
-| `:Docker`（引数なし） | 受け付けるサブコマンド名を並べた使い方を警告として通知する（`使い方: :Docker {containers\|images\|volumes\|networks\|services}`） |
+| `:Docker`（引数なし） | 受け付けるサブコマンド名を並べた使い方を警告として通知する（`Usage: :Docker {containers\|images\|volumes\|networks\|services}`） |
 
 コマンドは `nargs = "?"` で定義し、引数を補完する。補完候補は `registry.subcommands()`（[3.3](#33-リソース定義)）が返す名前を入力済みの前置と照合して絞ったもので、リソース定義を追加すれば補完にもそのまま現れる。
 
@@ -526,7 +526,7 @@ docker compose -p <project> config --format json
 | `q` | `close` | ビューを閉じる |
 | `<C-f>` | `filter` | 一覧を絞り込む（k8s.nvim と同じ割り当て。`/` は Neovim 本来の検索のまま残す） |
 
-`<C-f>` は `vim.ui.input`（プロンプト `絞り込み (空で解除): `、初期値は現在の絞り込み語）で 1 語を受け取り、その語を**表示中の全カラムの値**に対して照合する。大文字小文字は区別せず、いずれか 1 つのカラムに部分一致すればその行を残す（例: コンテナ一覧で `web` と入れると、NAME が `web-1` の行と IMAGE が `nginx:web` の行の双方が残る）。空文字列を入れると絞り込みを解除する。絞り込みの結果が 0 件になった場合も、種別ごとの 0 件文言（`コンテナがありません` 等）をそのまま出す（絞り込み専用の文言は持たない）。
+`<C-f>` は `vim.ui.input`（プロンプト `Filter (empty to clear): `、初期値は現在の絞り込み語）で 1 語を受け取り、その語を**表示中の全カラムの値**に対して照合する。大文字小文字は区別せず、いずれか 1 つのカラムに部分一致すればその行を残す（例: コンテナ一覧で `web` と入れると、NAME が `web-1` の行と IMAGE が `nginx:web` の行の双方が残る）。空文字列を入れると絞り込みを解除する。絞り込みの結果が 0 件になった場合も、種別ごとの 0 件文言（`No containers` 等）をそのまま出す（絞り込み専用の文言は持たない）。
 
 **コンテナ一覧（`container_list`）**
 
@@ -597,13 +597,15 @@ docker compose -p <project> config --format json
 
 | 状況 | 種別 | 内容 |
 | --- | --- | --- |
-| 操作の成功 | 情報 | 「`<名前>` を起動しました」のように対象名を含める |
+| 操作の成功 | 情報 | 「`Started <名前>`」のように対象名を含める |
 | docker の失敗 | エラー | docker の標準エラー出力をそのまま提示する（BR-016） |
-| 前提を満たさない操作 | 警告 | 「実行中ではないため kill できません」のように理由を示す |
+| 前提を満たさない操作 | 警告 | 「`<名前> is not running, so it cannot be killed`」のように理由を示す |
 | 環境問題 | エラー | docker 未検出・デーモン未起動・権限不足を区別した文言 |
-| 実行中の重複要求 | 警告 | 「`<名前>` の `<操作>` は実行中です」 |
+| 実行中の重複要求 | 警告 | 「`<名前>: the <操作> operation is already in progress`」 |
 
-**実行中の印**: 操作を発行してから完了するまでの間、その行の状態カラム（`status_column`）の値の末尾に ` (実行中)` を付す（例: STATUS が `running` の行は `running (実行中)` になる）。実行中操作の台帳（`handlers/operations.lua`）が対象を保持している間だけ付き、完了すると次の描画で消える。新しいカラムは足さない（カラム構成は G1 が固定しているため）。状態カラムを持たない種別（ボリューム・ネットワーク）にはこの印は出ない。
+文言はすべて英語で出す（利用者の言語設定によらず 1 種類だけを持つ）。
+
+**実行中の印**: 操作を発行してから完了するまでの間、その行の状態カラム（`status_column`）の値の末尾に ` (busy)` を付す（例: STATUS が `running` の行は `running (busy)` になる）。実行中操作の台帳（`handlers/operations.lua`）が対象を保持している間だけ付き、完了すると次の描画で消える。新しいカラムは足さない（カラム構成は G1 が固定しているため）。状態カラムを持たない種別（ボリューム・ネットワーク）にはこの印は出ない。
 
 ## 7. データフロー詳細
 
@@ -1017,7 +1019,7 @@ PoC で判明した、踏みやすい落とし穴を列挙する。
 | `derive_service_names` | [3.5](#35-compose-サービス一覧の組み立て) | `resources/services.lua` | `resources/service_loader.lua`。定義を引けないプロジェクトでコンテナのラベルからサービス名を逆算する（BR-024） |
 | `subcommand` / `view_type` / `event_reload`（`docker.ResourceDefinition` のフィールド） | [3.3](#33-リソース定義) | `resources/registry.lua` | 順に `plugin/docker.lua` の補完と `init.lua`、`views/keymaps.lua`、`handlers/lifecycle.lua` のイベント処理 |
 | `status_column` | [3.3](#33-リソース定義) | `resources/registry.lua` | `views/list.lua`。実行中の印の付与位置とハイライト対象の列 |
-| ` (実行中)` | [6.5](#65-メッセージ方針) | `views/list.lua`（`handlers/operations.lua` の台帳を引いて付す） | 一覧バッファの表示 |
+| ` (busy)` | [6.5](#65-メッセージ方針) | `views/list.lua`（`handlers/operations.lua` の台帳を引いて付す） | 一覧バッファの表示 |
 | `docker://<container><path>` | [6.3](#63-入出力) | `handlers/file_edit.lua` | Neovim のバッファ名。`BufWriteCmd` の横取り対象を特定するのに使う |
 | `_set_executor` | [3.2](#32-アダプタ層外界との境界) | `adapters/docker/cli.lua` | テスト（[10.2](#102-外部依存の差し替え)） |
 | `zindex` | [6.3](#63-入出力) | `lua/docker/ui/window.lua`（`nvim_open_win` に渡す） | `views/inspect.lua` / `views/help.lua`。一覧の上への重ね合わせ |
