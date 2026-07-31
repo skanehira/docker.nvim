@@ -167,7 +167,7 @@ describe("docker.handlers.file_edit", function()
 
       assert.is_nil(bufnr, "must not open a buffer")
       assert.are.same(
-        { msg = "/etc はディレクトリなので編集できません", level = vim.log.levels.ERROR },
+        { msg = "/etc is a directory, so it cannot be edited", level = vim.log.levels.ERROR },
         notified[#notified]
       )
       assert.are.equal(0, vim.fn.isdirectory(pulled), "must not keep the pulled contents: " .. tostring(pulled))

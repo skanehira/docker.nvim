@@ -30,7 +30,7 @@ end
 ---@return string
 function M.requirement_message(v)
   local current = resolve(v)
-  return ("docker.nvim は Neovim %d.%d 以上が必要です (現在 %d.%d.%d)"):format(
+  return ("docker.nvim requires Neovim %d.%d or later (current: %d.%d.%d)"):format(
     M.MINIMUM.major,
     M.MINIMUM.minor,
     current.major,

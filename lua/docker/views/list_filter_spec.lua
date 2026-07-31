@@ -145,7 +145,7 @@ describe("filtering the list", function()
 
     lifecycle.dispatch_for_test(handle, "filter")
 
-    assert.are.same({ "コンテナがありません" }, lines(handle))
+    assert.are.same({ "No containers" }, lines(handle))
   end)
 
   it("applies an operation to the target of the displayed row while a filter is active", function()

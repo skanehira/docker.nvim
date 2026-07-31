@@ -113,8 +113,8 @@ describe("docker.adapters.docker.compose", function()
       end
 
       assert.are.same({
-        "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
-        "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+        "The docker compose subcommand is unavailable. Check that the compose plugin is installed.",
+        "The docker compose subcommand is unavailable. Check that the compose plugin is installed.",
       }, messages)
     end)
 
@@ -146,7 +146,7 @@ describe("docker.adapters.docker.compose", function()
         { reason = "outside", message = "no configuration file provided: not found" },
         {
           reason = "unavailable",
-          message = "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+          message = "The docker compose subcommand is unavailable. Check that the compose plugin is installed.",
         },
         { reason = "invalid", message = "yaml: mapping values are not allowed in this context" },
       }, outcomes)
@@ -156,6 +156,18 @@ describe("docker.adapters.docker.compose", function()
       stub({ code = 0, stdout = "not json" })
 
       assert.are.equal("invalid", resolve().reason)
+    end)
+
+    it("returns its own message when docker succeeds but the config carries no services", function()
+      stub({ code = 0, stdout = "[]" })
+
+      assert.are.same({
+        ok = false,
+        data = nil,
+        error = "Could not parse the docker compose configuration",
+        code = 0,
+        reason = "invalid",
+      }, resolve())
     end)
   end)
 
@@ -226,9 +238,21 @@ describe("docker.adapters.docker.compose", function()
       assert.is_false(result.ok)
       assert.are.equal("unavailable", result.reason)
       assert.are.equal(
-        "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+        "The docker compose subcommand is unavailable. Check that the compose plugin is installed.",
         result.error
       )
+    end)
+
+    it("returns its own message when docker succeeds but prints no project list", function()
+      stub({ code = 0, stdout = "" })
+
+      assert.are.same({
+        ok = false,
+        data = nil,
+        error = "Could not parse the docker compose project list",
+        code = 0,
+        reason = "invalid",
+      }, list())
     end)
 
     it("treats output that cannot be parsed as invalid", function()

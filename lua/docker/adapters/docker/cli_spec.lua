@@ -342,7 +342,7 @@ describe("docker.adapters.docker.cli", function()
       assert.are.same({
         ok = false,
         data = nil,
-        error = "docker コマンドが見つかりません。docker をインストールし PATH を通してください。",
+        error = "docker command not found. Install docker and make sure it is on PATH.",
         code = 127,
       }, captured)
     end)
@@ -394,7 +394,7 @@ describe("docker.adapters.docker.cli", function()
       assert.are.same({
         ok = false,
         data = nil,
-        error = "docker ソケットへのアクセス権限がありません。ユーザーが docker グループに属しているか確認してください。",
+        error = "No permission to access the docker socket. Make sure your user belongs to the docker group.",
         code = 1,
       }, check_sync())
     end)
@@ -405,7 +405,7 @@ describe("docker.adapters.docker.cli", function()
       assert.are.same({
         ok = false,
         data = nil,
-        error = "docker コマンドが見つかりません。docker をインストールし PATH を通してください。",
+        error = "docker command not found. Install docker and make sure it is on PATH.",
         code = 127,
       }, check_sync())
     end)
@@ -419,7 +419,7 @@ describe("docker.adapters.docker.cli", function()
       assert.are.same({
         ok = false,
         data = nil,
-        error = "docker デーモンに接続できません。docker が起動しているか確認してください。",
+        error = "Cannot connect to the docker daemon. Make sure docker is running.",
         code = 1,
       }, check_sync())
     end)
@@ -431,13 +431,13 @@ describe("docker.adapters.docker.cli", function()
       local cases = {
         {
           stderr = "failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
-          expected = "docker デーモンに接続できません。docker が起動しているか確認してください。",
+          expected = "Cannot connect to the docker daemon. Make sure docker is running.",
         },
         {
           -- Even in setups where the socket path is not docker.sock (colima / rancher / a custom
           -- socket), the mention of "docker API" is enough to classify it as a permission error.
           stderr = "permission denied while trying to connect to the docker API at unix:///var/run/engine.sock",
-          expected = "docker ソケットへのアクセス権限がありません。ユーザーが docker グループに属しているか確認してください。",
+          expected = "No permission to access the docker socket. Make sure your user belongs to the docker group.",
         },
       }
 
@@ -459,7 +459,7 @@ describe("docker.adapters.docker.cli", function()
       assert.are.same({
         ok = false,
         data = nil,
-        error = "docker ソケットへのアクセス権限がありません。ユーザーが docker グループに属しているか確認してください。",
+        error = "No permission to access the docker socket. Make sure your user belongs to the docker group.",
         code = 1,
       }, check_sync())
     end)
@@ -477,9 +477,9 @@ describe("docker.adapters.docker.cli", function()
       end
 
       assert.are.same({
-        "docker コマンドが見つかりません。docker をインストールし PATH を通してください。",
-        "docker デーモンに接続できません。docker が起動しているか確認してください。",
-        "docker ソケットへのアクセス権限がありません。ユーザーが docker グループに属しているか確認してください。",
+        "docker command not found. Install docker and make sure it is on PATH.",
+        "Cannot connect to the docker daemon. Make sure docker is running.",
+        "No permission to access the docker socket. Make sure your user belongs to the docker group.",
       }, messages)
     end)
 

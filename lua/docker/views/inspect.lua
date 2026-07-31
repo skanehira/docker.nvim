@@ -35,13 +35,13 @@ function M.open(def, item, on_done)
   -- (docker may write errors to stdout).
   cli.run({ "inspect", id }, function(result)
     if not result.ok then
-      notify.error(result.error or "詳細を取得できませんでした")
+      notify.error(result.error or "Could not fetch the details")
       return done(nil)
     end
 
     local raw = type(result.data) == "string" and result.data or ""
     if not pcall(vim.json.decode, raw) then
-      notify.error("詳細の出力を解析できませんでした")
+      notify.error("Could not parse the details output")
       return done(nil)
     end
 
@@ -60,7 +60,7 @@ function M.open(def, item, on_done)
     -- Closing with `q` leaves the list below as it was.
     vim.keymap.set("n", "q", function()
       window.close(handle)
-    end, { buffer = handle.bufnr, nowait = true, silent = true, desc = "docker.nvim: 詳細を閉じる" })
+    end, { buffer = handle.bufnr, nowait = true, silent = true, desc = "docker.nvim: close the details" })
 
     done(handle)
   end)

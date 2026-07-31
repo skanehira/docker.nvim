@@ -78,7 +78,7 @@ describe("docker.views.list", function()
     it("emits a single line stating that there are no items when the list is empty", function()
       local built = list.build(def, {})
 
-      assert.are.same({ "コンテナがありません" }, built.lines)
+      assert.are.same({ "No containers" }, built.lines)
     end)
 
     it("still emits the header when the list is empty", function()
@@ -268,10 +268,10 @@ describe("docker.views.list", function()
       end
 
       assert.are.same({
-        image = { "イメージがありません" },
-        volume = { "ボリュームがありません" },
-        network = { "ネットワークがありません" },
-        service = { "compose プロジェクトがありません" },
+        image = { "No images" },
+        volume = { "No volumes" },
+        network = { "No networks" },
+        service = { "No compose projects" },
       }, actual)
     end)
   end)

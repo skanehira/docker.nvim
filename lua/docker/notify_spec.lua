@@ -20,19 +20,19 @@ describe("docker.notify", function()
   end)
 
   it("attaches the INFO level and the plugin name as the title when notifying via info", function()
-    notify.info("nginx を起動しました")
+    notify.info("Started nginx")
 
     assert.are.same({
-      { msg = "nginx を起動しました", level = vim.log.levels.INFO, opts = { title = "docker.nvim" } },
+      { msg = "Started nginx", level = vim.log.levels.INFO, opts = { title = "docker.nvim" } },
     }, calls)
   end)
 
   it("attaches the WARN level and the plugin name as the title when notifying via warn", function()
-    notify.warn("実行中ではないため kill できません")
+    notify.warn("nginx is not running, so it cannot be killed")
 
     assert.are.same({
       {
-        msg = "実行中ではないため kill できません",
+        msg = "nginx is not running, so it cannot be killed",
         level = vim.log.levels.WARN,
         opts = { title = "docker.nvim" },
       },
@@ -77,12 +77,12 @@ describe("docker.notify", function()
   end)
 
   it("emits every notification in call order when notifying several times", function()
-    notify.info("1 件目")
-    notify.error("2 件目")
+    notify.info("first")
+    notify.error("second")
 
     assert.are.same({
-      { msg = "1 件目", level = vim.log.levels.INFO, opts = { title = "docker.nvim" } },
-      { msg = "2 件目", level = vim.log.levels.ERROR, opts = { title = "docker.nvim" } },
+      { msg = "first", level = vim.log.levels.INFO, opts = { title = "docker.nvim" } },
+      { msg = "second", level = vim.log.levels.ERROR, opts = { title = "docker.nvim" } },
     }, calls)
   end)
 end)

@@ -110,7 +110,7 @@ describe("state display of the list view", function()
     list.render(handle, def, store.list("container"))
 
     assert.are.same({}, marks())
-    assert.are.same({ "コンテナがありません" }, vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false))
+    assert.are.same({ "No containers" }, vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false))
   end)
 
   it("does not stack stale highlights on re-render", function()
@@ -132,12 +132,12 @@ describe("state display of the list view", function()
     it("shows the busy marker on the target row once an operation starts", function()
       store.replace_all("container", { container({ id = "abc123", status = "Up 5 days" }) })
       list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
-      assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+      assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("(busy)", 1, true))
 
       operations.begin("abc123", "stop")
       list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
 
-      assert.is_truthy(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+      assert.is_truthy(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("(busy)", 1, true))
     end)
 
     it("removes the busy marker once the operation finishes", function()
@@ -148,7 +148,7 @@ describe("state display of the list view", function()
       operations.finish("abc123", "stop")
       list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
 
-      assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+      assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("(busy)", 1, true))
     end)
 
     it("puts no marker on rows that are not busy", function()
@@ -161,8 +161,8 @@ describe("state display of the list view", function()
       list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
 
       local lines = vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false)
-      assert.is_truthy(lines[1]:find("実行中", 1, true), lines[1])
-      assert.is_nil(lines[2]:find("実行中", 1, true), lines[2])
+      assert.is_truthy(lines[1]:find("(busy)", 1, true), lines[1])
+      assert.is_nil(lines[2]:find("(busy)", 1, true), lines[2])
     end)
 
     it("puts no marker at all when no busy predicate is passed", function()
@@ -171,7 +171,7 @@ describe("state display of the list view", function()
 
       list.render(handle, def, store.list("container"))
 
-      assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+      assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("(busy)", 1, true))
     end)
   end)
 end)

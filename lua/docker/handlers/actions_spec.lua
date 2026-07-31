@@ -286,10 +286,10 @@ describe("docker.handlers.actions", function()
       end
 
       assert.are.same({
-        "web を起動しました",
-        "web を停止しました",
-        "web を再起動しました",
-        "web を強制終了しました",
+        "Started web",
+        "Stopped web",
+        "Restarted web",
+        "Killed web",
       }, messages)
     end)
 
@@ -306,9 +306,9 @@ describe("docker.handlers.actions", function()
       end
 
       assert.are.same({
-        "web は既に実行中です",
-        "web は実行中ではないため停止できません",
-        "web は実行中ではないため強制終了できません",
+        "web is already running",
+        "web is not running, so it cannot be stopped",
+        "web is not running, so it cannot be killed",
       }, messages)
     end)
   end)

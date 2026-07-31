@@ -23,8 +23,7 @@ local M = {}
 ---@class docker.ComposeResult : docker.Result
 ---@field reason "outside"|"unavailable"|"invalid"|nil Category of the failure
 
-local MESSAGE_UNAVAILABLE =
-  "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。"
+local MESSAGE_UNAVAILABLE = "The docker compose subcommand is unavailable. Check that the compose plugin is installed."
 
 ---@param haystack string
 ---@param needle string
@@ -72,7 +71,7 @@ function M.list_projects(on_done)
       on_done({
         ok = false,
         data = nil,
-        error = "docker compose のプロジェクト一覧を解析できませんでした",
+        error = "Could not parse the docker compose project list",
         code = result.code,
         reason = "invalid",
       })
@@ -121,7 +120,7 @@ function M.resolve_project(cwd, on_done, opts)
       on_done({
         ok = false,
         data = nil,
-        error = "docker compose の設定を解析できませんでした",
+        error = "Could not parse the docker compose configuration",
         code = result.code,
         reason = "invalid",
       })

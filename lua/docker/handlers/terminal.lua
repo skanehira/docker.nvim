@@ -67,7 +67,7 @@ local function open(cmd, title, cwd)
   vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
     buffer = bufnr,
     once = true,
-    desc = "docker.nvim: ターミナルを閉じたらジョブ台帳から外す",
+    desc = "docker.nvim: drop the job from the ledger when the terminal closes",
     callback = function()
       M._on_buffer_closed(bufnr)
     end,

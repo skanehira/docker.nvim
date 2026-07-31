@@ -34,7 +34,7 @@ function M.open(kind)
 
   local def = registry.get(kind) or registry.by_subcommand(kind)
   if not def then
-    notify.warn(("使い方: :Docker {%s}"):format(table.concat(registry.subcommands(), "|")))
+    notify.warn(("Usage: :Docker {%s}"):format(table.concat(registry.subcommands(), "|")))
     return
   end
 

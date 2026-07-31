@@ -85,13 +85,13 @@ function M.write(bufnr)
   cli.run({ "cp", target.local_path, ("%s:%s"):format(target.id, target.path) }, function(result)
     if not result.ok then
       -- On failure keep modified set. Clearing it would make the changes look lost.
-      notify.error(result.error or "コンテナへの書き戻しに失敗しました")
+      notify.error(result.error or "Failed to write back to the container")
       return
     end
     if vim.api.nvim_buf_is_valid(bufnr) then
       vim.bo[bufnr].modified = false
     end
-    notify.info(("%s:%s を保存しました"):format(target.label, target.path))
+    notify.info(("Saved %s:%s"):format(target.label, target.path))
   end)
 end
 
@@ -110,7 +110,7 @@ function M.open(id, label, path, on_done)
   local local_path = local_path_for(id, path)
   cli.run({ "cp", ("%s:%s"):format(id, path), local_path }, function(result)
     if not result.ok then
-      notify.error(result.error or ("%s を取り出せませんでした"):format(path))
+      notify.error(result.error or ("Could not copy %s out of the container"):format(path))
       return done(nil)
     end
 
@@ -119,7 +119,7 @@ function M.open(id, label, path, on_done)
     -- container's directory tree up in the cache.
     if vim.fn.isdirectory(local_path) == 1 then
       vim.fn.delete(local_path, "rf")
-      notify.error(("%s はディレクトリなので編集できません"):format(path))
+      notify.error(("%s is a directory, so it cannot be edited"):format(path))
       return done(nil)
     end
 
@@ -135,7 +135,7 @@ function M.open(id, label, path, on_done)
       local named = pcall(vim.api.nvim_buf_set_name, bufnr, name)
       if not named then
         vim.api.nvim_buf_delete(bufnr, { force = true })
-        notify.error(("%s を開けませんでした (バッファ名が衝突しています)"):format(path))
+        notify.error(("Could not open %s (the buffer name conflicts)"):format(path))
         return done(nil)
       end
     end
@@ -154,7 +154,7 @@ function M.open(id, label, path, on_done)
       vim.api.nvim_create_autocmd("BufWriteCmd", {
         group = augroup,
         buffer = bufnr,
-        desc = "docker.nvim: コンテナ内のファイルへ書き戻す",
+        desc = "docker.nvim: write back to the file in the container",
         callback = function()
           M.write(bufnr)
         end,
@@ -165,7 +165,7 @@ function M.open(id, label, path, on_done)
         group = augroup,
         buffer = bufnr,
         once = true,
-        desc = "docker.nvim: 編集バッファの後始末",
+        desc = "docker.nvim: clean up the edit buffer",
         callback = function()
           M._on_buffer_closed(bufnr)
         end,

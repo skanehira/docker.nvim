@@ -121,7 +121,7 @@ describe("docker", function()
       assert.is_nil(lifecycle.get("container"))
       local last = notified[#notified]
       assert.are.equal(vim.log.levels.WARN, last.level)
-      assert.is_truthy(last.msg:find("使い方", 1, true), last.msg)
+      assert.is_truthy(last.msg:find("Usage", 1, true), last.msg)
     end)
 
     it("shows the usage when no argument is given either", function()
@@ -130,7 +130,7 @@ describe("docker", function()
       docker.open("")
 
       local last = notified[#notified]
-      assert.is_truthy(last.msg:find("使い方", 1, true), last.msg)
+      assert.is_truthy(last.msg:find("Usage", 1, true), last.msg)
       assert.is_truthy(last.msg:find("containers", 1, true), last.msg)
     end)
   end)
@@ -165,7 +165,7 @@ describe("docker", function()
       vim.cmd("Docker nonexistent")
 
       assert.is_nil(lifecycle.get("container"))
-      assert.is_truthy(notified[#notified].msg:find("使い方", 1, true))
+      assert.is_truthy(notified[#notified].msg:find("Usage", 1, true))
     end)
   end)
 

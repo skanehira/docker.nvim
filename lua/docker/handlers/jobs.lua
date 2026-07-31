@@ -67,7 +67,7 @@ end
 
 vim.api.nvim_create_autocmd("VimLeavePre", {
   group = vim.api.nvim_create_augroup("DockerNvimJobs", { clear = true }),
-  desc = "docker.nvim が起動した子プロセスを Neovim 終了時に残さない",
+  desc = "docker.nvim: stop child processes when Neovim exits",
   callback = function()
     M.stop_all()
   end,

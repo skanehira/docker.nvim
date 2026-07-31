@@ -91,7 +91,7 @@ end
 local function fetch(handle, on_done)
   local function apply(result)
     if not result.ok then
-      notify.error(result.error or "一覧の取得に失敗しました")
+      notify.error(result.error or "Failed to fetch the list")
       if on_done then
         on_done()
       end
@@ -113,7 +113,7 @@ local function fetch(handle, on_done)
     return
   end
 
-  local list_args = assert(handle.def.list_args, "list_args か load のどちらかが必要")
+  local list_args = assert(handle.def.list_args, "either list_args or load is required")
   cli.run(list_args(), apply, { parse = "ndjson" })
 end
 
@@ -182,18 +182,18 @@ local function subscribe_events(handle)
     end,
     on_disconnect = function(intentional)
       if not intentional then
-        notify.warn("docker のイベント購読が切断されました。再接続を試みます。")
+        notify.warn("The docker event subscription dropped. Retrying.")
       end
     end,
     on_reconnect = function()
       -- Some events were missed while waiting, so re-fetch everything to stay consistent.
       if views[handle.kind] then
-        notify.info("docker のイベント購読が回復しました。")
+        notify.info("The docker event subscription recovered.")
         fetch(handle)
       end
     end,
     on_giveup = function()
-      notify.warn("イベント購読を回復できませんでした。R で手動更新してください。")
+      notify.warn("Could not recover the event subscription. Press R to refresh manually.")
     end,
   })
 end
@@ -291,7 +291,7 @@ local function bulk_delete(handle)
     return
   end
 
-  vim.ui.input({ prompt = ("%d 件を削除しますか? (y/N): "):format(#targets) }, function(answer)
+  vim.ui.input({ prompt = ("Delete %d items? (y/N): "):format(#targets) }, function(answer)
     if answer ~= "y" and answer ~= "Y" then
       return
     end
@@ -307,11 +307,9 @@ local function bulk_delete(handle)
         remaining = remaining - 1
         if remaining == 0 then
           if #failures == 0 then
-            notify.info(("%d 件を削除しました"):format(#targets))
+            notify.info(("Deleted %d items"):format(#targets))
           else
-            notify.error(
-              ("%d 件が削除できませんでした:\n%s"):format(#failures, table.concat(failures, "\n"))
-            )
+            notify.error(("Could not delete %d items:\n%s"):format(#failures, table.concat(failures, "\n")))
           end
           fetch(handle)
         end
@@ -339,7 +337,7 @@ local function dispatch(handle, action)
   end
 
   if action == "filter" then
-    vim.ui.input({ prompt = "絞り込み (空で解除): ", default = handle.state.filter }, function(text)
+    vim.ui.input({ prompt = "Filter (empty to clear): ", default = handle.state.filter }, function(text)
       if text == nil then
         return
       end
@@ -352,7 +350,7 @@ local function dispatch(handle, action)
   if action == "drilldown" then
     local target = drilldown_target(handle)
     if not target then
-      notify.warn("この行から辿れる先がありません")
+      notify.warn("There is nothing to jump to from this row")
       return
     end
     M.open(target.kind, function(opened)
@@ -372,7 +370,7 @@ local function dispatch(handle, action)
   if action == "switch_view" then
     -- Let the user pick the switch target and open it through the same flow (the current view is closed).
     local choices = registry.subcommands()
-    vim.ui.select(choices, { prompt = "切り替え先のリソース種別" }, function(choice)
+    vim.ui.select(choices, { prompt = "Resource kind to switch to" }, function(choice)
       if not choice then
         return
       end
@@ -397,7 +395,7 @@ local function dispatch(handle, action)
     -- Help closes with `q` and returns to the list that was in front of it (BR-018).
     vim.keymap.set("n", "q", function()
       window.close(help_window)
-    end, { buffer = help_window.bufnr, nowait = true, silent = true, desc = "docker.nvim: ヘルプを閉じる" })
+    end, { buffer = help_window.bufnr, nowait = true, silent = true, desc = "docker.nvim: close the help" })
     return
   end
 
@@ -408,14 +406,14 @@ local function dispatch(handle, action)
   if action == "inspect" then
     local item = list.item_at(visible, lnum)
     if not item then
-      notify.warn("詳細を表示する対象がありません")
+      notify.warn("No target to show details for")
       return
     end
     -- A service is not a docker object, so show the container it is tied to.
     if handle.kind == "service" then
       local container_id = tostring(item.container_id or "")
       if container_id == "" then
-        notify.warn(("%s は起動していないため詳細を表示できません"):format(tostring(item.name)))
+        notify.warn(("%s is not started, so its details cannot be shown"):format(tostring(item.name)))
         return
       end
       inspect.open(assert(registry.get("container")), { id = container_id, name = item.container })
@@ -453,7 +451,7 @@ local function bind_keys(handle)
         buffer = handle.window.bufnr,
         nowait = true,
         silent = true,
-        desc = "docker.nvim: 選択範囲をまとめて削除",
+        desc = "docker.nvim: delete the selected rows at once",
       })
     end
   end
@@ -487,7 +485,7 @@ local function watch_focus()
   focus_watching = true
   vim.api.nvim_create_autocmd("WinEnter", {
     group = focus_group,
-    desc = "docker.nvim: 一覧の外へフォーカスが移ったらフロートを閉じる",
+    desc = "docker.nvim: close the float when focus leaves the list",
     callback = function()
       -- Keep it if the destination is a float. All of the plugin's views are floats, so
       -- this excludes moves to the inspect view, the help view and lists of other kinds (BR-018).
@@ -516,7 +514,7 @@ function M.open(kind, on_open)
 
   local def = registry.get(kind)
   if not def then
-    notify.warn(("未対応のリソース種別です: %s"):format(tostring(kind)))
+    notify.warn(("Unsupported resource kind: %s"):format(tostring(kind)))
     return done(nil)
   end
 
@@ -542,7 +540,7 @@ function M.open(kind, on_open)
 
   cli.check_connection(function(result)
     if not result.ok then
-      notify.error(result.error or "docker に接続できません")
+      notify.error(result.error or "Cannot connect to docker")
       return finish(nil)
     end
 
@@ -581,7 +579,7 @@ function M.open(kind, on_open)
 
     local function on_loaded(loaded)
       if not loaded.ok then
-        notify.error(loaded.error or "一覧の取得に失敗しました")
+        notify.error(loaded.error or "Failed to fetch the list")
         return finish(nil)
       end
       present(loaded)
@@ -593,7 +591,7 @@ function M.open(kind, on_open)
       return
     end
 
-    local list_args = assert(def.list_args, "list_args か load のどちらかが必要")
+    local list_args = assert(def.list_args, "either list_args or load is required")
     cli.run(list_args(), on_loaded, { parse = "ndjson" })
   end)
 end

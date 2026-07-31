@@ -92,13 +92,11 @@ local function merge(opts)
   if type(opts.keymaps) == "table" then
     for view, bindings in pairs(opts.keymaps) do
       if merged.keymaps[view] == nil then
-        notify.warn(("設定に未知のビュー種別があります: %s"):format(tostring(view)))
+        notify.warn(("Unknown view kind in the configuration: %s"):format(tostring(view)))
       elseif type(bindings) == "table" then
         for action, key in pairs(bindings) do
           if merged.keymaps[view][action] == nil then
-            notify.warn(
-              ("設定に未知のアクション名があります: %s.%s"):format(tostring(view), tostring(action))
-            )
+            notify.warn(("Unknown action name in the configuration: %s.%s"):format(tostring(view), tostring(action)))
           elseif key == false then
             merged.keymaps[view][action] = nil
           else

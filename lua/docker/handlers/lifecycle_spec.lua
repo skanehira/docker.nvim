@@ -148,7 +148,7 @@ describe("docker.handlers.lifecycle", function()
       assert.is_nil(handle)
       local last = notified[#notified]
       assert.are.equal(vim.log.levels.ERROR, last.level)
-      assert.is_truthy(last.msg:find("デーモン", 1, true), last.msg)
+      assert.is_truthy(last.msg:find("daemon", 1, true), last.msg)
     end)
   end)
 
@@ -554,12 +554,12 @@ describe("docker.handlers.lifecycle", function()
     it("shows the busy marker in the list when an operation starts", function()
       -- Marking the ledger alone does not change the screen; it has to be wired through to a redraw.
       local handle = assert(open_view("container"))
-      assert.is_nil(vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+      assert.is_nil(vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("(busy)", 1, true))
 
       operations.begin("abc123", "stop")
 
       assert.is_truthy(
-        vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("実行中", 1, true),
+        vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("(busy)", 1, true),
         vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]
       )
     end)
@@ -570,7 +570,11 @@ describe("docker.handlers.lifecycle", function()
 
       operations.finish("abc123", "stop")
 
-      assert.is_nil(vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
+      -- Compare the whole row, not just the absence of the marker: an implementation that
+      -- never redraws would also satisfy "the marker is gone" if the marker never appeared.
+      local line = vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]
+      assert.are.equal("web   alpine  Up 5 days", line)
+      assert.is_nil(line:find("(busy)", 1, true))
     end)
   end)
 

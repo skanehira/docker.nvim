@@ -22,36 +22,36 @@ local CONTAINER_ACTIONS = {
   start = {
     args = "start",
     forbids = { running = true, restarting = true },
-    denied = "%s は既に実行中です",
-    success = "%s を起動しました",
+    denied = "%s is already running",
+    success = "Started %s",
   },
   stop = {
     args = "stop",
     requires = { running = true, restarting = true },
-    denied = "%s は実行中ではないため停止できません",
-    success = "%s を停止しました",
+    denied = "%s is not running, so it cannot be stopped",
+    success = "Stopped %s",
   },
   restart = {
     args = "restart",
-    success = "%s を再起動しました",
+    success = "Restarted %s",
   },
   pause = {
     args = "pause",
     requires = { running = true },
-    denied = "%s は実行中ではないため一時停止できません",
-    success = "%s を一時停止しました",
+    denied = "%s is not running, so it cannot be paused",
+    success = "Paused %s",
   },
   unpause = {
     args = "unpause",
     requires = { paused = true },
-    denied = "%s は一時停止していません",
-    success = "%s の一時停止を解除しました",
+    denied = "%s is not paused",
+    success = "Unpaused %s",
   },
   kill = {
     args = "kill",
     requires = { running = true, restarting = true },
-    denied = "%s は実行中ではないため強制終了できません",
-    success = "%s を強制終了しました",
+    denied = "%s is not running, so it cannot be killed",
+    success = "Killed %s",
   },
 }
 
@@ -86,7 +86,7 @@ end
 ---@param success string message on success (`%s` is filled with the target name)
 local function run_exclusive(target_id, label, operation, args, success)
   if not operations.begin(target_id, operation) then
-    notify.warn(("%s の %s は実行中です"):format(label, operation))
+    notify.warn(("%s: the %s operation is already in progress"):format(label, operation))
     return
   end
 
@@ -96,7 +96,7 @@ local function run_exclusive(target_id, label, operation, args, success)
       notify.info(success:format(label))
     else
       -- Present docker's standard error output as-is (BR-016).
-      notify.error(result.error or "docker の実行に失敗しました")
+      notify.error(result.error or "Failed to run docker")
     end
   end)
 end
@@ -106,11 +106,11 @@ end
 ---@param item table
 ---@param label string
 local function delete(ctx, item, label)
-  vim.ui.input({ prompt = ("%s を削除しますか? (y/N): "):format(label) }, function(answer)
+  vim.ui.input({ prompt = ("Delete %s? (y/N): "):format(label) }, function(answer)
     if answer ~= "y" and answer ~= "Y" then
       return
     end
-    run_exclusive(tostring(item.id), label, "delete", ctx.def.delete_args(item), "%s を削除しました")
+    run_exclusive(tostring(item.id), label, "delete", ctx.def.delete_args(item), "Deleted %s")
   end)
 end
 
@@ -118,18 +118,18 @@ end
 --- `needs_config` marks operations that cannot run without reading the compose file. Stopping and
 --- tearing down only need the project name, but starting up needs the definition itself.
 local SERVICE_ACTIONS = {
-  up = { args = { "up", "-d" }, success = "%s を起動しました", needs_config = true },
-  stop = { args = { "stop" }, success = "%s を停止しました" },
-  restart = { args = { "restart" }, success = "%s を再起動しました" },
+  up = { args = { "up", "-d" }, success = "Started %s", needs_config = true },
+  stop = { args = { "stop" }, success = "Stopped %s" },
+  restart = { args = { "restart" }, success = "Restarted %s" },
 }
 
 --- Per-project compose operations.
 local PROJECT_ACTIONS = {
-  project_up = { args = { "up", "-d" }, success = "%s を起動しました", needs_config = true },
+  project_up = { args = { "up", "-d" }, success = "Started %s", needs_config = true },
   project_down = {
     args = { "down" },
-    confirm = "%s を破棄しますか? (y/N): ",
-    success = "%s を破棄しました",
+    confirm = "Remove %s? (y/N): ",
+    success = "Removed %s",
   },
 }
 
@@ -142,7 +142,7 @@ local PROJECT_ACTIONS = {
 ---@param success string
 local function run_compose_exclusive(target_id, label, operation, args, cwd, success)
   if not operations.begin(target_id, operation) then
-    notify.warn(("%s の %s は実行中です"):format(label, operation))
+    notify.warn(("%s: the %s operation is already in progress"):format(label, operation))
     return
   end
 
@@ -151,7 +151,7 @@ local function run_compose_exclusive(target_id, label, operation, args, cwd, suc
     if result.ok then
       notify.info(success:format(label))
     else
-      notify.error(result.error or "docker compose の実行に失敗しました")
+      notify.error(result.error or "Failed to run docker compose")
     end
   end)
 end
@@ -160,10 +160,10 @@ end
 local TERMINAL_ACTIONS = {
   -- Logs can be read even while stopped, so no precondition is imposed.
   logs = { requires = nil },
-  shell = { requires = { running = true }, denied = "%s は実行中ではないためシェルを開けません" },
+  shell = { requires = { running = true }, denied = "%s is not running, so a shell cannot be opened" },
   exec = {
     requires = { running = true },
-    denied = "%s は実行中ではないためコマンドを実行できません",
+    denied = "%s is not running, so a command cannot be run",
   },
 }
 
@@ -180,7 +180,7 @@ local function open_terminal(name, item, label)
     terminal.open_shell(id, label)
     return
   end
-  vim.ui.input({ prompt = ("%s で実行するコマンド: "):format(label) }, function(command)
+  vim.ui.input({ prompt = ("Command to run in %s: "):format(label) }, function(command)
     if type(command) ~= "string" or vim.trim(command) == "" then
       return
     end
@@ -206,14 +206,14 @@ end
 local function open_browser(item, label)
   local urls = ports.published(item.ports)
   if #urls == 0 then
-    notify.warn(("%s には公開されているポートがありません"):format(label))
+    notify.warn(("%s has no published ports"):format(label))
     return
   end
   if #urls == 1 then
     vim.ui.open(urls[1])
     return
   end
-  vim.ui.select(urls, { prompt = ("%s のどのポートを開きますか?"):format(label) }, function(choice)
+  vim.ui.select(urls, { prompt = ("Which port of %s do you want to open?"):format(label) }, function(choice)
     if choice then
       vim.ui.open(choice)
     end
@@ -226,8 +226,8 @@ end
 ---@param direction "to"|"from"
 local function copy_file(item, label, direction)
   local id = tostring(item.id)
-  local first = direction == "to" and "コピー元 (ホスト): " or ("コピー元 (%s 内): "):format(label)
-  local second = direction == "to" and ("コピー先 (%s 内): "):format(label) or "コピー先 (ホスト): "
+  local first = direction == "to" and "Source (host): " or ("Source (in %s): "):format(label)
+  local second = direction == "to" and ("Destination (in %s): "):format(label) or "Destination (host): "
 
   vim.ui.input({ prompt = first }, function(source)
     if type(source) ~= "string" or vim.trim(source) == "" then
@@ -239,7 +239,7 @@ local function copy_file(item, label, direction)
       end
       local from = direction == "to" and source or ("%s:%s"):format(id, source)
       local to = direction == "to" and ("%s:%s"):format(id, destination) or destination
-      run_exclusive(id, label, "copy", { "cp", from, to }, "%s のコピーが完了しました")
+      run_exclusive(id, label, "copy", { "cp", from, to }, "Copied %s")
     end)
   end)
 end
@@ -252,13 +252,13 @@ function M.execute(name, ctx)
   local terminal_spec = TERMINAL_ACTIONS[name]
   local EXTRA = { quickrun = true, open_browser = true, copy_to = true, copy_from = true, edit_file = true }
   if ctx.def.kind ~= "service" and not spec and not terminal_spec and not EXTRA[name] and name ~= "delete" then
-    notify.warn(("未対応の操作です: %s"):format(tostring(name)))
+    notify.warn(("Unsupported operation: %s"):format(tostring(name)))
     return
   end
 
   local item = ctx.item
   if not item then
-    notify.warn("操作の対象がありません")
+    notify.warn("No target for the operation")
     return
   end
 
@@ -278,9 +278,7 @@ function M.execute(name, ctx)
     ---@param args string[]
     local function dispatch(compose_spec, target_id, target_label, args)
       if compose_spec.needs_config and working_dir == "" then
-        notify.warn(
-          ("%s は compose ファイルの場所が分からないため起動できません"):format(target_label)
-        )
+        notify.warn(("%s cannot be started because the location of its compose file is unknown"):format(target_label))
         return
       end
       local cwd = compose_spec.needs_config and working_dir or nil
@@ -322,14 +320,14 @@ function M.execute(name, ctx)
     if name == "logs" then
       -- A service without a container has no logs. Warn instead of opening a terminal.
       if tostring(item.container_id or "") == "" then
-        notify.warn(("%s はコンテナが無いためログを表示できません"):format(label))
+        notify.warn(("%s has no container, so its logs cannot be shown"):format(label))
         return
       end
       terminal.open_compose_logs(project_name, tostring(item.name), label)
       return
     end
 
-    notify.warn(("未対応の操作です: %s"):format(tostring(name)))
+    notify.warn(("Unsupported operation: %s"):format(tostring(name)))
     return
   end
 
@@ -349,7 +347,7 @@ function M.execute(name, ctx)
   end
 
   if name == "edit_file" then
-    vim.ui.input({ prompt = ("%s 内の編集するファイル: "):format(label) }, function(path)
+    vim.ui.input({ prompt = ("File to edit in %s: "):format(label) }, function(path)
       if type(path) ~= "string" or vim.trim(path) == "" then
         return
       end

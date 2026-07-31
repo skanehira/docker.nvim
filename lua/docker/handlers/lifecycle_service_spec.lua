@@ -191,10 +191,7 @@ describe("the compose service list view", function()
 
       local handle = assert(open_services())
 
-      assert.are.same(
-        { "compose プロジェクトがありません" },
-        vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false)
-      )
+      assert.are.same({ "No compose projects" }, vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
       assert.are.equal(windows_before + 1, #vim.api.nvim_list_wins())
     end)
 
@@ -206,7 +203,7 @@ describe("the compose service list view", function()
       assert.is_nil(lifecycle.get("service"))
       assert.are.equal(windows_before, #vim.api.nvim_list_wins(), "no extra window should be created")
       assert.are.equal(
-        "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+        "The docker compose subcommand is unavailable. Check that the compose plugin is installed.",
         notified[#notified].msg
       )
     end)

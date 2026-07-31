@@ -351,11 +351,11 @@ describe("docker.resources.registry", function()
       end
 
       assert.are.same({
-        container = "コンテナがありません",
-        image = "イメージがありません",
-        volume = "ボリュームがありません",
-        network = "ネットワークがありません",
-        service = "compose プロジェクトがありません",
+        container = "No containers",
+        image = "No images",
+        volume = "No volumes",
+        network = "No networks",
+        service = "No compose projects",
       }, texts)
     end)
   end)

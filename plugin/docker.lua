@@ -16,7 +16,7 @@ vim.api.nvim_create_user_command("Docker", function(opts)
   require("docker").open(opts.args)
 end, {
   nargs = "?",
-  desc = "docker.nvim: リソース一覧を開く",
+  desc = "docker.nvim: open a resource list",
   complete = function(arg_lead)
     local matched = {}
     for _, name in ipairs(require("docker.resources.registry").subcommands()) do
@@ -32,5 +32,5 @@ end, {
 for _, name in ipairs({ "containers", "images", "volumes", "networks", "services" }) do
   vim.keymap.set("n", ("<Plug>(docker-%s)"):format(name), function()
     require("docker").open(name)
-  end, { desc = ("docker.nvim: %s を開く"):format(name) })
+  end, { desc = ("docker.nvim: open the %s list"):format(name) })
 end

@@ -93,7 +93,7 @@ definitions = {
     subcommand = "containers",
     view_type = "container_list",
     display_name = "Containers",
-    empty_text = "コンテナがありません",
+    empty_text = "No containers",
     -- `-a` is there so that stopped containers are included in the list too (BR-022).
     -- Without `--no-trunc` the ID is truncated to 12 characters and Command to 20.
     list_args = function()
@@ -125,7 +125,7 @@ definitions = {
     subcommand = "images",
     view_type = "image_list",
     display_name = "Images",
-    empty_text = "イメージがありません",
+    empty_text = "No images",
     -- `docker image ls` cannot handle `.Label`, so there are no label-derived fields.
     -- Unlike for containers, `.Size` of an image is a default item of the list and costs nothing extra.
     list_args = function()
@@ -169,7 +169,7 @@ definitions = {
     subcommand = "volumes",
     view_type = "volume_list",
     display_name = "Volumes",
-    empty_text = "ボリュームがありません",
+    empty_text = "No volumes",
     list_args = function()
       return { "volume", "ls", "--format", format.template(VOLUME_FIELDS) }
     end,
@@ -193,7 +193,7 @@ definitions = {
     subcommand = "networks",
     view_type = "network_list",
     display_name = "Networks",
-    empty_text = "ネットワークがありません",
+    empty_text = "No networks",
     list_args = function()
       return { "network", "ls", "--no-trunc", "--format", format.template(NETWORK_FIELDS) }
     end,
@@ -218,7 +218,7 @@ definitions = {
     subcommand = "services",
     view_type = "service_list",
     display_name = "Services",
-    empty_text = "compose プロジェクトがありません",
+    empty_text = "No compose projects",
     -- The service list cannot be obtained by a single docker command. service_loader assembles it.
     load = function(ctx, on_done)
       service_loader.load({ cwd = ctx.cwd, container_args = definitions.container.list_args() }, on_done)

@@ -311,10 +311,7 @@ describe("G_E2E: end-to-end scenarios of docker.nvim", function()
     -- Even with 0 entries the single line of empty_text comes back, so the count alone
     -- does not verify anything.
     local image_rows = rows(images)
-    assert.is_nil(
-      image_rows[1]:find("イメージがありません", 1, true),
-      "real data must be listed: " .. image_rows[1]
-    )
+    assert.is_nil(image_rows[1]:find("No images", 1, true), "real data must be listed: " .. image_rows[1])
     -- The image list keeps REPOSITORY and TAG in separate columns, so search by the name
     -- with the tag stripped off.
     wait_for_line(images, (E2E_IMAGE:gsub(":.*$", "")))

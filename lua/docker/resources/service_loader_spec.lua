@@ -459,7 +459,7 @@ describe("docker.resources.service_loader", function()
 
       assert.is_false(result.ok)
       assert.are.equal(
-        "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
+        "The docker compose subcommand is unavailable. Check that the compose plugin is installed.",
         result.error
       )
     end)

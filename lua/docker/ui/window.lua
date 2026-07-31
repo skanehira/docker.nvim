@@ -44,7 +44,7 @@ end
 
 vim.api.nvim_create_autocmd("VimResized", {
   group = resize_group,
-  desc = "docker.nvim のフロートウィンドウをエディタの大きさに追従させる",
+  desc = "docker.nvim: keep float windows sized to the editor",
   callback = function()
     local size = geometry()
     for winid, handle in pairs(open_windows) do
@@ -160,7 +160,7 @@ function M.set_winbar(handle, text)
   -- These are buffer-local, so they go away together with the buffer.
   vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {
     buffer = handle.bufnr,
-    desc = "docker.nvim: 横スクロールに見出しを追従させる",
+    desc = "docker.nvim: keep the header in sync with horizontal scrolling",
     callback = function()
       M.sync_winbar(handle)
     end,

@@ -39,7 +39,7 @@ end
 
 --- Marker showing that the resource is busy with an operation.
 --- It is appended to the status column instead of adding a new column (G1 fixes the column layout).
-local BUSY_SUFFIX = " (実行中)"
+local BUSY_SUFFIX = " (busy)"
 
 --- Build the buffer lines and the header from a set of resources.
 ---@param def docker.ResourceDefinition

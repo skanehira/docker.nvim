@@ -22,12 +22,10 @@ local M = {}
 --- code, so we normalize to this wording to make it detectable as an environment error.
 local EXECUTABLE_NOT_FOUND = "docker: executable not found"
 
-local MESSAGE_NOT_INSTALLED =
-  "docker コマンドが見つかりません。docker をインストールし PATH を通してください。"
-local MESSAGE_DAEMON_DOWN =
-  "docker デーモンに接続できません。docker が起動しているか確認してください。"
+local MESSAGE_NOT_INSTALLED = "docker command not found. Install docker and make sure it is on PATH."
+local MESSAGE_DAEMON_DOWN = "Cannot connect to the docker daemon. Make sure docker is running."
 local MESSAGE_NO_PERMISSION =
-  "docker ソケットへのアクセス権限がありません。ユーザーが docker グループに属しているか確認してください。"
+  "No permission to access the docker socket. Make sure your user belongs to the docker group."
 
 ---@param haystack string
 ---@param needle string

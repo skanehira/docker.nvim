@@ -75,7 +75,7 @@ describe("compose service operations and project operations", function()
       actions.execute("up", ctx(service({ status = "none", working_dir = "" })))
 
       assert.are.equal(
-        "web は compose ファイルの場所が分からないため起動できません",
+        "web cannot be started because the location of its compose file is unknown",
         notified[#notified].msg
       )
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
@@ -128,7 +128,7 @@ describe("compose service operations and project operations", function()
     it("does not open a terminal for the logs of a service without a container and tells why", function()
       actions.execute("logs", ctx(service({ status = "none", container = "", container_id = "" })))
 
-      assert.are.equal("web はコンテナが無いためログを表示できません", notified[#notified].msg)
+      assert.are.equal("web has no container, so its logs cannot be shown", notified[#notified].msg)
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
       assert.are.same({}, opened)
     end)
@@ -170,7 +170,7 @@ describe("compose service operations and project operations", function()
       actions.execute("project_up", ctx(service({ working_dir = "" })))
 
       assert.are.equal(
-        "shop は compose ファイルの場所が分からないため起動できません",
+        "shop cannot be started because the location of its compose file is unknown",
         notified[#notified].msg
       )
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
@@ -202,7 +202,7 @@ describe("compose service operations and project operations", function()
 
       -- It must reach the confirmation and still not issue the command. That distinguishes this
       -- from an implementation that simply never shows a confirmation.
-      assert.are.same({ "shop を破棄しますか? (y/N): " }, prompts)
+      assert.are.same({ "Remove shop? (y/N): " }, prompts)
       assert.are.same({}, runs)
     end)
 
