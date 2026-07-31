@@ -1,10 +1,12 @@
---- docker compose CLI の実行と compose プロジェクトの解決。
+--- Runs the docker compose CLI and resolves compose projects.
 ---
---- 役割は 2 つある。
----   `ls -a`: 存在するプロジェクトの列挙。ラベル由来なので作業ディレクトリに依存しない。
----   `config --format json`: 1 つのプロジェクトについて「プロジェクト名」と
----     「サービス名の全件 (未起動を含む)」を得る。compose ファイルが読める場所でのみ使える。
---- `config --services` は出力順が実行のたびに変わるため使わない。
+--- It has two roles.
+---   `ls -a`: enumerates the projects that exist. It comes from labels, so it does not depend on the
+---     working directory.
+---   `config --format json`: for a single project, obtains its "project name" and
+---     "all of its service names (including ones that have not been started)". Usable only where the
+---     compose file can be read.
+--- `config --services` is not used because its output order changes on every run.
 local cli = require("docker.adapters.docker.cli")
 
 local M = {}
@@ -12,14 +14,14 @@ local M = {}
 ---@class docker.ComposeProject
 ---@field name string
 ---@field working_dir string
----@field service_names string[]  常に同じ順序 (JSON のキー順は保証されないため並べ替える)
+---@field service_names string[]  Always in the same order (JSON key order is not guaranteed, so they are sorted)
 
 ---@class docker.ComposeProjectListing
 ---@field name string
----@field config_files string  compose ファイルのパス (複数ある場合はカンマ区切り)
+---@field config_files string  Path of the compose file (comma-separated when there are several)
 
 ---@class docker.ComposeResult : docker.Result
----@field reason "outside"|"unavailable"|"invalid"|nil 失敗の区分
+---@field reason "outside"|"unavailable"|"invalid"|nil Category of the failure
 
 local MESSAGE_UNAVAILABLE =
   "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。"
@@ -31,12 +33,12 @@ local function contains(haystack, needle)
   return haystack:lower():find(needle, 1, true) ~= nil
 end
 
---- 失敗の stderr を 3 つに分ける。終了コードだけでは区別できない。
+--- Splits a failing stderr into three. The exit code alone cannot tell them apart.
 ---
---- docker のバージョンで文言が変わる点に注意 (実機で採取):
----   compose 不在: 29 は "unknown command"、それ以前は "'compose' is not a docker command"
----   プロジェクト外: "no configuration file provided: not found"
----   ファイル不正: yaml のパースエラーなど (内容は一定でない)
+--- Note that the wording changes with the docker version (captured on a real machine):
+---   compose missing: 29 says "unknown command", earlier versions "'compose' is not a docker command"
+---   outside a project: "no configuration file provided: not found"
+---   invalid file: yaml parse errors and the like (the content is not fixed)
 ---@param stderr string
 ---@return "outside"|"unavailable"|"invalid" reason
 ---@return string message
@@ -44,19 +46,19 @@ local function classify(stderr)
   if contains(stderr, "is not a docker command") or contains(stderr, "unknown command") then
     return "unavailable", MESSAGE_UNAVAILABLE
   end
-  -- プロジェクト外は呼び出し側が正常系として扱うため、区分だけを返す。
-  -- 独自の案内文は持たせない (どのディレクトリでも一覧は開けるので、
-  -- 「compose.yaml のある場所で開き直せ」という誘導が成り立たない)。
+  -- Being outside a project is handled as a normal case by the caller, so we return only the category.
+  -- We do not give it dedicated guidance (the list can be opened from any directory, so telling the
+  -- user to "reopen it where compose.yaml is" does not hold).
   if contains(stderr, "no configuration file provided") then
     return "outside", stderr
   end
-  -- 内容が一定でないため、docker の出力をそのまま提示する (BR-016)。
+  -- The content is not fixed, so we present docker's output as-is (BR-016).
   return "invalid", stderr
 end
 
---- 存在する compose プロジェクトを列挙する。
---- `-a` を付けて停止中のプロジェクトも含める。コンテナのラベルから作られるため
---- compose ファイルの有無や作業ディレクトリに依存しない。
+--- Enumerates the compose projects that exist.
+--- `-a` is added so that stopped projects are included too. Because the listing is built from
+--- container labels, it does not depend on the presence of a compose file or on the working directory.
 ---@param on_done fun(result: docker.ComposeResult)
 function M.list_projects(on_done)
   cli.run({ "compose", "ls", "-a", "--format", "json" }, function(result)
@@ -91,11 +93,12 @@ function M.list_projects(on_done)
   end, { parse = "json" })
 end
 
---- compose プロジェクトを解決する。
---- プロジェクト名を渡すと `-p` で名指しする。作業ディレクトリから決まる既定の名前と
---- 実際のプロジェクト名は `COMPOSE_PROJECT_NAME` や `-p` 起動でずれるため、
---- 既存プロジェクトの定義を引くときは名指しして取り違えを防ぐ。
----@param cwd string compose ファイルを探す作業ディレクトリ
+--- Resolves a compose project.
+--- Passing a project name names it explicitly with `-p`. The default name derived from the working
+--- directory and the actual project name diverge with `COMPOSE_PROJECT_NAME` or a `-p` start, so we
+--- name the project explicitly when looking up the definition of an existing project to prevent
+--- picking the wrong one.
+---@param cwd string Working directory in which to look for the compose file
 ---@param on_done fun(result: docker.ComposeResult)
 ---@param opts { project_name: string|nil }|nil
 function M.resolve_project(cwd, on_done, opts)
@@ -144,9 +147,9 @@ function M.resolve_project(cwd, on_done, opts)
   end, { parse = "json", cwd = cwd })
 end
 
---- compose のサブコマンドを実行する。
----@param subcommand string[] 例: { "-p", "shop", "up", "-d", "web" }
----@param cwd string|nil compose ファイルを必要とする操作でのみ渡す
+--- Runs a compose subcommand.
+---@param subcommand string[] e.g. { "-p", "shop", "up", "-d", "web" }
+---@param cwd string|nil Passed only for operations that require a compose file
 ---@param on_done fun(result: docker.Result)
 function M.run(subcommand, cwd, on_done)
   local args = { "compose" }

@@ -1,16 +1,17 @@
---- ヘルプビュー。そのビューで有効なキーとアクションを一覧する。
+--- Help view. Lists the keys and actions that are active in a given view.
 ---
---- 一覧の上に `zindex` で重ねる。閉じたときに下層の内容とカーソル位置が残る。
+--- It is stacked above the list with `zindex`, so closing it keeps the content and the
+--- cursor position of the layer below.
 local keymaps = require("docker.views.keymaps")
 local tbl = require("docker.ui.table")
 local window = require("docker.ui.window")
 
 local M = {}
 
---- ヘルプは一覧より前面に置く。
+--- The help is placed in front of the list.
 local ZINDEX = 200
 
---- ビュー種別で有効なキーとアクションの行を作る。
+--- Build the rows of keys and actions that are active for the view type.
 ---@param view_type string
 ---@return string[]
 function M.build(view_type)
@@ -27,7 +28,7 @@ function M.build(view_type)
   return lines
 end
 
---- ヘルプを開く。
+--- Open the help.
 ---@param view_type string
 ---@return docker.Window
 function M.open(view_type)

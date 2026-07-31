@@ -1,8 +1,10 @@
---- フロートウィンドウの生成・リサイズ・重ね合わせ。
+--- Creating, resizing and stacking float windows.
 ---
---- カラム見出しはバッファに入れず `winbar` に置く。見出し行をバッファに持たせると
---- カーソル行とデータ行の添字がずれ、行番号の補正が必要になる。
---- 重ね合わせは `zindex` で行い、上層を閉じたときに下層の内容とカーソル位置を残す。
+--- Column headers are not put into the buffer but into the `winbar`. Keeping the header
+--- line in the buffer would shift the cursor line against the data row index and would
+--- require adjusting line numbers.
+--- Stacking is done with `zindex`, so closing an upper layer keeps the content and the
+--- cursor position of the layer below.
 local highlight = require("docker.ui.highlight")
 
 local M = {}
@@ -10,7 +12,7 @@ local M = {}
 ---@class docker.Window
 ---@field bufnr integer
 ---@field winid integer
----@field winbar_text string|nil  見出しの全文 (横スクロールで切り直すため保持する)
+---@field winbar_text string|nil  Full header text (kept so it can be re-clipped on horizontal scroll)
 ---@field winbar_watched boolean|nil
 
 ---@class docker.WindowOpts
@@ -18,11 +20,11 @@ local M = {}
 ---@field zindex integer|nil
 ---@field wrap boolean|nil
 
---- エディタに対する大きさの割合。
+--- Size ratio relative to the editor.
 local WIDTH_RATIO = 0.8
 local HEIGHT_RATIO = 0.8
 
---- 開いているウィンドウ。VimResized でまとめて追従させる。
+--- The open windows. They are all made to follow the editor size on VimResized.
 ---@type table<integer, docker.Window>
 local open_windows = {}
 
@@ -61,12 +63,12 @@ vim.api.nvim_create_autocmd("VimResized", {
   end,
 })
 
---- フロートウィンドウを開く。
+--- Open a float window.
 ---@param opts docker.WindowOpts
 ---@return docker.Window
 function M.open(opts)
-  -- scratch バッファは buftype=nofile と swapfile=false を最初から持つ。
-  -- 既定と異なる bufhidden と modifiable だけを明示する。
+  -- A scratch buffer already comes with buftype=nofile and swapfile=false.
+  -- Only bufhidden and modifiable, which differ from the defaults, are set explicitly.
   local bufnr = vim.api.nvim_create_buf(false, true)
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].modifiable = false
@@ -85,12 +87,12 @@ function M.open(opts)
     zindex = opts.zindex,
   })
 
-  -- 既定の NormalFloat は背景色を持つため、winbar だけが透過して見える。
-  -- 本体と外枠をエディタの Normal に寄せ、背景を透過している環境では
-  -- フロート全体が透ける。
-  -- style="minimal" が入れる指定 (EndOfBuffer の打ち消し) は代入で消さず
-  -- 追記する。消すと EndOfBuffer に背景色を持つカラースキームで
-  -- データ行より下だけ別色になる。
+  -- The default NormalFloat has a background color, so only the winbar looks transparent.
+  -- Aligning the body and the border with the editor's Normal makes the whole float
+  -- transparent in setups where the background is transparent.
+  -- What style="minimal" sets (cancelling out EndOfBuffer) is appended rather than
+  -- overwritten by assignment. Dropping it would make everything below the data rows
+  -- a different color under color schemes that give EndOfBuffer a background color.
   local minimal = vim.wo[winid].winhighlight
   local overrides = "NormalFloat:Normal,FloatBorder:Normal"
   vim.wo[winid].winhighlight = minimal ~= "" and (minimal .. "," .. overrides) or overrides
@@ -105,7 +107,7 @@ function M.open(opts)
   return handle
 end
 
---- 先頭から指定した表示幅ぶんを落とす。バイト単位で切ると全角の見出しでずれる。
+--- Drop the given display width from the head. Cutting by bytes shifts full-width headers.
 ---@param text string
 ---@param columns integer
 ---@return string
@@ -121,7 +123,7 @@ local function drop_columns(text, columns)
   return ""
 end
 
---- 現在の横スクロール量。
+--- The current horizontal scroll amount.
 ---@param winid integer
 ---@return integer
 local function left_column(winid)
@@ -130,20 +132,20 @@ local function left_column(winid)
   end)
 end
 
---- 保持した見出しを、今の横スクロール位置に合わせて描き直す。
+--- Redraw the retained header for the current horizontal scroll position.
 ---@param handle docker.Window
 function M.sync_winbar(handle)
   if not handle.winbar_text or not vim.api.nvim_win_is_valid(handle.winid) then
     return
   end
-  -- `%<` を末尾に置くと、はみ出したときに先頭ではなく末尾が落ちる。
-  -- 既定は先頭を落とすため、右端でクリップされる本文と食い違う。
+  -- Putting `%<` at the end drops the tail rather than the head when the text overflows.
+  -- The default drops the head, which disagrees with the body that is clipped at the right edge.
   local visible = drop_columns(handle.winbar_text, left_column(handle.winid))
   local escaped = visible:gsub("%%", "%%%%")
   vim.wo[handle.winid].winbar = "%#" .. highlight.header_group() .. "#" .. escaped .. "%*%<"
 end
 
---- 見出しを設定する。横スクロールしても列と食い違わないよう追従させる。
+--- Set the header. It follows horizontal scrolling so it never disagrees with the columns.
 ---@param handle docker.Window
 ---@param text string
 function M.set_winbar(handle, text)
@@ -154,8 +156,8 @@ function M.set_winbar(handle, text)
     return
   end
   handle.winbar_watched = true
-  -- WinScrolled は zl / zh を、CursorMoved はカーソル移動由来のスクロールを拾う。
-  -- バッファローカルなので、バッファが消えれば一緒に消える。
+  -- WinScrolled picks up zl / zh, CursorMoved picks up scrolling caused by cursor movement.
+  -- These are buffer-local, so they go away together with the buffer.
   vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {
     buffer = handle.bufnr,
     desc = "docker.nvim: 横スクロールに見出しを追従させる",
@@ -165,7 +167,8 @@ function M.set_winbar(handle, text)
   })
 end
 
---- 行を差し替える。書き込み不可のまま呼べるよう、一時的に解除して戻す。
+--- Replace the lines. Writability is temporarily lifted and restored so this can be called
+--- while the buffer stays non-modifiable.
 ---@param handle docker.Window
 ---@param lines string[]
 function M.set_lines(handle, lines)
@@ -177,7 +180,7 @@ function M.set_lines(handle, lines)
   vim.bo[handle.bufnr].modifiable = false
 end
 
---- ウィンドウを閉じる。既に閉じていても何もしない。
+--- Close the window. Does nothing if it is already closed.
 ---@param handle docker.Window
 function M.close(handle)
   open_windows[handle.winid] = nil
@@ -186,7 +189,7 @@ function M.close(handle)
   end
 end
 
---- 開いている全てのフロートを閉じる。
+--- Close every open float.
 function M.close_all()
   local handles = {}
   for _, handle in pairs(open_windows) do

@@ -22,7 +22,7 @@ local function container(overrides)
   }, overrides or {})
 end
 
-describe("拡張アクション", function()
+describe("extra actions", function()
   local runs, notified, opened, inputs, selects, urls
   local original_notify, original_input, original_select, original_ui_open
 
@@ -67,7 +67,7 @@ describe("拡張アクション", function()
     end
   end
 
-  ---@param index integer|nil 選ばせる候補の位置 (nil ならキャンセル)
+  ---@param index integer|nil position of the candidate to choose (nil cancels the selection)
   local function select_index(index)
     ---@diagnostic disable-next-line: duplicate-set-field
     vim.ui.select = function(items, opts, on_choice)
@@ -80,19 +80,19 @@ describe("拡張アクション", function()
     end
   end
 
-  describe("quickrun (イメージ)", function()
+  describe("quickrun (image)", function()
     ---@return docker.ActionContext
     local function ctx(item)
       return { def = assert(registry.get("image")), item = item }
     end
 
-    it("使い捨てのコンテナでシェルを開く", function()
+    it("opens a shell in a throwaway container", function()
       actions.execute("quickrun", ctx({ id = "img1", repository = "alpine", tag = "3.20" }))
 
       assert.are.same({ "docker", "run", "--rm", "-it", "--entrypoint", "sh", "alpine:3.20" }, opened[1])
     end)
 
-    it("タグが無いイメージはIDで起動する", function()
+    it("starts an image that has no tag by its ID", function()
       actions.execute("quickrun", ctx({ id = "img1", repository = "<none>", tag = "<none>" }))
 
       assert.are.same({ "docker", "run", "--rm", "-it", "--entrypoint", "sh", "img1" }, opened[1])
@@ -105,13 +105,13 @@ describe("拡張アクション", function()
       return { def = assert(registry.get("container")), item = item }
     end
 
-    it("公開ポートが1つならそのURLを開く", function()
+    it("opens that URL when there is a single published port", function()
       actions.execute("open_browser", ctx(container()))
 
       assert.are.same({ "http://localhost:8080" }, urls)
     end)
 
-    it("公開ポートが複数なら選択を求める", function()
+    it("asks for a choice when there are several published ports", function()
       select_index(2)
 
       actions.execute("open_browser", ctx(container({ ports = "0.0.0.0:8080->80/tcp, 0.0.0.0:9090->90/tcp" })))
@@ -120,7 +120,7 @@ describe("拡張アクション", function()
       assert.are.same({ "http://localhost:9090" }, urls)
     end)
 
-    it("選択をキャンセルすると開かない", function()
+    it("opens nothing when the selection is cancelled", function()
       select_index(nil)
 
       actions.execute("open_browser", ctx(container({ ports = "0.0.0.0:8080->80/tcp, 0.0.0.0:9090->90/tcp" })))
@@ -128,7 +128,7 @@ describe("拡張アクション", function()
       assert.are.same({}, urls)
     end)
 
-    it("公開ポートが無いときは開かず知らせる", function()
+    it("opens nothing and tells the user when there is no published port", function()
       actions.execute("open_browser", ctx(container({ ports = "" })))
 
       assert.are.same({}, urls)
@@ -136,13 +136,13 @@ describe("拡張アクション", function()
     end)
   end)
 
-  describe("ファイルのコピー", function()
+  describe("file copy", function()
     ---@return docker.ActionContext
     local function ctx()
       return { def = assert(registry.get("container")), item = container() }
     end
 
-    it("copy_to はホストからコンテナへコピーする", function()
+    it("copy_to copies from the host into the container", function()
       local answers = { "/host/file.txt", "/app/file.txt" }
       local turn = 0
       ---@diagnostic disable-next-line: duplicate-set-field
@@ -157,7 +157,7 @@ describe("拡張アクション", function()
       assert.are.same({ "docker", "cp", "/host/file.txt", "abc123:/app/file.txt" }, runs[1])
     end)
 
-    it("copy_from はコンテナからホストへコピーする", function()
+    it("copy_from copies from the container onto the host", function()
       local answers = { "/app/file.txt", "/host/file.txt" }
       local turn = 0
       ---@diagnostic disable-next-line: duplicate-set-field
@@ -172,7 +172,7 @@ describe("拡張アクション", function()
       assert.are.same({ "docker", "cp", "abc123:/app/file.txt", "/host/file.txt" }, runs[1])
     end)
 
-    it("入力をキャンセルするとコピーしない", function()
+    it("does not copy when the input is cancelled", function()
       answer_with(nil)
 
       actions.execute("copy_to", ctx())
@@ -180,7 +180,7 @@ describe("拡張アクション", function()
       assert.are.same({}, runs)
     end)
 
-    it("2つ目の入力をキャンセルしてもコピーしない", function()
+    it("does not copy when the second input is cancelled either", function()
       local turn = 0
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.ui.input = function(opts, on_confirm)
@@ -194,7 +194,7 @@ describe("拡張アクション", function()
       assert.are.same({}, runs)
     end)
 
-    it("失敗するとdockerの標準エラー出力をそのまま通知する", function()
+    it("notifies docker's standard error output as-is on failure", function()
       local turn = 0
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.ui.input = function(_, on_confirm)

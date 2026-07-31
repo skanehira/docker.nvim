@@ -16,20 +16,20 @@ describe("docker.handlers.jobs", function()
   end)
 
   describe("register", function()
-    it("起動したジョブを台帳に載せる", function()
+    it("puts a started job on the ledger", function()
       jobs.register(11)
 
       assert.are.same({ 11 }, jobs.list())
     end)
 
-    it("複数のジョブを登録順に保つ", function()
+    it("keeps several jobs in registration order", function()
       jobs.register(11)
       jobs.register(22)
 
       assert.are.same({ 11, 22 }, jobs.list())
     end)
 
-    it("同じジョブを二重に登録しない", function()
+    it("does not register the same job twice", function()
       jobs.register(11)
       jobs.register(11)
 
@@ -38,7 +38,7 @@ describe("docker.handlers.jobs", function()
   end)
 
   describe("unregister", function()
-    it("台帳から取り除く", function()
+    it("removes the job from the ledger", function()
       jobs.register(11)
       jobs.register(22)
 
@@ -47,7 +47,7 @@ describe("docker.handlers.jobs", function()
       assert.are.same({ 22 }, jobs.list())
     end)
 
-    it("取り除いたジョブは停止対象にならない", function()
+    it("does not stop a job that has been removed", function()
       jobs.register(11)
       jobs.register(22)
       jobs.unregister(11)
@@ -57,7 +57,7 @@ describe("docker.handlers.jobs", function()
       assert.are.same({ 22 }, stopped)
     end)
 
-    it("登録されていないジョブを取り除いてもエラーにならない", function()
+    it("does not error when removing a job that is not registered", function()
       jobs.register(11)
 
       jobs.unregister(99)
@@ -67,7 +67,7 @@ describe("docker.handlers.jobs", function()
   end)
 
   describe("stop_all", function()
-    it("登録された全ジョブを停止する", function()
+    it("stops every registered job", function()
       jobs.register(11)
       jobs.register(22)
 
@@ -76,7 +76,7 @@ describe("docker.handlers.jobs", function()
       assert.are.same({ 11, 22 }, stopped)
     end)
 
-    it("停止後は台帳が空になる", function()
+    it("leaves the ledger empty after stopping", function()
       jobs.register(11)
 
       jobs.stop_all()
@@ -84,7 +84,7 @@ describe("docker.handlers.jobs", function()
       assert.are.same({}, jobs.list())
     end)
 
-    it("ジョブが無いときは何も停止しない", function()
+    it("stops nothing when there is no job", function()
       jobs.stop_all()
 
       assert.are.same({}, stopped)
@@ -92,8 +92,8 @@ describe("docker.handlers.jobs", function()
   end)
 
   describe("VimLeavePre", function()
-    it("Neovim終了時に全ジョブが停止される", function()
-      -- G13: 一覧とターミナルを開いたまま :qa しても子プロセスを残さない。
+    it("stops every job when Neovim exits", function()
+      -- G13: running :qa with the list and a terminal still open leaves no child process behind.
       jobs.register(11)
       jobs.register(22)
 

@@ -4,9 +4,9 @@ local docker = require("docker")
 local lifecycle = require("docker.handlers.lifecycle")
 local store = require("docker.state.store")
 
--- plenary がテストを走らせる子プロセスは --noplugin で起動するため、
--- 利用者環境では自動で読まれる plugin/docker.lua がここでは読まれない。
--- Ex コマンドと <Plug> マッピングを検証するために明示的に読み込む。
+-- The child process in which plenary runs the tests starts with --noplugin, so
+-- plugin/docker.lua, which is loaded automatically in a user's environment, is not loaded here.
+-- It is sourced explicitly in order to verify the Ex command and the <Plug> mappings.
 vim.cmd("runtime! plugin/docker.lua")
 
 describe("docker", function()
@@ -49,19 +49,19 @@ describe("docker", function()
   end)
 
   describe("setup", function()
-    it("利用者設定を取り込む", function()
+    it("takes in the user's settings", function()
       docker.setup({ keymaps = { container_list = { start = "s" } } })
 
       assert.are.equal("s", config.get().keymaps.container_list.start)
     end)
 
-    it("設定を渡さなくても動く", function()
+    it("works even when no settings are passed", function()
       docker.setup()
 
       assert.are.equal("u", config.get().keymaps.container_list.start)
     end)
 
-    describe("要求バージョン未満のNeovim", function()
+    describe("a Neovim below the required version", function()
       local original_version
 
       before_each(function()
@@ -77,7 +77,7 @@ describe("docker", function()
         vim.version = original_version
       end)
 
-      it("対応バージョンを示すメッセージを通知する", function()
+      it("notifies a message stating the supported version", function()
         docker.setup()
 
         local last = notified[#notified]
@@ -85,8 +85,8 @@ describe("docker", function()
         assert.is_truthy(last.msg:find("0.10", 1, true), last.msg)
       end)
 
-      it("以降の操作でビューを開かない", function()
-        -- 機能を無効化し、どの操作でも実行時エラーを出さない。
+      it("opens no view on any later operation", function()
+        -- The plugin is disabled, and no operation raises a runtime error.
         docker.setup()
 
         docker.open("containers")
@@ -97,7 +97,7 @@ describe("docker", function()
   end)
 
   describe("open", function()
-    it("複数形のサブコマンドでビューを開く", function()
+    it("opens the view for a plural subcommand", function()
       docker.setup()
 
       docker.open("containers")
@@ -105,7 +105,7 @@ describe("docker", function()
       assert.is_truthy(lifecycle.get("container"))
     end)
 
-    it("種別名でもビューを開く", function()
+    it("opens the view for a kind name as well", function()
       docker.setup()
 
       docker.open("container")
@@ -113,7 +113,7 @@ describe("docker", function()
       assert.is_truthy(lifecycle.get("container"))
     end)
 
-    it("未知のサブコマンドは使い方を示して開かない", function()
+    it("shows the usage and opens nothing for an unknown subcommand", function()
       docker.setup()
 
       docker.open("nonexistent")
@@ -124,7 +124,7 @@ describe("docker", function()
       assert.is_truthy(last.msg:find("使い方", 1, true), last.msg)
     end)
 
-    it("引数なしでも使い方を示す", function()
+    it("shows the usage when no argument is given either", function()
       docker.setup()
 
       docker.open("")
@@ -136,7 +136,7 @@ describe("docker", function()
   end)
 
   describe("close", function()
-    it("開いているビューを閉じる", function()
+    it("closes the open view", function()
       docker.setup()
       docker.open("containers")
 
@@ -146,12 +146,12 @@ describe("docker", function()
     end)
   end)
 
-  describe("Ex コマンド", function()
-    it("Dockerコマンドが登録されている", function()
+  describe("the Ex command", function()
+    it("registers the Docker command", function()
       assert.is_truthy(vim.fn.exists(":Docker") == 2)
     end)
 
-    it("Docker containers で一覧が開く", function()
+    it("opens the list on Docker containers", function()
       docker.setup()
 
       vim.cmd("Docker containers")
@@ -159,7 +159,7 @@ describe("docker", function()
       assert.is_truthy(lifecycle.get("container"))
     end)
 
-    it("未知のサブコマンドでは開かず使い方を示す", function()
+    it("shows the usage without opening anything for an unknown subcommand", function()
       docker.setup()
 
       vim.cmd("Docker nonexistent")
@@ -169,8 +169,8 @@ describe("docker", function()
     end)
   end)
 
-  describe("Plug マッピング", function()
-    it("リソース種別ごとの Plug マッピングが公開されている", function()
+  describe("the Plug mappings", function()
+    it("exposes a Plug mapping for each resource kind", function()
       local maps = {}
       for _, m in ipairs(vim.api.nvim_get_keymap("n")) do
         maps[m.lhs] = true

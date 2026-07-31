@@ -1,7 +1,7 @@
---- アクション名から実処理への振り分け。
+--- Dispatches action names to their actual handling.
 ---
---- 前提状態の検査 (BR-007) → 重複要求の排除 (BR-009) → docker 実行 の順で進める。
---- 失敗しても内部状態は変えない。一覧は docker のイベント経由で更新される。
+--- Proceeds in this order: precondition state check (BR-007) -> duplicate request rejection (BR-009)
+--- -> docker execution. Internal state is never changed even on failure. The list is updated via docker events.
 local cli = require("docker.adapters.docker.cli")
 local file_edit = require("docker.handlers.file_edit")
 local compose = require("docker.adapters.docker.compose")
@@ -16,8 +16,8 @@ local M = {}
 ---@field def docker.ResourceDefinition
 ---@field item table|nil
 
---- 状態を変えるコンテナ操作。
---- `requires` を満たさない状態で呼ばれた場合、docker を呼ばずに警告する。
+--- Container operations that change state.
+--- When called in a state that does not satisfy `requires`, warns without invoking docker.
 local CONTAINER_ACTIONS = {
   start = {
     args = "start",
@@ -78,12 +78,12 @@ local function allowed(spec, state)
   return true
 end
 
---- 実行中の印を立てて docker を呼び、完了で解除する。
+--- Marks the operation as running, invokes docker, and clears the mark on completion.
 ---@param target_id string
 ---@param label string
 ---@param operation string
 ---@param args string[]
----@param success string 成功時の文言 (`%s` に対象名が入る)
+---@param success string message on success (`%s` is filled with the target name)
 local function run_exclusive(target_id, label, operation, args, success)
   if not operations.begin(target_id, operation) then
     notify.warn(("%s の %s は実行中です"):format(label, operation))
@@ -95,13 +95,13 @@ local function run_exclusive(target_id, label, operation, args, success)
     if result.ok then
       notify.info(success:format(label))
     else
-      -- docker の標準エラー出力をそのまま提示する (BR-016)。
+      -- Present docker's standard error output as-is (BR-016).
       notify.error(result.error or "docker の実行に失敗しました")
     end
   end)
 end
 
---- 確認を経て削除する。`y` と答えたときだけ docker に削除を要求する。
+--- Deletes after confirmation. Requests the deletion from docker only when the answer is `y`.
 ---@param ctx docker.ActionContext
 ---@param item table
 ---@param label string
@@ -114,16 +114,16 @@ local function delete(ctx, item, label)
   end)
 end
 
---- compose のサービス単位の操作。いずれもデタッチで実行する (BR-023)。
---- `needs_config` は compose ファイルを読めないと実行できない操作。停止や破棄は
---- プロジェクト名の名指しだけで済むが、起動は定義そのものを要る。
+--- Per-service compose operations. All of them run detached (BR-023).
+--- `needs_config` marks operations that cannot run without reading the compose file. Stopping and
+--- tearing down only need the project name, but starting up needs the definition itself.
 local SERVICE_ACTIONS = {
   up = { args = { "up", "-d" }, success = "%s を起動しました", needs_config = true },
   stop = { args = { "stop" }, success = "%s を停止しました" },
   restart = { args = { "restart" }, success = "%s を再起動しました" },
 }
 
---- compose のプロジェクト単位の操作。
+--- Per-project compose operations.
 local PROJECT_ACTIONS = {
   project_up = { args = { "up", "-d" }, success = "%s を起動しました", needs_config = true },
   project_down = {
@@ -133,7 +133,7 @@ local PROJECT_ACTIONS = {
   },
 }
 
---- 実行中の印を立てて compose を呼び、完了で解除する。
+--- Marks the operation as running, invokes compose, and clears the mark on completion.
 ---@param target_id string
 ---@param label string
 ---@param operation string
@@ -156,9 +156,9 @@ local function run_compose_exclusive(target_id, label, operation, args, cwd, suc
   end)
 end
 
---- ターミナルを開く操作。実行中でないコンテナには入れない。
+--- Operations that open a terminal. A container that is not running cannot be entered.
 local TERMINAL_ACTIONS = {
-  -- 停止中でもログは読めるので前提を課さない。
+  -- Logs can be read even while stopped, so no precondition is imposed.
   logs = { requires = nil },
   shell = { requires = { running = true }, denied = "%s は実行中ではないためシェルを開けません" },
   exec = {
@@ -188,7 +188,7 @@ local function open_terminal(name, item, label)
   end)
 end
 
---- 使い捨てコンテナで起動する対象。タグが付いていればそちらを使う。
+--- The target to launch as a throwaway container. Uses the tag when one is present.
 ---@param item table
 ---@return string
 local function image_ref(item)
@@ -200,7 +200,7 @@ local function image_ref(item)
   return tostring(item.id)
 end
 
---- 公開ポートをブラウザで開く。複数あれば選ばせる。
+--- Opens a published port in the browser. Lets the user choose when there is more than one.
 ---@param item table
 ---@param label string
 local function open_browser(item, label)
@@ -220,7 +220,7 @@ local function open_browser(item, label)
   end)
 end
 
---- 2 つのパスを尋ねてから `docker cp` を実行する。
+--- Asks for the two paths and then runs `docker cp`.
 ---@param item table
 ---@param label string
 ---@param direction "to"|"from"
@@ -244,7 +244,7 @@ local function copy_file(item, label, direction)
   end)
 end
 
---- アクションを実行する。
+--- Executes an action.
 ---@param name string
 ---@param ctx docker.ActionContext
 function M.execute(name, ctx)
@@ -264,14 +264,14 @@ function M.execute(name, ctx)
 
   local label = label_of(item)
 
-  -- compose サービス一覧の操作は docker compose へ振り分ける。
-  -- 一覧は全プロジェクトを統合して出すので、対象は行のプロジェクトになる。
-  -- プロジェクト名で名指しすれば作業ディレクトリに依存せず操作できる。
+  -- Operations on the compose service list are dispatched to docker compose.
+  -- The list merges all projects, so the target is the project of that row.
+  -- Naming the project explicitly lets the operation run without depending on the working directory.
   if ctx.def.kind == "service" then
     local project_name = tostring(item.project)
     local working_dir = tostring(item.working_dir or "")
 
-    --- compose ファイルを要る操作は、その場所が分からなければ発行しない。
+    --- Operations that need the compose file are not issued when its location is unknown.
     ---@param compose_spec table
     ---@param target_id string
     ---@param target_label string
@@ -320,7 +320,7 @@ function M.execute(name, ctx)
     end
 
     if name == "logs" then
-      -- コンテナが無いサービスにはログが無い。ターミナルを開かず警告する。
+      -- A service without a container has no logs. Warn instead of opening a terminal.
       if tostring(item.container_id or "") == "" then
         notify.warn(("%s はコンテナが無いためログを表示できません"):format(label))
         return

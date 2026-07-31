@@ -1,6 +1,6 @@
 local registry = require("docker.resources.registry")
 
---- 一覧取得で得られるコンテナの生データ。指定した項目だけ上書きする。
+--- Raw container data as obtained from the list command. Only the given entries are overridden.
 ---@param overrides table|nil
 ---@return table
 local function container(overrides)
@@ -32,18 +32,18 @@ end
 
 describe("docker.resources.registry", function()
   describe("get", function()
-    it("未知の種別を渡すとnilを返す", function()
+    it("returns nil when an unknown kind is passed", function()
       assert.is_nil(registry.get("nonexistent"))
     end)
   end)
 
   describe("subcommands", function()
-    it("定義済みの種別に対応するExコマンドの引数を返す", function()
+    it("returns the Ex command arguments corresponding to the defined kinds", function()
       assert.are.same({ "containers", "images", "volumes", "networks", "services" }, registry.subcommands())
     end)
   end)
 
-  describe("コンテナの定義", function()
+  describe("the container definition", function()
     ---@type docker.ResourceDefinition
     local def
 
@@ -51,44 +51,44 @@ describe("docker.resources.registry", function()
       def = assert(registry.get("container"))
     end)
 
-    it("一覧取得の引数に停止中を含める-aを付ける", function()
-      -- BR-022: 停止中のコンテナも一覧に含める。
+    it("adds -a to the list arguments so that stopped containers are included", function()
+      -- BR-022: stopped containers are included in the list too.
       assert.is_truthy(vim.tbl_contains(assert(def.list_args)(), "-a"))
     end)
 
-    it("一覧取得の引数に切り詰めを防ぐ--no-truncを付ける", function()
-      -- 付けないと ID が 12 文字、Command が 20 文字で切り詰められる。
+    it("adds --no-trunc to the list arguments to prevent truncation", function()
+      -- Without it the ID is truncated to 12 characters and Command to 20.
       assert.is_truthy(vim.tbl_contains(assert(def.list_args)(), "--no-trunc"))
     end)
 
-    it("一覧取得のサブコマンドはps", function()
+    it("uses ps as the subcommand for listing", function()
       assert.are.equal("ps", assert(def.list_args)()[1])
     end)
 
-    it("一覧取得の書式にサイズを含めない", function()
-      -- .Size を参照するとサイズ計算が走り実行時間が増える。
+    it("does not include the size in the list format", function()
+      -- Referencing .Size makes size computation run and increases the execution time.
       local args = table.concat(assert(def.list_args)(), " ")
 
       assert.is_nil(args:find(".Size", 1, true))
     end)
 
-    it("一覧取得の書式はcomposeラベルをキー名指しで取り出す", function()
-      -- `Labels` の分割はラベル値のカンマと偽ラベルの仕込みで誤った値を掴む。
+    it("takes the compose labels in the list format by naming the key", function()
+      -- Splitting `Labels` grabs the wrong value on commas inside label values and on planted fake labels.
       local args = table.concat(assert(def.list_args)(), " ")
 
       assert.is_truthy(args:find('(.Label "com.docker.compose.project")', 1, true))
       assert.is_truthy(args:find('(.Label "com.docker.compose.service")', 1, true))
       assert.is_truthy(args:find('(.Label "com.docker.compose.oneoff")', 1, true))
-      -- compose ファイルの場所。プロジェクトの外から定義を引くのに使う。
+      -- The location of the compose file. Used to look up the definition from outside the project.
       assert.is_truthy(args:find('(.Label "com.docker.compose.project.working_dir")', 1, true))
       assert.is_nil(args:find("{{json .Labels}}", 1, true))
     end)
 
-    it("識別子はコンテナIDを返す", function()
+    it("returns the container ID as the identifier", function()
       assert.are.equal("abc123def456", def.id(container()))
     end)
 
-    it("カラムはNAME_IMAGE_STATUS_PORTS_PROJECT_SERVICEの順に並ぶ", function()
+    it("orders the columns as NAME_IMAGE_STATUS_PORTS_PROJECT_SERVICE", function()
       local headers = {}
       for _, column in ipairs(def.columns) do
         table.insert(headers, column.header)
@@ -97,7 +97,7 @@ describe("docker.resources.registry", function()
       assert.are.same({ "NAME", "IMAGE", "STATUS", "PORTS", "PROJECT", "SERVICE" }, headers)
     end)
 
-    it("compose由来のコンテナはPROJECTとSERVICEに値が入る", function()
+    it("fills PROJECT and SERVICE for a compose-managed container", function()
       local item = container({
         compose_project = "shop",
         compose_service = "web",
@@ -114,7 +114,7 @@ describe("docker.resources.registry", function()
       }, columns_of(def, item))
     end)
 
-    it("compose由来でないコンテナはPROJECTとSERVICEが空欄になる", function()
+    it("leaves PROJECT and SERVICE blank for a container that did not come from compose", function()
       assert.are.same({
         NAME = "web",
         IMAGE = "alpine:3.20",
@@ -125,52 +125,52 @@ describe("docker.resources.registry", function()
       }, columns_of(def, container()))
     end)
 
-    it("ラベル値に偽のプロジェクト名を仕込まれてもPROJECTは空欄のままになる", function()
-      -- 生データは `.Label` によるキー名指しで採取しているため、
-      -- ラベル値に `,com.docker.compose.project=SPOOFED,` を含んでいても空文字列になる。
+    it("keeps PROJECT blank even when a fake project name is planted in a label value", function()
+      -- The raw data is collected by naming the key through `.Label`, so even when a label value
+      -- contains `,com.docker.compose.project=SPOOFED,` it stays an empty string.
       local item = container({ compose_project = "", compose_service = "" })
 
       assert.are.equal("", columns_of(def, item).PROJECT)
     end)
 
-    it("状態のカラム位置はSTATUSを指す", function()
+    it("points the state column position at STATUS", function()
       assert.are.equal(3, def.status_column)
       assert.are.equal("STATUS", def.columns[def.status_column].header)
     end)
 
-    it("状態は生データのstateを返す", function()
+    it("returns the state field of the raw data as the state", function()
       assert.are.equal("exited", def.status(container({ state = "exited" })))
     end)
 
-    it("dockerイベントのcontainer種別に対応付く", function()
+    it("corresponds to the container type of docker events", function()
       assert.are.equal("container", def.event_type)
     end)
 
-    it("Exコマンドの引数はcontainers", function()
+    it("uses containers as the Ex command argument", function()
       assert.are.equal("containers", def.subcommand)
     end)
 
-    it("表示名はContainers", function()
+    it("uses Containers as the display name", function()
       assert.are.equal("Containers", def.display_name)
     end)
 
-    it("1件だけ取り直す引数はIDで絞り込む", function()
+    it("filters by ID in the arguments that fetch just one item again", function()
       local args = assert(def.item_args)("abc123")
 
       assert.are.equal("ps", args[1])
       assert.is_truthy(vim.tbl_contains(args, "--filter"))
       assert.is_truthy(vim.tbl_contains(args, "id=abc123"))
-      assert.is_truthy(vim.tbl_contains(args, "-a"), "停止したコンテナも取り直せること")
+      assert.is_truthy(vim.tbl_contains(args, "-a"), "a stopped container must be fetchable again too")
       assert.is_truthy(vim.tbl_contains(args, "--no-trunc"))
     end)
 
-    it("削除の引数は強制削除を付けない", function()
-      -- BR-002: 実行中コンテナの削除は docker に拒否させる。
+    it("does not add force delete to the delete arguments", function()
+      -- BR-002: let docker reject deleting a running container.
       assert.are.same({ "rm", "abc123def456" }, assert(def.delete_args)(container()))
     end)
   end)
 
-  describe("compose サービスの定義", function()
+  describe("the compose service definition", function()
     ---@type docker.ResourceDefinition
     local def
 
@@ -178,8 +178,8 @@ describe("docker.resources.registry", function()
       def = assert(registry.get("service"))
     end)
 
-    it("カラムはPROJECT_SERVICE_STATUS_CONTAINERの順に並ぶ", function()
-      -- 一覧は全プロジェクトを統合して出すので、どのプロジェクトの行かを示す。
+    it("orders the columns as PROJECT_SERVICE_STATUS_CONTAINER", function()
+      -- The list merges every project, so it shows which project a row belongs to.
       local headers = {}
       for _, column in ipairs(def.columns) do
         table.insert(headers, column.header)
@@ -188,62 +188,63 @@ describe("docker.resources.registry", function()
       assert.are.same({ "PROJECT", "SERVICE", "STATUS", "CONTAINER" }, headers)
     end)
 
-    it("PROJECTカラムは行のプロジェクト名を出す", function()
+    it("shows the project name of the row in the PROJECT column", function()
       local item = { project = "shop", name = "web", status = "running", container = "shop-web-1" }
 
       assert.are.equal("shop", def.columns[1].value(item))
     end)
 
-    it("状態のカラム位置はSTATUSを指す", function()
+    it("points the state column position at STATUS", function()
       assert.are.equal(3, def.status_column)
       assert.are.equal("STATUS", def.columns[def.status_column].header)
     end)
 
-    it("識別子はプロジェクト名とサービス名の組になる", function()
-      -- 別プロジェクトの同名サービスと衝突させない。
+    it("uses the pair of project name and service name as the identifier", function()
+      -- Do not let a service with the same name in another project collide.
       assert.are.equal("shop/web", def.id({ project = "shop", name = "web" }))
     end)
 
-    it("一覧は単一のdockerコマンドではなく組み立てで取る", function()
-      -- compose の定義とコンテナ一覧の突き合わせが必要 (7.3)。
+    it("obtains the list by assembling rather than by a single docker command", function()
+      -- Matching the compose definitions against the container list is required (section 7.3).
       assert.is_truthy(def.load)
       assert.is_nil(def.list_args)
     end)
 
-    it("コンテナのイベントで更新する", function()
-      -- サービスの状態はコンテナの状態から決まる。
+    it("updates on container events", function()
+      -- The state of a service is determined by the state of its container.
       assert.are.equal("container", def.event_type)
     end)
 
-    it("Exコマンドの引数はservices", function()
+    it("uses services as the Ex command argument", function()
       assert.are.equal("services", def.subcommand)
     end)
 
-    it("キーマップはサービス一覧のものを引く", function()
+    it("looks up the keymaps of the service list", function()
       assert.are.equal("service_list", def.view_type)
     end)
   end)
 
-  describe("イメージ・ボリューム・ネットワークの定義", function()
-    it("イメージの一覧と削除の引数", function()
+  describe("the image, volume and network definitions", function()
+    it("uses the expected list and delete arguments for images", function()
       local def = assert(registry.get("image"))
 
       local args = assert(def.list_args)()
       assert.are.same({ "image", "ls" }, { args[1], args[2] })
       assert.is_truthy(vim.tbl_contains(args, "--no-trunc"))
-      -- `docker image ls` は .Label を扱えない。
+      -- `docker image ls` cannot handle .Label.
       assert.is_nil(table.concat(args, " "):find(".Label", 1, true))
 
-      -- イベントの Actor.ID (sha) は識別子 (タグ参照) と対応しないので全件取り直す。
-      -- `docker image ls` は id フィルタも受け付けない (invalid filter 'id')。
-      assert.is_nil(def.item_args, "1 件だけの取り直しは使わない")
+      -- The Actor.ID of the event (a sha) does not correspond to the identifier (the tag
+      -- reference), so everything is fetched again.
+      -- `docker image ls` does not accept an id filter either (invalid filter 'id').
+      assert.is_nil(def.item_args, "fetching just one item again is not used")
       assert.is_true(def.event_reload)
 
-      -- 同じイメージに複数タグが付くため、識別子はタグ参照にする。
+      -- Since the same image carries several tags, the identifier is the tag reference.
       assert.are.equal("alpine:3.20", def.id({ id = "i1", repository = "alpine", tag = "3.20" }))
       assert.are.equal("i1", def.id({ id = "i1", repository = "<none>", tag = "<none>" }))
-      -- 同じイメージに複数タグがあるとき、ID で消すとイメージ本体が対象になり
-      -- 他のタグで使われていると削除できない。タグがあればタグ参照を使う。
+      -- When the same image has several tags, deleting by ID targets the image itself, which
+      -- cannot be deleted while another tag still uses it. If there is a tag, use the tag reference.
       assert.are.same(
         { "rmi", "alpine:3.20" },
         assert(def.delete_args)({ id = "img1", repository = "alpine", tag = "3.20" })
@@ -251,11 +252,11 @@ describe("docker.resources.registry", function()
       assert.are.same(
         { "rmi", "img1" },
         assert(def.delete_args)({ id = "img1", repository = "<none>", tag = "<none>" }),
-        "タグが無いイメージは ID で消す"
+        "an image without a tag is deleted by ID"
       )
     end)
 
-    it("イメージのカラム構成と値", function()
+    it("uses the expected column layout and values for images", function()
       local def = assert(registry.get("image"))
       local item = { id = "i1", repository = "alpine", tag = "3.20", size = "5MB", created_since = "2 days ago" }
 
@@ -272,7 +273,7 @@ describe("docker.resources.registry", function()
       }, values)
     end)
 
-    it("ボリューム・ネットワークのカラム構成と値", function()
+    it("uses the expected column layout and values for volumes and networks", function()
       local volume = assert(registry.get("volume"))
       local vvalues = {}
       for _, column in ipairs(volume.columns) do
@@ -291,23 +292,23 @@ describe("docker.resources.registry", function()
       assert.are.same({ { "NAME", "bridge" }, { "DRIVER", "bridge" }, { "SCOPE", "local" } }, nvalues)
     end)
 
-    it("ボリュームの一覧と削除の引数", function()
+    it("uses the expected list and delete arguments for volumes", function()
       local def = assert(registry.get("volume"))
 
       local args = assert(def.list_args)()
-      -- 書式を渡さないと docker の既定の表形式になり、解析できなくなる。
+      -- Without passing a format, docker falls back to its default table layout and it cannot be parsed.
       assert.are.same({
         "volume",
         "ls",
         "--format",
         '{"name":{{json .Name}},"driver":{{json .Driver}},"mountpoint":{{json .Mountpoint}}}',
       }, args)
-      -- ボリュームは名前が識別子 (イベントでも Actor.ID に名前が入る)。
+      -- For a volume the name is the identifier (the name goes into Actor.ID in events too).
       assert.are.equal("vol1", def.id({ name = "vol1" }))
       assert.are.same({ "volume", "rm", "vol1" }, assert(def.delete_args)({ name = "vol1" }))
     end)
 
-    it("ネットワークの一覧と削除の引数", function()
+    it("uses the expected list and delete arguments for networks", function()
       local def = assert(registry.get("network"))
 
       local args = assert(def.list_args)()
@@ -321,29 +322,29 @@ describe("docker.resources.registry", function()
       assert.are.same({ "network", "rm", "net1" }, assert(def.delete_args)({ id = "net1" }))
     end)
 
-    it("組み込みネットワークを削除対象から除外しない", function()
-      -- 削除の可否は docker に判断させ、エラーをそのまま提示する (BR-016)。
+    it("does not exclude the built-in networks from deletion", function()
+      -- Let docker decide whether deletion is allowed and present its error as it is (BR-016).
       local def = assert(registry.get("network"))
 
       assert.are.same({ "network", "rm", "bridge" }, assert(def.delete_args)({ id = "bridge", name = "bridge" }))
     end)
 
-    it("それぞれのイベント種別に対応付く", function()
+    it("corresponds to its own event type for each of them", function()
       assert.are.equal("image", assert(registry.get("image")).event_type)
       assert.are.equal("volume", assert(registry.get("volume")).event_type)
       assert.are.equal("network", assert(registry.get("network")).event_type)
     end)
 
-    it("状態カラムを持たない", function()
-      -- コンテナやサービスと違い、状態という概念が無い。
+    it("has no state column", function()
+      -- Unlike containers and services, they have no notion of a state.
       for _, kind in ipairs({ "image", "volume", "network" }) do
         assert.is_nil(assert(registry.get(kind)).status_column, kind)
       end
     end)
   end)
 
-  describe("0 件表示", function()
-    it("種別ごとに項目が無いことを示す文言を持つ", function()
+  describe("the empty list display", function()
+    it("has a message per kind saying that there are no items", function()
       local texts = {}
       for _, kind in ipairs({ "container", "image", "volume", "network", "service" }) do
         texts[kind] = assert(registry.get(kind)).empty_text

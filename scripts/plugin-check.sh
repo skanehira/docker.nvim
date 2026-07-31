@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 #
-# plugin/*.lua は利用者の Neovim が起動時に必ず source するが、テストからは
-# require されないため、読み込みエラーがテストにも lint にも型検査にも掛からない。
-# 「利用者環境では壊れているのに CI は全 green」を防ぐため、実際に起動して確認する。
+# plugin/*.lua is always sourced by the user's Neovim at startup, but it is never required
+# from the tests, so a load error is caught by neither the tests, the lint, nor the type
+# check. To prevent "broken in the user's environment while CI is all green", start nvim
+# for real and check.
 #
-# 判定は stderr が空であること。v:errmsg では vim.schedule / vim.defer_fn /
-# VimEnter autocmd の中で起きたエラーを取りこぼす (stderr には出るが v:errmsg は空のまま)。
+# The verdict is that stderr is empty. v:errmsg would miss the errors raised inside
+# vim.schedule / vim.defer_fn / a VimEnter autocmd (they reach stderr while v:errmsg stays
+# empty).
 set -uo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -19,8 +21,8 @@ fi
 
 cd "$REPO_ROOT" || exit 1
 
-# 遅延実行 (vim.schedule / defer_fn / VimEnter) のエラーも拾えるよう、
-# 終了前に少しだけイベントループを回す。
+# Spin the event loop for a moment before quitting, so the errors from deferred execution
+# (vim.schedule / defer_fn / VimEnter) are picked up too.
 err=$(nvim --headless -u "$MINIMAL_INIT" -c 'sleep 300m' -c 'qa!' 2>&1 >/dev/null)
 status=$?
 

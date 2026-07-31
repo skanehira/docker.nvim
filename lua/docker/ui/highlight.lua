@@ -1,14 +1,15 @@
---- 状態カラムのハイライト。
+--- Highlighting of the status column.
 ---
---- グループは既存のハイライトへリンクさせる。配色を直接指定すると利用者の
---- カラースキームと衝突するため、意味の近い標準グループに寄せる。
+--- The groups are linked to existing highlights. Specifying colors directly would clash
+--- with the user's color scheme, so they are mapped onto the standard groups that are
+--- closest in meaning.
 local M = {}
 
 local NAMESPACE = vim.api.nvim_create_namespace("docker_nvim_highlight")
 
 local UNKNOWN_GROUP = "DockerStatusUnknown"
 
---- 状態 -> ハイライトグループ。
+--- State -> highlight group.
 local GROUPS = {
   running = "DockerStatusRunning",
   exited = "DockerStatusExited",
@@ -19,7 +20,7 @@ local GROUPS = {
   none = "DockerStatusNone",
 }
 
---- グループ -> リンク先の標準ハイライト。
+--- Group -> the standard highlight it links to.
 local LINKS = {
   DockerStatusRunning = "DiagnosticOk",
   DockerStatusExited = "Comment",
@@ -31,10 +32,10 @@ local LINKS = {
   [UNKNOWN_GROUP] = "Normal",
 }
 
---- カラム見出しの配色。状態のグループと違い、意味の近い標準グループが無いため
---- 参照元の denops-docker.vim と同じ色を直接指定する。
---- 太字と下線は付けない (denops-docker.vim は cterm にしか指定しておらず、
---- termguicolors 環境では色だけが乗るため、その見た目に合わせる)。
+--- Colors of the column header. Unlike the state groups there is no standard group that is
+--- close in meaning, so the same color as the reference denops-docker.vim is specified directly.
+--- Bold and underline are not applied (denops-docker.vim only specifies them for cterm, so in a
+--- termguicolors setup only the color takes effect; this matches that appearance).
 local HEADER_GROUP = "DockerHeader"
 local HEADER_HL = { fg = "#e2a478", ctermfg = 216 }
 
@@ -43,13 +44,13 @@ function M.namespace()
   return NAMESPACE
 end
 
---- カラム見出しのハイライトグループ名。
+--- The name of the highlight group for the column header.
 ---@return string
 function M.header_group()
   return HEADER_GROUP
 end
 
---- ハイライトグループを定義する。既に利用者が定義していれば上書きしない。
+--- Define the highlight groups. Groups the user has already defined are not overwritten.
 function M.setup()
   for group, link in pairs(LINKS) do
     vim.api.nvim_set_hl(0, group, { link = link, default = true })
@@ -57,7 +58,7 @@ function M.setup()
   vim.api.nvim_set_hl(0, HEADER_GROUP, vim.tbl_extend("force", HEADER_HL, { default = true }))
 end
 
---- 状態に対応するハイライトグループ名を返す。
+--- Return the name of the highlight group that corresponds to the state.
 ---@param state string|nil
 ---@return string
 function M.group_for(state)
@@ -67,12 +68,12 @@ function M.group_for(state)
   return GROUPS[state:lower()] or UNKNOWN_GROUP
 end
 
---- 指定した行のバイト範囲にハイライトを付ける。
---- 範囲が空のときは何もしない (長さ 0 の extmark は意味を持たない)。
+--- Apply a highlight to the given byte range of the given line.
+--- Does nothing when the range is empty (a zero-length extmark carries no meaning).
 ---@param bufnr integer
----@param line integer 0 始まりの行番号
----@param from integer 開始バイト位置
----@param to integer   終了バイト位置 (この位置は含まない)
+---@param line integer 0-based line number
+---@param from integer Start byte position
+---@param to integer   End byte position (exclusive)
 ---@param group string
 function M.apply(bufnr, line, from, to, group)
   if to <= from then
@@ -84,7 +85,7 @@ function M.apply(bufnr, line, from, to, group)
   })
 end
 
---- このプラグインが付けたハイライトをすべて消す。
+--- Clear every highlight this plugin has applied.
 ---@param bufnr integer
 function M.clear(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, NAMESPACE, 0, -1)

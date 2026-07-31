@@ -1,13 +1,13 @@
---- ビュー種別からキーマップを解決する。
+--- Resolve the keymaps for a view type.
 ---
---- 共通のキーにビュー固有のキーを重ねる。同じキーがビュー種別ごとに別の
---- アクションへ割り当てられる (BR-015)。
+--- The view-specific keys are layered on top of the common keys. The same key can be
+--- bound to a different action per view type (BR-015).
 local config = require("docker.config")
 
 local M = {}
 
 ---@param view_type string
----@return table<string, string> キー -> アクション名
+---@return table<string, string> key -> action name
 function M.resolve(view_type)
   local keymaps = config.get().keymaps
   local resolved = {}
@@ -15,7 +15,7 @@ function M.resolve(view_type)
   for action, key in pairs(keymaps.common or {}) do
     resolved[key] = action
   end
-  -- ビュー固有が共通と同じキーを使う場合はビュー固有を優先する。
+  -- When a view-specific binding uses the same key as a common one, the view-specific one wins.
   for action, key in pairs(keymaps[view_type] or {}) do
     resolved[key] = action
   end
@@ -23,7 +23,7 @@ function M.resolve(view_type)
   return resolved
 end
 
---- ヘルプ表示のための一覧。キー順に並べる (実行のたびに順序が変わらないように)。
+--- The listing used by the help view. Sorted by key so that the order does not change between runs.
 ---@param view_type string
 ---@return { key: string, action: string }[]
 function M.describe_view(view_type)

@@ -1,25 +1,26 @@
---- 公開ポートの文字列から、ブラウザで開ける URL を組み立てる。
+--- Builds URLs that can be opened in a browser from the published ports string.
 ---
---- `docker ps` の PORTS は `0.0.0.0:8080->80/tcp, :::8080->80/tcp` のような形。
---- 待ち受けアドレスが不定 (`0.0.0.0` / `::`) のものはそのままでは接続できないため
---- `localhost` に読み替える。IPv4 と IPv6 で同じポートが 2 回出るので重複は除く。
+--- The PORTS column of `docker ps` looks like `0.0.0.0:8080->80/tcp, :::8080->80/tcp`.
+--- Entries whose listening address is unspecified (`0.0.0.0` / `::`) cannot be connected to as
+--- they are, so they are read as `localhost`. The same port appears twice for IPv4 and IPv6, so
+--- duplicates are removed.
 local M = {}
 
---- 接続先として使えないアドレス。
+--- Addresses that cannot be used as a connection target.
 local WILDCARDS = { ["0.0.0.0"] = true, ["::"] = true, ["[::]"] = true }
 
 ---@param value string|nil
----@return string[] URL の一覧 (ポート番号の昇順、重複なし)
+---@return string[] the list of URLs (ascending by port number, without duplicates)
 function M.published(value)
   local text = type(value) == "string" and value or ""
 
   local seen = {}
   local found = {}
   for _, entry in ipairs(vim.split(text, ",", { plain = true, trimempty = true })) do
-    -- 公開されているものだけを対象にする (`->` が無い項目はホストへ出ていない)。
+    -- Only published entries are considered (an entry without `->` is not exposed on the host).
     local mapping = vim.trim(entry)
-    -- `0.0.0.0:8080->80/tcp` のほか、範囲公開の
-    -- `0.0.0.0:8000-8002->8000-8002/tcp` も対象にする (範囲の先頭を代表にする)。
+    -- Besides `0.0.0.0:8080->80/tcp`, range publishing such as
+    -- `0.0.0.0:8000-8002->8000-8002/tcp` is also handled (the head of the range represents it).
     local host, port, protocol = mapping:match("^(.*):(%d+)%-?%d*%->[%d%-]+/(%a+)$")
     if host and protocol == "tcp" then
       if WILDCARDS[host] then

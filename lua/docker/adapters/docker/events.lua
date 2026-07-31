@@ -1,24 +1,25 @@
---- docker events の購読。
+--- Subscription to docker events.
 ---
---- 単一のジョブで container / image / volume / network すべてのイベントを受け取る。
---- `on_stdout` のチャンクは行の途中で切れることがあるため、未完了分を保持して
---- 次のチャンクと連結してから解析する。
---- 切断したら待機時間を延ばしながら再購読し、規定回数で諦めて手動更新を促す。
+--- A single job receives all of the container / image / volume / network events.
+--- A chunk of `on_stdout` can be cut in the middle of a line, so the incomplete remainder is kept
+--- and concatenated with the next chunk before parsing.
+--- On a disconnect it resubscribes with a growing wait time, and after the fixed number of attempts
+--- it gives up and prompts for a manual refresh.
 local jobs = require("docker.handlers.jobs")
 
 local M = {}
 
 ---@class docker.Event
 ---@field type string    "container" | "image" | "volume" | "network"
----@field action string  "create" | "start" | "stop" | "die" | "destroy" など
----@field id string      対象の ID。volume の場合は Actor.ID にボリューム名が入る
----@field time integer   秒精度の時刻
+---@field action string  "create" | "start" | "stop" | "die" | "destroy" and so on
+---@field id string      ID of the target. For a volume, Actor.ID holds the volume name
+---@field time integer   Timestamp with second precision
 
 ---@class docker.EventSubscription
----@field stop fun()               意図的な停止
+---@field stop fun()               Intentional stop
 ---@field is_alive fun(): boolean
 
---- 再購読の待機時間 (ミリ秒)。最大 5 回まで試す。
+--- Wait time before resubscribing (milliseconds). Tried up to 5 times.
 local RETRY_DELAYS = { 1000, 2000, 4000, 8000, 16000 }
 
 ---@type (fun(cmd: string[], handlers: table): integer|nil)|nil
@@ -27,21 +28,21 @@ local starter = nil
 ---@type (fun(delay: integer, callback: fun()))|nil
 local waiter = nil
 
---- テスト用の差し替え口。nil を渡すと実際のジョブ起動に戻る。
+--- Swap point for tests. Passing nil restores the real job start.
 ---@param fn (fun(cmd: string[], handlers: table): integer|nil)|nil
 function M._set_starter(fn)
   starter = fn
 end
 
---- テスト用の差し替え口。nil を渡すと実際の待機に戻る。
+--- Swap point for tests. Passing nil restores the real waiting.
 ---@param fn (fun(delay: integer, callback: fun()))|nil
 function M._set_waiter(fn)
   waiter = fn
 end
 
---- docker が出す 1 行の JSON を `docker.Event` へ変換する。
---- 時刻は秒精度の `time` を使う。`timeNano` は `vim.json.decode` で
---- 浮動小数点化され下位桁が落ちるため使わない。
+--- Converts one line of JSON emitted by docker into a `docker.Event`.
+--- The timestamp uses `time`, which has second precision. `timeNano` is not used because
+--- `vim.json.decode` turns it into a floating point number and the low digits are lost.
 ---@param raw table
 ---@return docker.Event|nil
 local function to_event(raw)
@@ -63,7 +64,7 @@ end
 ---@class docker.EventDecoder
 ---@field push fun(self: docker.EventDecoder, chunk: string): docker.Event[]
 
---- チャンクを行に組み立てて解析する。行が揃うまではイベントを返さない。
+--- Assembles chunks into lines and parses them. It returns no event until a line is complete.
 ---@return docker.EventDecoder
 function M.new_decoder()
   return {
@@ -95,7 +96,7 @@ function M.new_decoder()
   }
 end
 
---- 実際のジョブ起動。
+--- The real job start.
 ---@param cmd string[]
 ---@param handlers table
 ---@return integer|nil
@@ -119,11 +120,12 @@ local function default_waiter(delay, callback)
   vim.defer_fn(callback, delay)
 end
 
---- イベントを購読する。切断したら自動で再購読を試みる。
+--- Subscribes to events. On a disconnect it automatically tries to resubscribe.
 ---@param opts { since: string|nil, on_event: fun(ev: docker.Event), on_disconnect: fun(intentional: boolean)|nil, on_reconnect: fun()|nil, on_giveup: fun()|nil }
 ---@return docker.EventSubscription
 function M.subscribe(opts)
-  -- 意図的な停止と外部要因の終了は同じ終了コードになる。先にフラグを立てて区別する。
+  -- An intentional stop and a termination caused from the outside produce the same exit code.
+  -- We raise a flag beforehand to tell them apart.
   local stopping = false
   local alive = false
   local attempt = 0
@@ -144,15 +146,16 @@ function M.subscribe(opts)
     local start = starter or default_starter
     local id = start(cmd, {
       on_stdout = function(chunk)
-        -- 停止した後に届いたチャンクは配送しない。
+        -- Chunks that arrive after the stop are not delivered.
         if stopping or not alive then
           return
         end
         for _, event in ipairs(decoder:push(chunk)) do
-          -- イベントが届いたことが復旧の証拠。ジョブが起動できただけでは
-          -- (デーモンが落ちていても jobstart は成功するため) 復旧とみなせない。
+          -- The arrival of an event is the proof of recovery. The job merely having started is not
+          -- enough (jobstart succeeds even when the daemon is down).
           attempt = 0
-          -- 再購読の起点。待機中に取りこぼした分は on_reconnect の全件再取得で整合させる。
+          -- The starting point for resubscribing. What was missed while waiting is reconciled by the
+          -- full refetch in on_reconnect.
           if type(event.time) == "number" then
             since = tostring(event.time)
           end
@@ -178,7 +181,7 @@ function M.subscribe(opts)
       job_id = id
       alive = true
       jobs.register(id)
-      -- 再購読できたら、待機中に取りこぼした分を全件再取得で埋める。
+      -- Once resubscribed, fill in what was missed while waiting with a full refetch.
       if is_retry and opts.on_reconnect then
         opts.on_reconnect()
       end
@@ -189,7 +192,7 @@ function M.subscribe(opts)
     return false
   end
 
-  --- 切断からの再購読。待機時間を延ばしながら規定回数まで試す。
+  --- Resubscription after a disconnect. Tried up to the fixed number of times with a growing wait time.
   connect = function()
     attempt = attempt + 1
     local delay = RETRY_DELAYS[attempt]
@@ -210,7 +213,7 @@ function M.subscribe(opts)
   end
 
   if not start_once(false) then
-    -- 起動できなかったことを黙って捨てると、購読していないのに購読中に見える。
+    -- Silently dropping the fact that it could not start would make it look subscribed while it is not.
     if opts.on_disconnect then
       opts.on_disconnect(false)
     end

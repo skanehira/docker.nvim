@@ -4,7 +4,7 @@ local service_loader = require("docker.resources.service_loader")
 describe("docker.resources.service_loader", function()
   local runs
 
-  --- コンテナ一覧の 1 行 (ps の解析済みデータ)。
+  --- One row of the container list (the parsed data of ps).
   ---@param overrides table|nil
   ---@return table
   local function container(overrides)
@@ -34,7 +34,7 @@ describe("docker.resources.service_loader", function()
     return table.concat(lines, "\n")
   end
 
-  --- コマンドの種類を表す名前。応答の指定と、返す順序の指定に使う。
+  --- The name that tells the kind of a command. Used to select the response and to order the replies.
   ---@param cmd string[]
   ---@return "ps"|"ls"|"config"|"cwd_config"
   local function kind_of(cmd)
@@ -68,11 +68,11 @@ describe("docker.resources.service_loader", function()
     return responses.cwd_config or { code = 1, stderr = "no configuration file provided: not found" }
   end
 
-  --- コマンドの種類で応答を出し分ける偽の docker。
+  --- A fake docker that varies the response by the kind of command.
   --- responses:
   ---   ls        : { code, stdout } — `compose ls -a`
-  ---   ps        : { code, stdout } — コンテナ一覧
-  ---   cwd_config: { code, stdout, stderr } — `compose config` (プロジェクト名の指定なし)
+  ---   ps        : { code, stdout } — the container list
+  ---   cwd_config: { code, stdout, stderr } — `compose config` (without a project name)
   ---   config    : table<string, { code, stdout, stderr }> — `compose -p <name> config`
   local function stub(responses)
     cli._set_executor(function(cmd, opts, on_exit)
@@ -82,8 +82,9 @@ describe("docker.resources.service_loader", function()
     end)
   end
 
-  --- 応答を保留し、任意の順序で返せる偽の docker。
-  --- docker の応答が返る順序は発行順とは限らないので、順序を変えても結果が変わらないことを見る。
+  --- A fake docker that holds the responses back and can reply in any order.
+  --- The order in which docker replies is not necessarily the order the commands were issued in,
+  --- so this checks that changing the order does not change the result.
   ---@param responses table
   ---@return { flush: fun(kind: string), pending: fun(): string[] }
   local function deferred_stub(responses)
@@ -100,7 +101,7 @@ describe("docker.resources.service_loader", function()
     end)
 
     return {
-      --- 保留中の応答から、指定した種類のものを 1 つ返す。
+      --- Replies with one held-back response of the given kind.
       flush = function(kind)
         for index, entry in ipairs(queue) do
           if entry.kind == kind then
@@ -109,7 +110,7 @@ describe("docker.resources.service_loader", function()
             return
           end
         end
-        error("保留中の応答が無い: " .. kind)
+        error("no held-back response of this kind: " .. kind)
       end,
       pending = function()
         local kinds = {}
@@ -133,7 +134,7 @@ describe("docker.resources.service_loader", function()
     }, function(result)
       captured, calls = result, calls + 1
     end)
-    -- 多段の非同期では、経路によって完了が二重に走る形の壊れ方をする。
+    -- With multi-stage asynchrony, the way it breaks is that completion runs twice depending on the path.
     assert.are.equal(1, calls)
     return assert(captured, "on_done was not called")
   end
@@ -156,9 +157,9 @@ describe("docker.resources.service_loader", function()
     cli._set_executor(nil)
   end)
 
-  describe("compose ファイルの無い場所からの一覧", function()
-    it("ラベル由来のプロジェクトのサービスを一覧に出す", function()
-      -- compose ファイルを読めなくても、コンテナのラベルからサービスを逆算できる。
+  describe("listing from a place with no compose file", function()
+    it("lists the services of the projects derived from the labels", function()
+      -- Even when the compose file cannot be read, the services can be derived from the container labels.
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop","Status":"exited(1)","ConfigFiles":"/work/shop/compose.yaml"}]' },
         ps = { code = 0, stdout = ndjson({ container({ state = "exited" }) }) },
@@ -188,7 +189,7 @@ describe("docker.resources.service_loader", function()
       }, result.data)
     end)
 
-    it("compose ファイルのある場所を各行に持たせる", function()
+    it("carries the location of the compose file on every row", function()
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },
         ps = { code = 0, stdout = ndjson({ container() }) },
@@ -198,7 +199,7 @@ describe("docker.resources.service_loader", function()
       assert.are.equal("/work/shop", result.data[1].working_dir)
     end)
 
-    it("プロジェクトの定義はコンテナのラベルにある場所で引く", function()
+    it("looks up the project definitions at the location found in the container labels", function()
       load({
         ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/other/compose.yaml"}]' },
         ps = { code = 0, stdout = ndjson({ container({ compose_working_dir = "/work/shop" }) }) },
@@ -215,8 +216,8 @@ describe("docker.resources.service_loader", function()
       assert.are.equal("/work/shop", config_run.opts.cwd)
     end)
 
-    it("同じプロジェクトに場所を持たないコンテナが混じっていても場所を拾う", function()
-      -- 古い compose が作ったコンテナにはラベルが無い。1 件目で諦めない。
+    it("picks up the location even when the same project has containers that do not carry it", function()
+      -- Containers created by an older compose have no label. Do not give up on the first one.
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop"}]' },
         ps = {
@@ -232,8 +233,8 @@ describe("docker.resources.service_loader", function()
       assert.are.equal("/work/shop", result.data[1].working_dir)
     end)
 
-    it("ラベルに場所が無ければ設定ファイルのパスから場所を決める", function()
-      -- 古い compose で working_dir ラベルが無い場合の受け皿。
+    it("decides the location from the config file path when the label does not carry it", function()
+      -- The fallback for an older compose that has no working_dir label.
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },
         ps = { code = 0, stdout = ndjson({ container({ compose_working_dir = "" }) }) },
@@ -243,7 +244,7 @@ describe("docker.resources.service_loader", function()
       assert.are.equal("/work/shop", result.data[1].working_dir)
     end)
 
-    it("設定ファイルが複数あるときは先頭の場所を使う", function()
+    it("uses the location of the first one when there are several config files", function()
       local result = load({
         ls = {
           code = 0,
@@ -257,8 +258,8 @@ describe("docker.resources.service_loader", function()
     end)
   end)
 
-  describe("複数プロジェクトの統合", function()
-    it("すべてのプロジェクトのサービスをまとめて出す", function()
+  describe("merging several projects", function()
+    it("lists the services of every project together", function()
       local result = load({
         ls = {
           code = 0,
@@ -287,8 +288,9 @@ describe("docker.resources.service_loader", function()
       assert.are.same({ "blog/cms=running", "shop/web=running" }, keys_of(result.data))
     end)
 
-    it("作業ディレクトリのプロジェクトを合流させる", function()
-      -- 一度も起動していないプロジェクトはラベルに現れないので、ここでしか拾えない。
+    it("merges in the project of the working directory", function()
+      -- A project that has never been started does not appear in the labels, so it can only be
+      -- picked up here.
       local result = load({
         ls = { code = 0, stdout = "[]" },
         ps = { code = 0, stdout = "" },
@@ -300,7 +302,7 @@ describe("docker.resources.service_loader", function()
       assert.are.equal("/work/fresh", result.data[1].working_dir)
     end)
 
-    it("作業ディレクトリのプロジェクトがラベルにもあるとき二重に出さない", function()
+    it("does not list twice when the project of the working directory is also in the labels", function()
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },
         ps = { code = 0, stdout = ndjson({ container() }) },
@@ -310,9 +312,9 @@ describe("docker.resources.service_loader", function()
       assert.are.same({ "shop/never-started=none", "shop/web=running" }, keys_of(result.data))
     end)
 
-    it("作業ディレクトリで開いたプロジェクトの場所はラベルより優先する", function()
-      -- プロジェクトを別の場所へ移して起動前の状態。ラベルは移動前の場所を指したままなので、
-      -- 今いる場所を採らないと起動が古い定義で走る。
+    it("prefers the location of the project opened in the working directory over the label", function()
+      -- The project was moved elsewhere and not started yet. The label still points at the old
+      -- location, so unless the current location is taken, the start would run on an old definition.
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },
         ps = { code = 0, stdout = ndjson({ container({ compose_working_dir = "/work/shop" }) }) },
@@ -322,7 +324,7 @@ describe("docker.resources.service_loader", function()
       assert.are.equal("/work/shop-moved", result.data[1].working_dir)
     end)
 
-    it("作業ディレクトリがプロジェクト外でも一覧を返す", function()
+    it("returns the list even when the working directory is outside any project", function()
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },
         ps = { code = 0, stdout = ndjson({ container() }) },
@@ -335,7 +337,7 @@ describe("docker.resources.service_loader", function()
       assert.are.same({ "shop/web=running" }, keys_of(result.data))
     end)
 
-    it("プロジェクトが1つも無ければ空の一覧を返す", function()
+    it("returns an empty list when there is not a single project", function()
       local result = load({ ls = { code = 0, stdout = "[]" }, ps = { code = 0, stdout = "" } })
 
       assert.is_true(result.ok)
@@ -343,7 +345,7 @@ describe("docker.resources.service_loader", function()
     end)
   end)
 
-  describe("応答が返る順序", function()
+  describe("the order the responses arrive in", function()
     local RESPONSES = {
       ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },
       ps = { code = 0, stdout = ndjson({ container() }) },
@@ -351,10 +353,10 @@ describe("docker.resources.service_loader", function()
       config = { shop = { code = 0, stdout = '{"name":"shop","services":{"web":{},"never-started":{}}}' } },
     }
 
-    --- 指定した順序で応答を返し、組み上がった一覧を得る。
-    ---@param order string[] 先に返す順に並べた種類 ("ls" / "ps" / "cwd_config")
+    --- Replies in the given order and obtains the assembled list.
+    ---@param order string[] the kinds arranged in the order they reply ("ls" / "ps" / "cwd_config")
     ---@return docker.ServiceLoadResult
-    ---@return string[] 最後の 1 つを返す前の時点で、まだ完了していないことの記録
+    ---@return string[] the record that it had not completed yet at the point before the last one replied
     local function load_in_order(order)
       local stubbed = deferred_stub(RESPONSES)
       local captured
@@ -372,7 +374,7 @@ describe("docker.resources.service_loader", function()
         end
         stubbed.flush(kind)
       end
-      -- 定義の取得はここまでの応答が揃ってから発行される。残りをすべて返す。
+      -- Fetching the definitions is only issued once the responses so far are in. Reply to the rest.
       while #stubbed.pending() > 0 do
         stubbed.flush(stubbed.pending()[1])
       end
@@ -380,15 +382,16 @@ describe("docker.resources.service_loader", function()
       return assert(captured, "on_done was not called"), seen_before_last
     end
 
-    it("最後の1つが返るまで一覧を組み立てない", function()
-      -- 揃う前に組み立てると、まだ取れていないコンテナ一覧を 0 件として扱ってしまう。
+    it("does not assemble the list until the last one has replied", function()
+      -- Assembling before they are all in would treat the container list that is not fetched yet
+      -- as 0 items.
       local result, before_last = load_in_order({ "ls", "cwd_config", "ps" })
 
       assert.are.same({}, before_last)
       assert.are.same({ "shop/never-started=none", "shop/web=running" }, keys_of(result.data))
     end)
 
-    it("返る順序が変わっても同じ一覧になる", function()
+    it("builds the same list regardless of the order the responses arrive in", function()
       local forward = load_in_order({ "ls", "ps", "cwd_config" })
       local reversed = load_in_order({ "cwd_config", "ps", "ls" })
 
@@ -397,9 +400,9 @@ describe("docker.resources.service_loader", function()
     end)
   end)
 
-  describe("定義を引けないプロジェクト", function()
-    it("compose ファイルが読めなければコンテナのあるサービスだけ出す", function()
-      -- working_dir が消えているプロジェクト。起動していないサービスは分からない。
+  describe("projects whose definitions cannot be looked up", function()
+    it("lists only the services that have a container when the compose file cannot be read", function()
+      -- A project whose working_dir is gone. The services that are not started cannot be known.
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/gone/compose.yaml"}]' },
         ps = { code = 0, stdout = ndjson({ container({ compose_working_dir = "/gone" }) }) },
@@ -410,7 +413,7 @@ describe("docker.resources.service_loader", function()
       assert.are.same({ "shop/web=running" }, keys_of(result.data))
     end)
 
-    it("場所が分からないプロジェクトでは定義を引きにいかない", function()
+    it("does not go and look up the definitions for a project whose location is unknown", function()
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop"}]' },
         ps = { code = 0, stdout = ndjson({ container({ compose_working_dir = "" }) }) },
@@ -430,8 +433,8 @@ describe("docker.resources.service_loader", function()
       assert.are.equal("", result.data[1].working_dir)
     end)
 
-    it("単発コンテナしか無いプロジェクトはサービスを持たない", function()
-      -- BR-006: `docker compose run` のコンテナはサービスの実体ではない。
+    it("gives a project that only has one-off containers no services", function()
+      -- BR-006: a container of `docker compose run` is not the instance of a service.
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop"}]' },
         ps = {
@@ -447,8 +450,8 @@ describe("docker.resources.service_loader", function()
     end)
   end)
 
-  describe("失敗の扱い", function()
-    it("composeサブコマンドが使えなければ一覧を返さない", function()
+  describe("handling of failures", function()
+    it("does not return a list when the compose subcommand is unavailable", function()
       local result = load({
         ls = { code = 1, stderr = "docker: unknown command: docker compose" },
         ps = { code = 0, stdout = "" },
@@ -461,7 +464,7 @@ describe("docker.resources.service_loader", function()
       )
     end)
 
-    it("コンテナ一覧の取得に失敗したら一覧を返さない", function()
+    it("does not return a list when fetching the container list fails", function()
       local result = load({
         ls = { code = 0, stdout = "[]" },
         ps = { code = 1, stderr = "Cannot connect to the Docker daemon" },
@@ -471,8 +474,8 @@ describe("docker.resources.service_loader", function()
       assert.are.equal("Cannot connect to the Docker daemon", result.error)
     end)
 
-    it("作業ディレクトリのcomposeファイルが不正なら警告を添えて一覧を返す", function()
-      -- 他のプロジェクトは見えるので一覧そのものは出す (BR-016: 文言はそのまま)。
+    it("returns the list with a warning attached when the compose file of the working directory is invalid", function()
+      -- The other projects are visible so the list itself is shown (BR-016: the wording is passed through).
       local stderr = "yaml: mapping values are not allowed in this context"
       local result = load({
         ls = { code = 0, stdout = '[{"Name":"shop","ConfigFiles":"/work/shop/compose.yaml"}]' },

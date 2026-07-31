@@ -52,7 +52,7 @@ describe("docker.views.inspect", function()
   end)
 
   describe("open", function()
-    it("対象のIDでdocker inspectを実行する", function()
+    it("runs docker inspect with the ID of the target", function()
       stub({ code = 0, stdout = "[{}]" })
 
       open_inspect({ id = "abc123", name = "web" })
@@ -60,9 +60,9 @@ describe("docker.views.inspect", function()
       assert.are.same({ "docker", "inspect", "abc123" }, runs[1])
     end)
 
-    it("dockerの整形済み出力をそのまま行として表示する", function()
-      -- `docker inspect` は既に字下げ済みの JSON を返す。
-      -- 解析し直して整形するとキーの順序が崩れるうえ外部の整形器が要る。
+    it("shows docker's already formatted output as lines without touching it", function()
+      -- `docker inspect` returns JSON that is already indented.
+      -- Re-parsing and re-formatting it would break the key order and require an external formatter.
       stub({
         code = 0,
         stdout = table.concat({
@@ -91,7 +91,7 @@ describe("docker.views.inspect", function()
       }, vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false))
     end)
 
-    it("タイトルに対象名を含める", function()
+    it("includes the name of the target in the title", function()
       stub({ code = 0, stdout = "[{}]" })
 
       local handle = assert(open_inspect({ id = "abc123", name = "web" }))
@@ -100,8 +100,8 @@ describe("docker.views.inspect", function()
       assert.is_truthy(title:find("web", 1, true), title)
     end)
 
-    it("一覧より前面に重ねる", function()
-      -- 閉じたときに下層の一覧とカーソル位置がそのまま残るようにする。
+    it("stacks itself in front of the list", function()
+      -- So that closing it keeps the list below and the cursor position as they were.
       stub({ code = 0, stdout = "[{}]" })
       local below = window.open({ title = "Containers", zindex = 50 })
 
@@ -111,7 +111,7 @@ describe("docker.views.inspect", function()
       window.close(below)
     end)
 
-    it("取得に失敗するとビューを開かずエラーを通知する", function()
+    it("notifies an error without opening the view when fetching fails", function()
       stub({ code = 1, stderr = "Error: No such object: nope" })
 
       local handle = open_inspect({ id = "nope", name = "nope" })
@@ -122,13 +122,13 @@ describe("docker.views.inspect", function()
       assert.are.equal("Error: No such object: nope", last.msg)
     end)
 
-    it("出力が解析できないときもビューを開かない", function()
+    it("does not open the view when the output cannot be parsed either", function()
       stub({ code = 0, stdout = "not json" })
 
       assert.is_nil(open_inspect({ id = "abc123", name = "web" }))
     end)
 
-    it("バッファは書き込み対象にならない", function()
+    it("makes the buffer non-writable", function()
       stub({ code = 0, stdout = "[{}]" })
 
       local handle = assert(open_inspect({ id = "abc123", name = "web" }))
@@ -137,7 +137,7 @@ describe("docker.views.inspect", function()
       assert.is_false(vim.bo[handle.bufnr].modifiable)
     end)
 
-    it("JSONとして色付けできるようfiletypeを設定する", function()
+    it("sets the filetype so the content can be colored as JSON", function()
       stub({ code = 0, stdout = "[{}]" })
 
       local handle = assert(open_inspect({ id = "abc123", name = "web" }))
@@ -146,9 +146,9 @@ describe("docker.views.inspect", function()
     end)
   end)
 
-  describe("閉じたときの復帰", function()
-    it("qで閉じると下層の一覧とカーソル位置が残る", function()
-      -- BR-018: 詳細を閉じると直前の一覧へ戻る。
+  describe("restoring on close", function()
+    it("keeps the list below and the cursor position when closed with q", function()
+      -- BR-018: closing the inspect view returns to the list that was there before.
       stub({ code = 0, stdout = "[{}]" })
       local below = window.open({ title = "Containers", zindex = 50 })
       window.set_lines(below, { "a", "b", "c", "d" })
@@ -159,9 +159,9 @@ describe("docker.views.inspect", function()
       vim.api.nvim_set_current_win(handle.winid)
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("q", true, false, true), "x", false)
 
-      assert.is_false(vim.api.nvim_win_is_valid(handle.winid), "詳細が閉じること")
-      assert.is_true(vim.api.nvim_win_is_valid(below.winid), "一覧が残ること")
-      assert.are.equal(3, vim.api.nvim_win_get_cursor(below.winid)[1], "カーソル位置が戻ること")
+      assert.is_false(vim.api.nvim_win_is_valid(handle.winid), "the inspect view must be closed")
+      assert.is_true(vim.api.nvim_win_is_valid(below.winid), "the list must remain")
+      assert.are.equal(3, vim.api.nvim_win_get_cursor(below.winid)[1], "the cursor position must be restored")
       window.close(below)
     end)
   end)

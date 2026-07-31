@@ -1,14 +1,15 @@
---- ビュー状態の生成と更新。
+--- Creation and update of the view state.
 ---
---- 更新は必ず新しい値を作る (不変更新)。状態を唯一の源として描画を行うため、
---- 途中で書き換わると描画とカーソルの整合が取れなくなる。
+--- An update always creates a new value (immutable update). The drawing is done with the state as
+--- the single source of truth, so if it were rewritten midway the drawing and the cursor would
+--- fall out of sync.
 local M = {}
 
 ---@class docker.ViewState
----@field kind string     リソース種別
----@field items table[]   表示中のリソース
----@field cursor integer  カーソル行 (1 始まり)
----@field filter string   絞り込みの語 (空なら全件)
+---@field kind string     the resource kind
+---@field items table[]   the resources being displayed
+---@field cursor integer  the cursor line (1-based)
+---@field filter string   the filtering term (all items when empty)
 
 ---@param count integer
 ---@param cursor integer
@@ -26,7 +27,7 @@ function M.new(kind)
   return { kind = kind, items = {}, cursor = 1, filter = "" }
 end
 
---- 表示するリソースを差し替える。カーソルは保つが、範囲外になれば丸める。
+--- Swaps the resources being displayed. The cursor is kept, but clamped if it falls out of range.
 ---@param state docker.ViewState
 ---@param items table[]
 ---@return docker.ViewState
@@ -39,7 +40,7 @@ function M.with_items(state, items)
   }
 end
 
---- カーソル行を変える。範囲外の値は丸める。
+--- Changes the cursor line. A value out of range is clamped.
 ---@param state docker.ViewState
 ---@param cursor integer
 ---@return docker.ViewState
@@ -52,7 +53,7 @@ function M.with_cursor(state, cursor)
   }
 end
 
---- 絞り込みの語を差し替える。カーソルは先頭へ戻す (行の対応が変わるため)。
+--- Swaps the filtering term. The cursor goes back to the top (because the row correspondence changes).
 ---@param state docker.ViewState
 ---@param filter string
 ---@return docker.ViewState
@@ -65,8 +66,8 @@ function M.with_filter(state, filter)
   }
 end
 
---- 絞り込みを適用した後の項目。
---- 表示に使う値のどれかに部分一致すれば残す (大文字小文字は区別しない)。
+--- The items after the filtering has been applied.
+--- An item is kept if it partially matches any of the values used for display (case-insensitive).
 ---@param state docker.ViewState
 ---@param def docker.ResourceDefinition
 ---@return table[]
@@ -89,7 +90,7 @@ function M.visible_items(state, def)
   return matched
 end
 
---- カーソル行のリソース。0 件のときは nil。
+--- The resource on the cursor line. nil when there are 0 items.
 ---@param state docker.ViewState
 ---@return table|nil
 function M.selected(state)

@@ -11,7 +11,7 @@ describe("docker.views.help", function()
   end)
 
   describe("build", function()
-    it("キーマップ定義からキーと操作の一覧を生成する", function()
+    it("generates the listing of keys and actions from the keymap definitions", function()
       local lines = help.build("container_list")
 
       local joined = table.concat(lines, "\n")
@@ -19,21 +19,21 @@ describe("docker.views.help", function()
       assert.is_truthy(joined:match("D%s+delete"), joined)
     end)
 
-    it("そのビューで無効な操作は載らない", function()
+    it("does not list actions that are inactive in that view", function()
       local joined = table.concat(help.build("image_list"), "\n")
 
-      assert.is_nil(joined:find("quickrun は", 1, true))
-      assert.is_nil(joined:find(" start", 1, true), "image_list に start は無い: " .. joined)
+      assert.is_nil(joined:find(" pause", 1, true), "image_list has no pause: " .. joined)
+      assert.is_nil(joined:find(" start", 1, true), "image_list has no start: " .. joined)
     end)
 
-    it("全ビュー共通のキーも載る", function()
+    it("lists the keys common to every view as well", function()
       local joined = table.concat(help.build("volume_list"), "\n")
 
       assert.is_truthy(joined:find("refresh", 1, true))
       assert.is_truthy(joined:find("close", 1, true))
     end)
 
-    it("利用者が変更したキーが反映される", function()
+    it("reflects a key the user has changed", function()
       config.setup({ keymaps = { container_list = { start = "s" } } })
 
       local joined = table.concat(help.build("container_list"), "\n")
@@ -41,7 +41,7 @@ describe("docker.views.help", function()
       assert.is_truthy(joined:match("s%s+start"), joined)
     end)
 
-    it("無効にしたアクションは載らない", function()
+    it("does not list an action that has been disabled", function()
       config.setup({ keymaps = { container_list = { delete = false } } })
 
       local joined = table.concat(help.build("container_list"), "\n")
@@ -49,10 +49,10 @@ describe("docker.views.help", function()
       assert.is_nil(joined:find("delete", 1, true))
     end)
 
-    it("キーと操作が桁揃えされる", function()
+    it("aligns the keys and the actions into columns", function()
       local lines = help.build("volume_list")
 
-      -- どの行も同じ桁から操作名が始まる。
+      -- The action name starts at the same position on every line.
       local columns = {}
       for _, line in ipairs(lines) do
         local col = line:find("%S%s*$")
@@ -67,7 +67,7 @@ describe("docker.views.help", function()
       end
     end)
 
-    it("行の並びは実行のたびに変わらない", function()
+    it("keeps the row order the same between runs", function()
       assert.are.same(help.build("container_list"), help.build("container_list"))
     end)
   end)
@@ -83,7 +83,7 @@ describe("docker.views.help", function()
       end
     end)
 
-    it("一覧より前面に重ねて表示する", function()
+    it("stacks itself in front of the list", function()
       local below = window.open({ title = "Containers", zindex = 50 })
 
       handle = help.open("container_list")
@@ -94,7 +94,7 @@ describe("docker.views.help", function()
       window.close(below)
     end)
 
-    it("キーの一覧がバッファに入る", function()
+    it("puts the listing of keys into the buffer", function()
       handle = help.open("container_list")
 
       local joined = table.concat(vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false), "\n")

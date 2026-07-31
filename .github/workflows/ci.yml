@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# 同じブランチで走っている古い実行は打ち切る。
+# Cancel the older runs still going on the same branch.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -13,12 +13,13 @@ concurrency:
 permissions:
   contents: read
 
-# 緑赤を左右する道具は版を固定する。浮動させると、コードを変えていないのに
-# 判定が反転して原因が追えなくなる。
+# Pin the versions of the tools that decide green or red. Letting them float flips the
+# verdict without any code change, and the cause becomes untraceable.
 env:
   PLENARY_SHA: 74b06c6c75e4eeb3108ec01852001636d85a932b
   LUACHECK_VERSION: 1.2.0
-  # ローカルの `make format` と同じ結果になるよう、開発環境と揃える。
+  # Kept in sync with the development environment so the result matches a local
+  # `make format`.
   STYLUA_VERSION: 2.5.2
   E2E_IMAGE: alpine:3.22
 
@@ -29,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 対応する下限 (0.10.0) と最新の安定版の両方で検証する。
+        # Verify against both the lowest supported version (0.10.0) and the latest stable.
         neovim: ["v0.10.0", "stable"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,20 +40,20 @@ jobs:
           neovim: true
           version: ${{ matrix.neovim }}
 
-      - name: plenary.nvim を取得する
+      - name: Fetch plenary.nvim
         run: |
           git init "$HOME/plenary.nvim"
           git -C "$HOME/plenary.nvim" fetch --depth 1 https://github.com/nvim-lua/plenary.nvim "$PLENARY_SHA"
           git -C "$HOME/plenary.nvim" checkout FETCH_HEAD
 
-      - name: spec の配置検査
+      - name: Check the spec layout
         run: make spec-layout-check
 
-      - name: plugin/*.lua の読み込み検査
-        # テストからは require されないため、他のどのゲートにも掛からない。
+      - name: Check that plugin/*.lua loads
+        # It is never required from the tests, so no other gate covers it.
         run: PLENARY_PATH="$HOME/plenary.nvim" make plugin-check
 
-      - name: 単体・結合テスト
+      - name: Unit and integration tests
         run: PLENARY_PATH="$HOME/plenary.nvim" make test
 
   lint:
@@ -66,10 +67,10 @@ jobs:
 
       - uses: leafo/gh-actions-luarocks@35d062def313a7699a0d513e996bcf4352f05389 # v6.1.0
         with:
-          # 既定値はアクションの版で変わるため明示する。
+          # The default changes with the action version, so state it explicitly.
           luaRocksVersion: "3.13.0"
 
-      - name: luacheck を導入する
+      - name: Install luacheck
         run: luarocks install luacheck "$LUACHECK_VERSION"
 
       - run: make lint
@@ -95,13 +96,13 @@ jobs:
           neovim: true
           version: stable
 
-      - name: plenary.nvim を取得する
+      - name: Fetch plenary.nvim
         run: |
           git init "$HOME/plenary.nvim"
           git -C "$HOME/plenary.nvim" fetch --depth 1 https://github.com/nvim-lua/plenary.nvim "$PLENARY_SHA"
           git -C "$HOME/plenary.nvim" checkout FETCH_HEAD
 
-      - name: lua-language-server を導入する
+      - name: Install lua-language-server
         run: |
           VERSION=3.13.6
           curl -fsSL -o lls.tar.gz \
@@ -109,7 +110,7 @@ jobs:
           mkdir -p "$HOME/lls" && tar -xzf lls.tar.gz -C "$HOME/lls"
           echo "$HOME/lls/bin" >> "$GITHUB_PATH"
 
-      - name: 型検査
+      - name: Type check
         run: PLENARY_PATH="$HOME/plenary.nvim" make typecheck
 
   e2e:
@@ -122,17 +123,17 @@ jobs:
           neovim: true
           version: stable
 
-      - name: plenary.nvim を取得する
+      - name: Fetch plenary.nvim
         run: |
           git init "$HOME/plenary.nvim"
           git -C "$HOME/plenary.nvim" fetch --depth 1 https://github.com/nvim-lua/plenary.nvim "$PLENARY_SHA"
           git -C "$HOME/plenary.nvim" checkout FETCH_HEAD
 
-      - name: docker が使えることを確認する
+      - name: Check that docker is available
         run: docker version
 
-      - name: 検証用イメージを取得する
+      - name: Pull the test image
         run: docker pull "$E2E_IMAGE"
 
-      - name: 通しシナリオ (実 docker)
+      - name: End-to-end scenarios (real docker)
         run: PLENARY_PATH="$HOME/plenary.nvim" DOCKER_NVIM_E2E_IMAGE="$E2E_IMAGE" make test-e2e

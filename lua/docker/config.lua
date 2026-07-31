@@ -1,17 +1,17 @@
---- デフォルト設定・キーマップ定義・利用者設定との合成。
+--- Default settings, keymap definitions and merging with the user's settings.
 ---
---- キーはビュー種別ごとに持つ。同じキーをビュー種別ごとに別のアクションへ
---- 割り当てられるようにするため (BR-015)。
+--- Keys are held per view type, so that the same key can be bound to a different action
+--- per view type (BR-015).
 local notify = require("docker.notify")
 
 local M = {}
 
 ---@class docker.Config
----@field keymaps table<string, table<string, string>>  ビュー種別 -> アクション名 -> キー
+---@field keymaps table<string, table<string, string>>  view type -> action name -> key
 ---@field debug boolean
 
---- 既定のキーマップ。denops-docker.vim の割り当てを踏襲する。
---- `common` は全一覧ビューに適用する。
+--- The default keymaps. They follow the bindings of denops-docker.vim.
+--- `common` applies to every list view.
 local DEFAULT_KEYMAPS = {
   common = {
     inspect = "<CR>",
@@ -68,14 +68,15 @@ local function defaults()
   return { keymaps = vim.deepcopy(DEFAULT_KEYMAPS), debug = false }
 end
 
---- テスト用。設定を未設定の状態へ戻す。
+--- For tests. Puts the settings back into the unconfigured state.
 function M._reset()
   current = nil
   notify.set_debug(false)
 end
 
---- 利用者設定を既定へ重ねる。未知のビュー種別・アクション名は取り込まずに警告する。
---- キーに false を渡すとその割り当てを無効にする。
+--- Layer the user's settings on top of the defaults. Unknown view types and action names are
+--- not taken in; a warning is issued instead.
+--- Passing false as the key disables that binding.
 ---@param opts table|nil
 ---@return docker.Config
 local function merge(opts)
@@ -111,7 +112,7 @@ local function merge(opts)
   return merged
 end
 
---- 利用者設定を取り込む。
+--- Take in the user's settings.
 ---@param opts table|nil
 ---@return docker.Config
 function M.setup(opts)
@@ -120,7 +121,7 @@ function M.setup(opts)
   return current
 end
 
---- 現在の設定。`setup` を呼ぶ前は既定値を返す。
+--- The current settings. Returns the defaults before `setup` is called.
 ---@return docker.Config
 function M.get()
   if not current then

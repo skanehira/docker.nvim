@@ -1,26 +1,26 @@
---- コンテナ内のファイルを Neovim で編集する。
+--- Edits a file inside a container with Neovim.
 ---
---- `docker cp` で一時領域へ取り出し、`docker://<container>/<path>` という名前の
---- バッファで開く。保存は `BufWriteCmd` で横取りして `docker cp` で書き戻す。
---- 書き戻しに失敗したときは `modified` を落とさない (変更を失わせないため)。
+--- The file is pulled into a temporary area with `docker cp` and opened in a buffer named
+--- `docker://<container>/<path>`. Saving is intercepted with `BufWriteCmd` and written back with `docker cp`.
+--- When the write back fails, `modified` is left set (so that changes are not lost).
 local cli = require("docker.adapters.docker.cli")
 local notify = require("docker.notify")
 
 local M = {}
 
---- バッファ番号 -> 書き戻し先
+--- buffer number -> write-back destination
 ---@type table<integer, { id: string, label: string, path: string, local_path: string }>
 local targets = {}
 
 local augroup = vim.api.nvim_create_augroup("DockerNvimFileEdit", { clear = true })
 
---- テスト用。開いた対応付けを捨てる。
+--- For tests. Discards the mappings of opened buffers.
 function M._reset()
   targets = {}
 end
 
---- コンテナ内のパスを一時領域へ写す名前を作る。
---- 同じパスを別のコンテナで開いても衝突しないよう ID を混ぜる。
+--- Builds the name under which a path inside the container is copied to the temporary area.
+--- The ID is mixed in so that opening the same path in a different container does not collide.
 ---@param id string
 ---@param path string
 ---@return string
@@ -29,8 +29,8 @@ local function local_path_for(id, path)
   return ("%s/docker-nvim-%s-%s"):format(vim.fn.stdpath("cache"), id:sub(1, 12), safe)
 end
 
---- 名前が完全に一致するバッファ。`vim.fn.bufnr` はパターン照合なので
---- `docker://web/etc/hosts.orig` のような別のバッファを掴んでしまう。
+--- The buffer whose name matches exactly. `vim.fn.bufnr` matches by pattern, so it would grab
+--- a different buffer such as `docker://web/etc/hosts.orig`.
 ---@param name string
 ---@return integer|nil
 local function buffer_named(name)
@@ -42,7 +42,7 @@ local function buffer_named(name)
   return nil
 end
 
---- 現在のタブページでバッファを表示しているウィンドウ。
+--- The window showing the buffer in the current tab page.
 ---@param bufnr integer
 ---@return integer|nil
 local function window_showing(bufnr)
@@ -54,7 +54,7 @@ local function window_showing(bufnr)
   return nil
 end
 
---- バッファが閉じられたときの後始末。
+--- Cleanup for when the buffer is closed.
 ---@param bufnr integer
 function M._on_buffer_closed(bufnr)
   local target = targets[bufnr]
@@ -63,14 +63,14 @@ function M._on_buffer_closed(bufnr)
   end
   targets[bufnr] = nil
   vim.fn.delete(target.local_path)
-  -- `:bdelete` はバッファ番号を残すため、横取りも解いておく。残すと
-  -- 開き直したときに BufWriteCmd が二重に張られる。
+  -- `:bdelete` keeps the buffer number around, so the interception is released too. Leaving it
+  -- in place would attach BufWriteCmd twice when the file is opened again.
   if vim.api.nvim_buf_is_valid(bufnr) then
     pcall(vim.api.nvim_clear_autocmds, { group = augroup, buffer = bufnr })
   end
 end
 
---- 書き戻す。
+--- Writes the buffer back.
 ---@param bufnr integer
 function M.write(bufnr)
   local target = targets[bufnr]
@@ -78,13 +78,13 @@ function M.write(bufnr)
     return
   end
 
-  -- バッファの内容を一時ファイルへ落としてから送る。
+  -- Dump the buffer contents into the temporary file before sending them.
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   vim.fn.writefile(lines, target.local_path)
 
   cli.run({ "cp", target.local_path, ("%s:%s"):format(target.id, target.path) }, function(result)
     if not result.ok then
-      -- 失敗したら modified を残す。落とすと変更が失われたように見える。
+      -- On failure keep modified set. Clearing it would make the changes look lost.
       notify.error(result.error or "コンテナへの書き戻しに失敗しました")
       return
     end
@@ -95,7 +95,7 @@ function M.write(bufnr)
   end)
 end
 
---- コンテナ内のファイルを開く。取り出しに失敗したときはバッファを開かない。
+--- Opens a file inside the container. No buffer is opened when the extraction fails.
 ---@param id string
 ---@param label string
 ---@param path string
@@ -114,20 +114,20 @@ function M.open(id, label, path, on_done)
       return done(nil)
     end
 
-    -- `docker cp` はディレクトリを指定すると丸ごと降ろす。バッファでは
-    -- 扱えないので、降ろした中身を捨ててから断る。残すとキャッシュに
-    -- コンテナのディレクトリツリーが溜まる。
+    -- Given a directory, `docker cp` pulls the whole thing down. A buffer cannot handle that,
+    -- so the pulled contents are discarded before refusing. Keeping them would pile the
+    -- container's directory tree up in the cache.
     if vim.fn.isdirectory(local_path) == 1 then
       vim.fn.delete(local_path, "rf")
       notify.error(("%s はディレクトリなので編集できません"):format(path))
       return done(nil)
     end
 
-    -- `acwrite` は「保存を autocmd で処理する」バッファ種別。
-    -- bufadd + bufload だと実在しないパスを読もうとして種別が戻るため、
-    -- バッファを自分で作ってから名前と種別を与える。
-    -- 同じファイルを 2 回開いたときは既存のバッファを使い回す。
-    -- 新しく作って同じ名前を付けると E95 (バッファ名の重複) で落ちる。
+    -- `acwrite` is the buffer type meaning "saving is handled by an autocmd".
+    -- With bufadd + bufload the type gets reset because a nonexistent path is read,
+    -- so the buffer is created here and then given its name and type.
+    -- When the same file is opened twice, the existing buffer is reused.
+    -- Creating a new one and giving it the same name would fail with E95 (duplicate buffer name).
     local name = ("docker://%s%s"):format(label, path)
     local bufnr = buffer_named(name)
     if not bufnr then
@@ -144,13 +144,13 @@ function M.open(id, label, path, on_done)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.fn.readfile(local_path))
     vim.bo[bufnr].modified = false
 
-    -- 既に見ているバッファなら autocmd は張り直さない。重ねて張ると
-    -- 保存 1 回で書き戻しが何度も走る。
+    -- For a buffer already being managed the autocmds are not attached again. Attaching them
+    -- on top of each other would run the write back several times for a single save.
     local already_managed = targets[bufnr] ~= nil
     targets[bufnr] = { id = id, label = label, path = path, local_path = local_path }
 
     if not already_managed then
-      -- 保存を横取りして docker へ書き戻す。
+      -- Intercept saving and write back to docker.
       vim.api.nvim_create_autocmd("BufWriteCmd", {
         group = augroup,
         buffer = bufnr,
@@ -160,7 +160,7 @@ function M.open(id, label, path, on_done)
         end,
       })
 
-      -- 破棄されたら対応付けを解き、取り出した中身も消す。
+      -- On wipeout, release the mapping and delete the extracted contents as well.
       vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
         group = augroup,
         buffer = bufnr,
@@ -172,10 +172,10 @@ function M.open(id, label, path, on_done)
       })
     end
 
-    -- 一覧はフロートウィンドウで、そこにフォーカスがある状態でバッファを
-    -- 差し替えると bufhidden=wipe の一覧バッファが破棄される。必ず新しい
-    -- ウィンドウを開く (terminal と同じく画面下の全幅分割)。
-    -- 既に出しているファイルなら、窓を増やさずそこへ戻る。
+    -- The list is a float window, and swapping the buffer while it has focus wipes out the
+    -- list buffer, which is bufhidden=wipe. Always open a new window (a full-width split at
+    -- the bottom of the screen, same as terminal).
+    -- If the file is already displayed, go back to it instead of adding another window.
     local shown = window_showing(bufnr)
     if shown then
       vim.api.nvim_set_current_win(shown)

@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
 #
-# plenary の busted ハーネスを起動し、「テストが実際に実行されたこと」まで検証する。
+# Start plenary's busted harness and verify that the tests actually ran.
 #
-# 終了コードだけを信じると、次のいずれも「成功」に見えてしまう:
-#   - spec ファイルはあるが it が 1 件も無い
-#   - テストが pending になっている (plenary は pending を Success の件数にも数えるため、
-#     実行後の出力だけでは全件 pending でも成功と区別できない)
-#   - 走査対象に spec ファイルが 1 件も無い (削除・改名・別ディレクトリへの移動)
-# ゴールの検証手順 (DESIGN_DETAIL_APP.md 9 章) はすべてこの終了コードに依存するため、
-# 「1 件も走っていない」を成功と区別できないと受入検証が空虚になる。
+# Trusting the exit code alone would make all of the following look like a "success":
+#   - the spec file exists but defines no it(...)
+#   - the tests are pending (plenary counts pending toward the Success count as well, so
+#     the output after a run cannot tell an all-pending run apart from a successful one)
+#   - the scanned target contains no spec file at all (deleted, renamed, or moved elsewhere)
+# Every goal verification step (DESIGN_DETAIL_APP.md chapter 9) depends on this exit code,
+# so failing to tell "nothing ran" apart from a success makes the acceptance checks hollow.
 #
-# このスクリプトが保証しないこと (誤解を避けるため明記する):
-#   - spec が「対応する実装を本当に検証しているか」は判定できない。
-#     `assert.are.same(1, 1)` だけの spec でも通る。これは review-tdd と
-#     review-adversarial の責務であり、シェルの終了コードでは代替できない
-#   - spec 内から意図的に os.exit を呼ぶ等、ハーネスを騙す目的のコードは
-#     静的検査で弾ける範囲までしか防げない (下の check_spec_sanity)
-#   - 一部の spec だけが削除された場合は検出できない (spec 数とサマリ数が同時に減るため)
+# What this script does NOT guarantee (stated explicitly to avoid misunderstanding):
+#   - it cannot judge whether a spec really verifies the implementation it covers.
+#     A spec containing only `assert.are.same(1, 1)` passes as well. That is the
+#     responsibility of review-tdd and review-adversarial, and a shell exit code
+#     is no substitute for it
+#   - code written to fool the harness, such as calling os.exit from inside a spec, is
+#     only blocked as far as the static checks reach (check_spec_sanity below)
+#   - the deletion of only some of the specs cannot be detected (the spec count and the
+#     summary count decrease together)
 #
-# 使い方: run-busted.sh <ディレクトリ | *_spec.lua>
+# Usage: run-busted.sh <directory | *_spec.lua>
 set -uo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -27,9 +29,9 @@ REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 TARGET=${1:?usage: run-busted.sh <dir-or-spec-file>}
 MINIMAL_INIT=${MINIMAL_INIT:-$REPO_ROOT/tests/minimal_init.lua}
 
-# minimal_init を読めないと nvim は -u を無視して起動し、PlenaryBusted* が
-# 未定義コマンドのままヘッドレス nvim が終了しなくなる (無応答 = CI が検知できない)。
-# minimal_init 自身のガードはそれが読み込まれた場合にしか働かないので、ここで先に見る。
+# When minimal_init cannot be read, nvim starts while ignoring -u, PlenaryBusted* stays an
+# undefined command, and the headless nvim never exits (no response = CI cannot detect it).
+# The guard inside minimal_init only works once it is loaded, so check it here first.
 if [ ! -f "$MINIMAL_INIT" ]; then
   echo "run-busted: minimal init not found: $MINIMAL_INIT" >&2
   exit 1
@@ -44,8 +46,8 @@ for tool in nvim perl; do
   command -v "$tool" >/dev/null 2>&1 || { echo "run-busted: required tool not found: $tool" >&2; exit 1; }
 done
 
-# 対象に含まれる spec ファイル。plenary は spec ファイル 1 つにつき
-# サマリブロックを 1 つ出力するので、この数が期待値になる。
+# The spec files contained in the target. plenary prints one summary block per spec file,
+# so this count is the expected value.
 if [ -d "$TARGET" ]; then
   specs=$(find "$TARGET" -type f -name '*_spec.lua' | sort)
 else
@@ -53,29 +55,31 @@ else
 fi
 spec_count=$(printf '%s' "$specs" | grep -c . || true)
 
-# 走査対象に spec が 1 件も無いのは、テストが消えた・改名された・走査対象外の
-# ディレクトリへ移動した状態。green と区別できないと回帰に気付けないため失敗させる。
+# Finding no spec under the scanned target means the tests were deleted, renamed, or moved
+# into a directory outside the scan. Failing to tell that apart from green would hide a
+# regression, so fail instead.
 if [ "$spec_count" -eq 0 ]; then
   echo "run-busted: no *_spec.lua found under $TARGET" >&2
   exit 1
 fi
 
-# 実行前の静的検査。ハーネスの出力を信じる前に、spec 側の前提を確かめる。
+# Static checks before the run. Confirm the assumptions on the spec side before trusting
+# the output of the harness.
 for spec in $specs; do
   if ! grep -qE '(^|[^[:alnum:]_])it[[:space:]]*\(' "$spec"; then
     echo "run-busted: $spec defines no test (no it(...) found)" >&2
     exit 1
   fi
-  # spec が自分でプロセスを終わらせると、plenary が本物のサマリを出す前に
-  # 子プロセスが消え、偽のサマリだけが残る。テストが os.exit を呼ぶ理由は無い。
+  # When a spec ends the process itself, the child process disappears before plenary prints
+  # the real summary, leaving only a fake one. A test has no reason to call os.exit.
   if grep -qE '(^|[^[:alnum:]_.])os\.exit[[:space:]]*\(' "$spec"; then
     echo "run-busted: $spec calls os.exit, which prevents the harness from reporting real results" >&2
     exit 1
   fi
-  # plenary は pending を Pending 行と Success 件数の両方に数えるため、全件 pending の
-  # spec でも Success >= 1 になり実行後の検査をすり抜ける。加えて
-  # rules/core/tdd.md が「後で追加する意図でテストをスキップする」ことを禁じているので、
-  # 実行前に静的に落とす。
+  # plenary counts pending toward both the Pending lines and the Success count, so even an
+  # all-pending spec reaches Success >= 1 and slips past the checks made after the run. On
+  # top of that, rules/core/tdd.md forbids "skipping a test with the intent of adding it
+  # later", so reject it statically before the run.
   if grep -qE '(^|[^[:alnum:]_.])pending[[:space:]]*\(' "$spec"; then
     echo "run-busted: $spec uses pending(); skipped tests are not allowed (see rules/core/tdd.md)" >&2
     exit 1
@@ -90,20 +94,21 @@ printf '%s\n' "$out"
 [ "$status" -eq 0 ] || exit "$status"
 
 plain=$(printf '%s' "$out" | perl -pe 's/\e\[[0-9;]*m//g')
-# plenary のサマリは `print("Success: ", n)` で出力され、Lua の print は引数間に
-# タブを挟む。このタブを目印にすることで、テスト本体が print した
-# `Success: 3` のような文字列を誤ってサマリと数えない。
+# plenary prints its summary with `print("Success: ", n)`, and Lua's print inserts a tab
+# between the arguments. Using that tab as the marker keeps a string such as `Success: 3`
+# printed by a test body from being miscounted as a summary.
 summary_count=$(printf '%s\n' "$plain" | perl -ne '$n++ if /^Success:[ ]*\t\d+/; END { print $n + 0 }')
 
-# サマリ行の数が spec ファイル数と一致しない場合、走査から漏れたファイルがあるか、
-# テスト本体が偽のサマリ行を出力している。どちらも成功として扱ってはいけない。
+# When the number of summary lines does not match the number of spec files, either a file
+# was missed by the scan or a test body printed a fake summary line. Neither may be treated
+# as a success.
 if [ "$summary_count" -ne "$spec_count" ]; then
   echo "run-busted: expected $spec_count summary block(s) for $spec_count spec file(s), got $summary_count" >&2
   exit 1
 fi
 
-# 「1 件も成功しなかった spec」が 1 つでもあれば失敗させる。合計値で見ると、
-# 別の spec の成功数に隠れて空の spec を見逃す。
+# Fail as soon as one spec passed no test at all. Looking at the total instead would hide
+# an empty spec behind the passing count of another spec.
 if printf '%s\n' "$plain" | perl -ne 'exit 1 if /^Success:[ ]*\t0(\D|$)/' ; then
   :
 else

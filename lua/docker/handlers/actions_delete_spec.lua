@@ -21,13 +21,13 @@ local function container(overrides)
   }, overrides or {})
 end
 
-describe("削除アクション", function()
+describe("delete action", function()
   local runs, notified, prompts
   local original_notify, original_input
   ---@type docker.ResourceDefinition
   local def
 
-  --- 確認プロンプトへ与える応答を仕込む。
+  --- Sets up the answer to be given to the confirmation prompt.
   ---@param answer string|nil
   local function answer_with(answer)
     ---@diagnostic disable-next-line: duplicate-set-field
@@ -59,7 +59,7 @@ describe("削除アクション", function()
     operations._reset()
   end)
 
-  it("確認でyと答えると削除コマンドを発行する", function()
+  it("issues the delete command when the confirmation is answered with y", function()
     answer_with("y")
 
     actions.execute("delete", { def = def, item = container() })
@@ -67,7 +67,7 @@ describe("削除アクション", function()
     assert.are.same({ "docker", "rm", "abc123" }, runs[1])
   end)
 
-  it("確認で大文字のYと答えても削除する", function()
+  it("deletes when the confirmation is answered with an uppercase Y", function()
     answer_with("Y")
 
     actions.execute("delete", { def = def, item = container() })
@@ -75,7 +75,7 @@ describe("削除アクション", function()
     assert.are.same({ "docker", "rm", "abc123" }, runs[1])
   end)
 
-  it("確認でnと答えると削除コマンドを発行しない", function()
+  it("does not issue the delete command when the confirmation is answered with n", function()
     answer_with("n")
 
     actions.execute("delete", { def = def, item = container() })
@@ -83,7 +83,7 @@ describe("削除アクション", function()
     assert.are.same({}, runs)
   end)
 
-  it("確認で空文字のときは削除しない", function()
+  it("does not delete when the confirmation is an empty string", function()
     answer_with("")
 
     actions.execute("delete", { def = def, item = container() })
@@ -91,8 +91,8 @@ describe("削除アクション", function()
     assert.are.same({}, runs)
   end)
 
-  it("確認をキャンセルすると削除しない", function()
-    -- Esc で抜けると nil が返る。
+  it("does not delete when the confirmation is cancelled", function()
+    -- Leaving with Esc returns nil.
     answer_with(nil)
 
     actions.execute("delete", { def = def, item = container() })
@@ -100,7 +100,7 @@ describe("削除アクション", function()
     assert.are.same({}, runs)
   end)
 
-  it("yes のような y 以外の応答では削除しない", function()
+  it("does not delete for an answer other than y such as yes", function()
     answer_with("yes")
 
     actions.execute("delete", { def = def, item = container() })
@@ -108,7 +108,7 @@ describe("削除アクション", function()
     assert.are.same({}, runs)
   end)
 
-  it("確認プロンプトに対象名を含める", function()
+  it("includes the target name in the confirmation prompt", function()
     answer_with("n")
 
     actions.execute("delete", { def = def, item = container({ name = "my-container" }) })
@@ -117,18 +117,18 @@ describe("削除アクション", function()
     assert.is_truthy(prompts[1].prompt:find("my-container", 1, true), prompts[1].prompt)
   end)
 
-  it("強制削除のオプションを付けない", function()
-    -- BR-002: 実行中コンテナの削除は docker に拒否させ、-f では消さない。
+  it("does not add a force delete option", function()
+    -- BR-002: deleting a running container is left for docker to refuse; it is never forced with -f.
     answer_with("y")
 
     actions.execute("delete", { def = def, item = container() })
 
     for _, arg in ipairs(runs[1]) do
-      assert.is_true(arg ~= "-f" and arg ~= "--force", "強制削除のオプションを含めないこと")
+      assert.is_true(arg ~= "-f" and arg ~= "--force", "must not include a force delete option")
     end
   end)
 
-  it("削除に失敗するとdockerの標準エラー出力をそのまま通知する", function()
+  it("notifies docker's standard error output as-is when the delete fails", function()
     answer_with("y")
     cli._set_executor(function(cmd, _, on_exit)
       table.insert(runs, cmd)
@@ -142,7 +142,7 @@ describe("削除アクション", function()
     assert.are.equal("Error response from daemon: container is running", last.msg)
   end)
 
-  it("削除を断ったときは実行中の操作として残らない", function()
+  it("leaves no running operation when the delete is declined", function()
     answer_with("n")
 
     actions.execute("delete", { def = def, item = container() })
@@ -150,7 +150,7 @@ describe("削除アクション", function()
     assert.is_false(operations.is_running("abc123", "delete"))
   end)
 
-  it("削除が完了すると実行中の操作が解除される", function()
+  it("clears the running operation once the delete completes", function()
     answer_with("y")
 
     actions.execute("delete", { def = def, item = container() })
@@ -158,8 +158,8 @@ describe("削除アクション", function()
     assert.is_false(operations.is_running("abc123", "delete"))
   end)
 
-  describe("全リソース種別の削除", function()
-    it("種別ごとに正しい削除コマンドを発行する", function()
+  describe("delete across all resource kinds", function()
+    it("issues the correct delete command for each kind", function()
       answer_with("y")
       local cases = {
         { kind = "container", item = container(), expected = { "docker", "rm", "abc123" } },
@@ -178,8 +178,8 @@ describe("削除アクション", function()
       assert.are.same({ cases[1].expected, cases[2].expected, cases[3].expected, cases[4].expected }, actual)
     end)
 
-    it("どの種別でも確認プロンプトを経る", function()
-      -- G6: 削除は種別に依らず確認を挟む。
+    it("goes through the confirmation prompt for every kind", function()
+      -- G6: deletion interposes a confirmation regardless of the kind.
       answer_with("n")
 
       for _, kind in ipairs({ "container", "image", "volume", "network" }) do
@@ -188,19 +188,19 @@ describe("削除アクション", function()
           def = assert(registry.get(kind)),
           item = { id = "x", name = "x" },
         })
-        assert.are.equal(1, #prompts, kind .. " で確認が出ること")
-        assert.are.same({}, runs, kind .. " で削除コマンドを発行しないこと")
+        assert.are.equal(1, #prompts, kind .. " must show a confirmation")
+        assert.are.same({}, runs, kind .. " must not issue the delete command")
       end
     end)
 
-    it("どの種別でも強制削除のオプションを付けない", function()
+    it("does not add a force delete option for any kind", function()
       answer_with("y")
 
       for _, kind in ipairs({ "container", "image", "volume", "network" }) do
         runs = {}
         actions.execute("delete", { def = assert(registry.get(kind)), item = { id = "x", name = "x" } })
         for _, arg in ipairs(runs[1]) do
-          assert.is_true(arg ~= "-f" and arg ~= "--force", kind .. " に強制削除を含めないこと")
+          assert.is_true(arg ~= "-f" and arg ~= "--force", kind .. " must not include a force delete")
         end
       end
     end)

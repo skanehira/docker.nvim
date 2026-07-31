@@ -11,36 +11,36 @@ describe("docker.views.keymaps", function()
   end)
 
   describe("resolve", function()
-    it("共通のキーとビュー固有のキーを合わせて返す", function()
+    it("returns the common keys and the view-specific keys together", function()
       local resolved = keymaps.resolve("container_list")
 
       assert.are.equal("inspect", resolved["<CR>"])
       assert.are.equal("start", resolved["u"])
     end)
 
-    it("ビューに無いアクションは解決されない", function()
-      -- コンテナ一覧に quickrun は無い (イメージ一覧のアクション)。
+    it("does not resolve an action the view does not have", function()
+      -- The container list has no quickrun (it is an action of the image list).
       local resolved = keymaps.resolve("container_list")
 
       for _, action in pairs(resolved) do
-        assert.is_true(action ~= "quickrun", "container_list に quickrun があってはいけない")
+        assert.is_true(action ~= "quickrun", "container_list must not have quickrun")
       end
     end)
 
-    it("同じキーがビュー種別ごとに別のアクションへ解決される", function()
+    it("resolves the same key to a different action per view type", function()
       -- BR-015
       assert.are.equal("restart", keymaps.resolve("container_list")["r"])
       assert.are.equal("quickrun", keymaps.resolve("image_list")["r"])
     end)
 
-    it("ビュー固有のキーが共通のキーと衝突するときはビュー固有を優先する", function()
+    it("prefers the view-specific key when it collides with a common key", function()
       config.setup({ keymaps = { container_list = { start = "R" } } })
 
-      -- 共通の refresh も "R" だが、ビュー固有の start が勝つ。
+      -- The common refresh is also bound to "R", but the view-specific start wins.
       assert.are.equal("start", keymaps.resolve("container_list")["R"])
     end)
 
-    it("利用者が変更したキーが反映される", function()
+    it("reflects a key the user has changed", function()
       config.setup({ keymaps = { container_list = { start = "s" } } })
 
       local resolved = keymaps.resolve("container_list")
@@ -48,13 +48,13 @@ describe("docker.views.keymaps", function()
       assert.is_nil(resolved["u"])
     end)
 
-    it("無効にしたアクションは解決されない", function()
+    it("does not resolve an action that has been disabled", function()
       config.setup({ keymaps = { container_list = { delete = false } } })
 
       assert.is_nil(keymaps.resolve("container_list")["D"])
     end)
 
-    it("未知のビュー種別は共通のキーだけを返す", function()
+    it("returns only the common keys for an unknown view type", function()
       local resolved = keymaps.resolve("nonexistent_view")
 
       assert.are.equal("inspect", resolved["<CR>"])
@@ -63,7 +63,7 @@ describe("docker.views.keymaps", function()
   end)
 
   describe("describe_view", function()
-    it("ビューで有効なキーとアクションの組を並べて返す", function()
+    it("returns the pairs of key and action that are active in the view", function()
       local rows = keymaps.describe_view("image_list")
 
       local actions = {}
@@ -75,16 +75,16 @@ describe("docker.views.keymaps", function()
       assert.are.equal("<CR>", actions.inspect)
     end)
 
-    it("そのビューで無効な操作は載らない", function()
+    it("does not include actions that are inactive in that view", function()
       local rows = keymaps.describe_view("image_list")
 
       for _, row in ipairs(rows) do
-        assert.is_true(row.action ~= "start", "image_list に start があってはいけない")
+        assert.is_true(row.action ~= "start", "image_list must not have start")
       end
     end)
 
-    it("キーの昇順で並ぶ", function()
-      -- 同じ内容でも並びが揺れるとヘルプの行順が実行のたびに変わる。
+    it("orders the rows by key in ascending order", function()
+      -- If the order wobbled for the same content, the row order of the help would change between runs.
       local rows = keymaps.describe_view("volume_list")
 
       local keys = {}

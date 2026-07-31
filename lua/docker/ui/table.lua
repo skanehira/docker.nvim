@@ -1,11 +1,13 @@
---- 一覧の桁揃え。
+--- Column alignment for the list.
 ---
---- 幅の計算は表示幅 (`strdisplaywidth`) で行う。全角文字はバイト長と表示幅が
---- 一致しないため、バイト長で詰めると列がずれる。
---- 一方でハイライトの範囲はバイト位置で扱う (extmark がバイト位置を取るため)。
+--- Widths are computed with the display width (`strdisplaywidth`). For full-width
+--- characters the byte length and the display width differ, so padding by byte length
+--- would misalign the columns.
+--- Highlight ranges, on the other hand, are handled as byte positions (extmarks take
+--- byte positions).
 local M = {}
 
---- 列と列の区切り。
+--- The separator between columns.
 local SEPARATOR = "  "
 
 ---@param value string
@@ -14,7 +16,7 @@ local function display_width(value)
   return vim.fn.strdisplaywidth(value)
 end
 
---- 見出しと全行を見て、各列の表示幅を決める。
+--- Decide the display width of each column by looking at the headers and every row.
 ---@param headers string[]
 ---@param rows string[][]
 ---@return integer[]
@@ -36,9 +38,11 @@ function M.compute_widths(headers, rows)
   return widths
 end
 
---- 1 行分の値を指定幅に揃えて連結する。
---- 指定幅より長い値は切り詰めない (ID や名前が読めなくなるため、桁ずれを許容する)。
---- 行末の余白は残さない (カーソル移動と選択範囲が見た目とずれるため)。
+--- Pad the values of one row to the given widths and concatenate them.
+--- Values longer than the given width are not truncated (that would make IDs and names
+--- unreadable, so misalignment is accepted instead).
+--- No trailing padding is left at the end of the line (it would make cursor movement and
+--- the selection range disagree with what is displayed).
 ---@param values string[]
 ---@param widths integer[]
 ---@return string
@@ -55,13 +59,13 @@ function M.format_row(values, widths)
   return (table.concat(parts, SEPARATOR):gsub("%s+$", ""))
 end
 
---- 指定した列が行内で占めるバイト範囲を返す。
---- extmark に渡すため、表示幅ではなくバイト位置で返す。
+--- Return the byte range that the given column occupies within the row.
+--- Byte positions rather than display widths are returned, because they are passed to an extmark.
 ---@param values string[]
 ---@param widths integer[]
----@param index integer 1 始まりの列番号
----@return integer from 開始バイト位置 (0 始まり)
----@return integer to   終了バイト位置 (この位置は含まない)
+---@param index integer 1-based column number
+---@return integer from Start byte position (0-based)
+---@return integer to   End byte position (exclusive)
 function M.column_span(values, widths, index)
   local from = 0
   for i = 1, index - 1 do

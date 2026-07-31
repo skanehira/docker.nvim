@@ -30,7 +30,7 @@ describe("docker.handlers.actions", function()
   ---@type docker.ResourceDefinition
   local def
 
-  --- docker の実行を横取りし、指定の終了状態を返す。
+  --- Intercepts the docker execution and returns the given exit status.
   local function stub_docker(out)
     cli._set_executor(function(cmd, _, on_exit)
       table.insert(runs, cmd)
@@ -63,69 +63,69 @@ describe("docker.handlers.actions", function()
     return runs[#runs]
   end
 
-  describe("発行する docker 引数", function()
-    it("startは対象のIDでdocker startを発行する", function()
+  describe("docker arguments issued", function()
+    it("start issues docker start with the target ID", function()
       actions.execute("start", { def = def, item = container({ state = "exited" }) })
 
       assert.are.same({ "docker", "start", "abc123" }, last_run())
     end)
 
-    it("stopは対象のIDでdocker stopを発行する", function()
+    it("stop issues docker stop with the target ID", function()
       actions.execute("stop", { def = def, item = container({ state = "running" }) })
 
       assert.are.same({ "docker", "stop", "abc123" }, last_run())
     end)
 
-    it("restartは対象のIDでdocker restartを発行する", function()
+    it("restart issues docker restart with the target ID", function()
       actions.execute("restart", { def = def, item = container({ state = "running" }) })
 
       assert.are.same({ "docker", "restart", "abc123" }, last_run())
     end)
 
-    it("killは対象のIDでdocker killを発行する", function()
+    it("kill issues docker kill with the target ID", function()
       actions.execute("kill", { def = def, item = container({ state = "running" }) })
 
       assert.are.same({ "docker", "kill", "abc123" }, last_run())
     end)
   end)
 
-  describe("前提を満たさない操作", function()
-    it("実行中のコンテナはstartせず警告する", function()
+  describe("operations that do not satisfy their precondition", function()
+    it("warns instead of starting a running container", function()
       actions.execute("start", { def = def, item = container({ state = "running" }) })
 
-      assert.are.same({}, runs, "docker を呼ばないこと")
+      assert.are.same({}, runs, "must not invoke docker")
       assert.are.equal(1, #notified)
       assert.are.equal(vim.log.levels.WARN, notified[1].level)
     end)
 
-    it("停止中のコンテナはstopせず警告する", function()
+    it("warns instead of stopping a stopped container", function()
       actions.execute("stop", { def = def, item = container({ state = "exited" }) })
 
       assert.are.same({}, runs)
       assert.are.equal(vim.log.levels.WARN, notified[1].level)
     end)
 
-    it("停止中のコンテナはkillせず警告する", function()
-      -- BR-007: docker を呼ばずに警告する。
+    it("warns instead of killing a stopped container", function()
+      -- BR-007: warn without invoking docker.
       actions.execute("kill", { def = def, item = container({ state = "exited" }) })
 
       assert.are.same({}, runs)
-      assert.is_truthy(notified[1].msg:find("web", 1, true), "対象名を含めること: " .. notified[1].msg)
+      assert.is_truthy(notified[1].msg:find("web", 1, true), "must include the target name: " .. notified[1].msg)
     end)
 
-    it("前提を満たさないときは実行中の操作として記録しない", function()
+    it("does not record a running operation when the precondition is not satisfied", function()
       actions.execute("kill", { def = def, item = container({ state = "exited" }) })
 
       assert.is_false(operations.is_running("abc123", "kill"))
     end)
   end)
 
-  describe("実行中の重複要求", function()
-    it("同じ対象の同じ操作を二重に発行しない", function()
-      -- BR-009: 2 つ目のプロセスを起動しない。
+  describe("duplicate requests while an operation is running", function()
+    it("does not issue the same operation twice for the same target", function()
+      -- BR-009: do not start a second process.
       cli._set_executor(function(cmd, _, _)
         table.insert(runs, cmd)
-        -- 完了通知を返さず実行中のままにする
+        -- Leave it running by never delivering a completion notification
       end)
 
       actions.execute("stop", { def = def, item = container({ state = "running" }) })
@@ -134,7 +134,7 @@ describe("docker.handlers.actions", function()
       assert.are.equal(1, #runs)
     end)
 
-    it("重複要求は警告で知らせる", function()
+    it("reports a duplicate request with a warning", function()
       cli._set_executor(function(cmd, _, _)
         table.insert(runs, cmd)
       end)
@@ -145,7 +145,7 @@ describe("docker.handlers.actions", function()
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
     end)
 
-    it("完了すると同じ操作を再び受け付ける", function()
+    it("accepts the same operation again once it has completed", function()
       actions.execute("stop", { def = def, item = container({ state = "running" }) })
 
       actions.execute("stop", { def = def, item = container({ state = "running" }) })
@@ -154,8 +154,8 @@ describe("docker.handlers.actions", function()
     end)
   end)
 
-  describe("成否の通知", function()
-    it("成功すると対象名を含む情報を通知する", function()
+  describe("notification of success and failure", function()
+    it("notifies info including the target name on success", function()
       actions.execute("start", { def = def, item = container({ state = "exited" }) })
 
       local last = notified[#notified]
@@ -163,8 +163,8 @@ describe("docker.handlers.actions", function()
       assert.is_truthy(last.msg:find("web", 1, true), last.msg)
     end)
 
-    it("失敗するとdockerの標準エラー出力をそのまま通知する", function()
-      -- BR-016: docker のエラーはそのまま提示する。
+    it("notifies docker's standard error output as-is on failure", function()
+      -- BR-016: docker's error is presented as-is.
       stub_docker({ code = 1, stderr = "Error response from daemon: cannot stop container" })
 
       actions.execute("stop", { def = def, item = container({ state = "running" }) })
@@ -174,7 +174,7 @@ describe("docker.handlers.actions", function()
       assert.are.equal("Error response from daemon: cannot stop container", last.msg)
     end)
 
-    it("失敗しても一覧の状態は変えない", function()
+    it("does not change the state in the list on failure", function()
       store.replace_all("container", { container({ state = "running" }) })
       stub_docker({ code = 1, stderr = "boom" })
 
@@ -183,7 +183,7 @@ describe("docker.handlers.actions", function()
       assert.are.equal("running", store.list("container")[1].state)
     end)
 
-    it("失敗しても実行中の操作は解除される", function()
+    it("clears the running operation even on failure", function()
       stub_docker({ code = 1, stderr = "boom" })
 
       actions.execute("stop", { def = def, item = container({ state = "running" }) })
@@ -192,8 +192,8 @@ describe("docker.handlers.actions", function()
     end)
   end)
 
-  describe("未知のアクション", function()
-    it("dockerを呼ばずに警告する", function()
+  describe("unknown action", function()
+    it("warns without invoking docker", function()
       actions.execute("fly_to_the_moon", { def = def, item = container() })
 
       assert.are.same({}, runs)
@@ -201,8 +201,8 @@ describe("docker.handlers.actions", function()
     end)
   end)
 
-  describe("対象が無いとき", function()
-    it("dockerを呼ばずに警告する", function()
+  describe("when there is no target", function()
+    it("warns without invoking docker", function()
       actions.execute("start", { def = def, item = nil })
 
       assert.are.same({}, runs)
@@ -210,7 +210,7 @@ describe("docker.handlers.actions", function()
     end)
   end)
 
-  describe("ターミナルを開く操作", function()
+  describe("operations that open a terminal", function()
     local opened
 
     before_each(function()
@@ -225,26 +225,26 @@ describe("docker.handlers.actions", function()
       terminal._set_job_starter(nil)
     end)
 
-    it("logsは停止中のコンテナでもターミナルを開く", function()
+    it("logs opens a terminal even for a stopped container", function()
       actions.execute("logs", { def = def, item = container({ state = "exited" }) })
 
       assert.are.same({ "docker", "logs", "-f", "abc123" }, opened[1])
     end)
 
-    it("shellは実行中のコンテナでターミナルを開く", function()
+    it("shell opens a terminal for a running container", function()
       actions.execute("shell", { def = def, item = container({ state = "running" }) })
 
       assert.are.same({ "docker", "exec", "-it", "abc123" }, { unpack(opened[1], 1, 4) })
     end)
 
-    it("停止中のコンテナではシェルを開かず警告する", function()
+    it("warns instead of opening a shell for a stopped container", function()
       actions.execute("shell", { def = def, item = container({ state = "exited" }) })
 
       assert.are.same({}, opened)
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
     end)
 
-    it("execは入力したコマンドでターミナルを開く", function()
+    it("exec opens a terminal with the entered command", function()
       local original_input = vim.ui.input
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.ui.input = function(_, on_confirm)
@@ -257,7 +257,7 @@ describe("docker.handlers.actions", function()
       assert.are.same({ "docker", "exec", "-it", "abc123", "ls", "-la" }, opened[1])
     end)
 
-    it("execの入力をキャンセルするとターミナルを開かない", function()
+    it("does not open a terminal when the exec input is cancelled", function()
       local original_input = vim.ui.input
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.ui.input = function(_, on_confirm)
@@ -271,8 +271,8 @@ describe("docker.handlers.actions", function()
     end)
   end)
 
-  describe("通知の文言", function()
-    it("操作ごとに何が起きたか分かる文言で通知する", function()
+  describe("notification wording", function()
+    it("notifies with wording that tells what happened for each operation", function()
       local messages = {}
       for _, case in ipairs({
         { action = "start", state = "exited" },
@@ -293,7 +293,7 @@ describe("docker.handlers.actions", function()
       }, messages)
     end)
 
-    it("前提を満たさない操作は理由が分かる文言で断る", function()
+    it("refuses an operation whose precondition is unmet with wording that tells why", function()
       local messages = {}
       for _, case in ipairs({
         { action = "start", state = "running" },
@@ -313,36 +313,36 @@ describe("docker.handlers.actions", function()
     end)
   end)
 
-  describe("restart の前提", function()
-    it("停止中のコンテナでもrestartできる", function()
-      -- docker restart は停止中のコンテナを起動する。前提で弾いてはいけない。
+  describe("precondition of restart", function()
+    it("restarts even a stopped container", function()
+      -- docker restart starts a stopped container. It must not be rejected by a precondition.
       actions.execute("restart", { def = def, item = container({ state = "exited" }) })
 
       assert.are.same({ "docker", "restart", "abc123" }, last_run())
     end)
   end)
 
-  describe("pause と unpause", function()
-    it("実行中のコンテナをpauseする", function()
+  describe("pause and unpause", function()
+    it("pauses a running container", function()
       actions.execute("pause", { def = def, item = container({ state = "running" }) })
 
       assert.are.same({ "docker", "pause", "abc123" }, last_run())
     end)
 
-    it("一時停止中のコンテナをunpauseする", function()
+    it("unpauses a paused container", function()
       actions.execute("unpause", { def = def, item = container({ state = "paused" }) })
 
       assert.are.same({ "docker", "unpause", "abc123" }, last_run())
     end)
 
-    it("停止中のコンテナはpauseせず警告する", function()
+    it("warns instead of pausing a stopped container", function()
       actions.execute("pause", { def = def, item = container({ state = "exited" }) })
 
       assert.are.same({}, runs)
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
     end)
 
-    it("一時停止していないコンテナはunpauseせず警告する", function()
+    it("warns instead of unpausing a container that is not paused", function()
       actions.execute("unpause", { def = def, item = container({ state = "running" }) })
 
       assert.are.same({}, runs)

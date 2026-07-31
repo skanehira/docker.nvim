@@ -1,19 +1,20 @@
---- 対応する Neovim のバージョン判定。
+--- Deciding which Neovim versions are supported.
 ---
---- `vim.system` を使うため 0.10 以上を要求する。要求を満たさない環境では
---- コマンドもキーマップも登録せず、以降どの操作でも実行時エラーを出さない。
---- 起動時に読む必要があるので、このモジュールは他のモジュールに依存しない。
+--- 0.10 or later is required because `vim.system` is used. In environments that do not
+--- meet the requirement neither the command nor the keymaps are registered, so no later
+--- operation raises a runtime error.
+--- This module depends on no other module, because it has to be loaded at startup.
 local M = {}
 
 M.MINIMUM = { major = 0, minor = 10 }
 
----@param v table|nil 省略時は実行中の Neovim
+---@param v table|nil Defaults to the running Neovim when omitted
 ---@return table
 local function resolve(v)
   return v or vim.version()
 end
 
---- 要求バージョンを満たすか。
+--- Whether the required version is met.
 ---@param v table|nil
 ---@return boolean
 function M.supported(v)
@@ -24,7 +25,7 @@ function M.supported(v)
   return current.minor >= M.MINIMUM.minor
 end
 
---- 要求を満たさないときに通知する文言。
+--- The message notified when the requirement is not met.
 ---@param v table|nil
 ---@return string
 function M.requirement_message(v)

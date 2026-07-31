@@ -1,7 +1,7 @@
---- リソース種別の宣言的定義。
+--- Declarative definitions of the resource kinds.
 ---
---- 種別の追加はこのファイルへの定義追加だけで完結させ、ビューとハンドラに
---- 種別ごとの分岐を増やさない (レジストリパターン)。
+--- Adding a kind must be completed by adding a definition to this file alone, so that per-kind
+--- branching does not grow in the views and the handlers (registry pattern).
 local fields = require("docker.resources.fields")
 local format = require("docker.format")
 local service_loader = require("docker.resources.service_loader")
@@ -14,25 +14,27 @@ local M = {}
 
 ---@class docker.ResourceDefinition
 ---@field kind string                    "container" | "image" | "volume" | "network" | "service"
----@field subcommand string              `:Docker` に渡す引数 (例: "containers")
----@field view_type string               キーマップを引くビュー種別 (例: "container_list")
+---@field subcommand string              the argument passed to `:Docker` (for example "containers")
+---@field view_type string               the view type used to look up keymaps (for example "container_list")
 ---@field display_name string
----@field empty_text string              0 件のときに一覧へ出す 1 行
----@field list_args? fun(): string[]     一覧取得の docker 引数 (load を持つ種別では省略)
----@field delete_args? fun(item: table): string[] 削除の docker 引数 (強制削除は付けない)
----@field item_args? fun(id: string): string[]    1 件だけ取り直す docker 引数
----@field load? fun(ctx: table, on_done: fun(result: table)) 一覧の取得が docker の単一コマンドで表せない種別用
----@field event_reload? boolean イベント時に 1 件ではなく全件を取り直す種別 (識別子がイベントの ID と対応しない場合)
----@field id fun(item: table): string    識別子の取り出し
+---@field empty_text string              the single line shown in the list when there are 0 items
+---@field list_args? fun(): string[]     docker arguments to list items (omitted for kinds that have load)
+---@field delete_args? fun(item: table): string[] docker arguments to delete (never force delete)
+---@field item_args? fun(id: string): string[]    docker arguments to fetch just one item again
+---@field load? fun(ctx: table, on_done: fun(result: table)) for kinds whose list a single docker command cannot express
+---@field event_reload? boolean for kinds that fetch every item again instead of one on an event
+--- (used when the identifier does not correspond to the ID in the event)
+---@field id fun(item: table): string    extraction of the identifier
 ---@field columns docker.ColumnDef[]
----@field status_column integer|nil      ハイライト対象のカラム位置 (1 始まり)
----@field status? fun(item: table): string|nil 状態カラムを持つ種別のみ
----@field event_type string|nil          docker events の Type との対応
+---@field status_column integer|nil      the column position to highlight (1-based)
+---@field status? fun(item: table): string|nil only for kinds that have a state column
+---@field event_type string|nil          the correspondence with the Type of docker events
 
---- コンテナ一覧で取得するフィールド。
---- compose ラベルは `.Label` によるキー名指しで取る。`Labels` をまとめて取って
---- 分割してはならない (ラベル値のカンマと、値に偽ラベルを仕込む攻撃の両方で誤読する)。
---- `.Size` は参照しない (サイズ計算が走り実行時間が増える)。
+--- The fields fetched for the container list.
+--- The compose labels are taken by naming the key through `.Label`. `Labels` must not be taken as
+--- a whole and split (that misreads both on commas inside label values and on an attack that
+--- plants a fake label in a value).
+--- `.Size` is not referenced (it makes size computation run and increases the execution time).
 local CONTAINER_FIELDS = {
   { key = "id", expr = ".ID" },
   { key = "name", expr = ".Names" },
@@ -45,8 +47,9 @@ local CONTAINER_FIELDS = {
   { key = "compose_project", expr = format.label_expr("com.docker.compose.project") },
   { key = "compose_service", expr = format.label_expr("com.docker.compose.service") },
   { key = "compose_oneoff", expr = format.label_expr("com.docker.compose.oneoff") },
-  -- compose ファイルの場所。プロジェクトの外から一覧を出すときに、定義を引く場所と
-  -- 起動系の操作を実行する場所をこれで逆算する。一覧の表示には使わない。
+  -- The location of the compose file. When listing from outside the project, this is what the
+  -- place to look up the definition and the place to run the lifecycle operations are derived
+  -- from. It is not used for the list display.
   { key = "compose_working_dir", expr = format.label_expr("com.docker.compose.project.working_dir") },
 }
 
@@ -80,8 +83,8 @@ local function plain(key)
   end
 end
 
--- 先に宣言しておく。サービスの `load` がコンテナ定義を参照するため、
--- テーブル構築中に `definitions` がローカルとして見えている必要がある。
+-- Declared ahead of time. Since the `load` of the service references the container definition,
+-- `definitions` has to be visible as a local while the table is being built.
 ---@type table<string, docker.ResourceDefinition>
 local definitions
 definitions = {
@@ -91,16 +94,16 @@ definitions = {
     view_type = "container_list",
     display_name = "Containers",
     empty_text = "コンテナがありません",
-    -- `-a` は停止中のコンテナも一覧に含めるため (BR-022)。
-    -- `--no-trunc` が無いと ID が 12 文字、Command が 20 文字で切り詰められる。
+    -- `-a` is there so that stopped containers are included in the list too (BR-022).
+    -- Without `--no-trunc` the ID is truncated to 12 characters and Command to 20.
     list_args = function()
       return { "ps", "-a", "--no-trunc", "--format", format.template(CONTAINER_FIELDS) }
     end,
-    -- イベントで変化した 1 件だけを取り直す。全件取得より軽い。
+    -- Fetch again only the one item that changed in the event. Lighter than fetching everything.
     item_args = function(id)
       return { "ps", "-a", "--no-trunc", "--filter", "id=" .. id, "--format", format.template(CONTAINER_FIELDS) }
     end,
-    -- 強制削除 (-f) は付けない。実行中コンテナの削除は docker に拒否させる (BR-002)。
+    -- Force delete (-f) is not added. Let docker reject deleting a running container (BR-002).
     delete_args = function(item)
       return { "rm", tostring(item.id) }
     end,
@@ -123,17 +126,18 @@ definitions = {
     view_type = "image_list",
     display_name = "Images",
     empty_text = "イメージがありません",
-    -- `docker image ls` は `.Label` を扱えないため、ラベル由来のフィールドは持たない。
-    -- コンテナと違いイメージの `.Size` は一覧の既定項目で、追加のコストが無い。
+    -- `docker image ls` cannot handle `.Label`, so there are no label-derived fields.
+    -- Unlike for containers, `.Size` of an image is a default item of the list and costs nothing extra.
     list_args = function()
       return { "image", "ls", "--no-trunc", "--format", format.template(IMAGE_FIELDS) }
     end,
-    -- イベントの Actor.ID はイメージの sha で、こちらの識別子 (タグ参照) と対応しない。
-    -- 同じ sha に複数のタグが付くため 1 件だけの取り直しでは表せず、全件取り直す。
-    -- イメージの一覧は件数が多くても数ミリ秒で描けるので実害が無い。
+    -- The Actor.ID of the event is the sha of the image and does not correspond to our identifier
+    -- (the tag reference). Since several tags can point at the same sha it cannot be expressed by
+    -- fetching just one item again, so everything is fetched again.
+    -- The image list can be drawn in a few milliseconds even with many items, so there is no real harm.
     event_reload = true,
-    -- 同じイメージに複数のタグが付いていることがある。ID で消すとイメージ本体が
-    -- 対象になり、他のタグで使われていると削除できない。タグがあればタグ参照で消す。
+    -- The same image can carry several tags. Deleting by ID targets the image itself, which cannot
+    -- be deleted while another tag still uses it. If there is a tag, delete by the tag reference.
     delete_args = function(item)
       local repository = tostring(item.repository or "")
       local tag = tostring(item.tag or "")
@@ -142,8 +146,8 @@ definitions = {
       end
       return { "rmi", tostring(item.id) }
     end,
-    -- 同じイメージに複数のタグが付くため、ID だと別々の行が 1 件に潰れる。
-    -- 利用者が見て操作する単位 (タグ参照) を識別子にする。
+    -- Since the same image carries several tags, the ID would collapse separate rows into one item.
+    -- The identifier is the unit the user sees and operates on (the tag reference).
     id = function(item)
       local repository = tostring(item.repository or "")
       local tag = tostring(item.tag or "")
@@ -175,7 +179,7 @@ definitions = {
     delete_args = function(item)
       return { "volume", "rm", tostring(item.name) }
     end,
-    -- ボリュームは名前が識別子。イベントでも Actor.ID に名前が入る。
+    -- For a volume the name is the identifier. In events the name is what goes into Actor.ID too.
     id = plain("name"),
     columns = {
       { header = "NAME", value = plain("name") },
@@ -196,8 +200,8 @@ definitions = {
     item_args = function(id)
       return { "network", "ls", "--no-trunc", "--filter", "id=" .. id, "--format", format.template(NETWORK_FIELDS) }
     end,
-    -- 組み込みネットワーク (bridge / host / none) の削除は docker が拒否する。
-    -- こちらで弾かず、docker のエラーをそのまま提示する (BR-016)。
+    -- docker rejects deleting the built-in networks (bridge / host / none).
+    -- Do not reject it on our side; present docker's error as it is (BR-016).
     delete_args = function(item)
       return { "network", "rm", tostring(item.id) }
     end,
@@ -215,14 +219,14 @@ definitions = {
     view_type = "service_list",
     display_name = "Services",
     empty_text = "compose プロジェクトがありません",
-    -- サービス一覧は docker の単一コマンドで取れない。組み立ては service_loader が担う。
+    -- The service list cannot be obtained by a single docker command. service_loader assembles it.
     load = function(ctx, on_done)
       service_loader.load({ cwd = ctx.cwd, container_args = definitions.container.list_args() }, on_done)
     end,
     id = function(item)
       return ("%s/%s"):format(tostring(item.project), tostring(item.name))
     end,
-    -- 一覧は全プロジェクトを統合して出すので、どのプロジェクトの行かを先頭に置く。
+    -- The list merges every project, so which project a row belongs to is placed first.
     columns = {
       { header = "PROJECT", value = plain("project") },
       { header = "SERVICE", value = plain("name") },
@@ -231,12 +235,13 @@ definitions = {
     },
     status_column = 3,
     status = plain("status"),
-    -- サービスの状態はコンテナの状態から決まるので、コンテナのイベントで更新する。
+    -- The state of a service is determined by the state of its container, so it is updated on
+    -- container events.
     event_type = "container",
   },
 }
 
---- `:Docker` のサブコマンドとして受け付ける順序。定義の追加時にここへ足す。
+--- The order in which they are accepted as subcommands of `:Docker`. Add here when adding a definition.
 local ORDER = { "container", "image", "volume", "network", "service" }
 
 ---@param kind string
@@ -245,7 +250,7 @@ function M.get(kind)
   return definitions[kind]
 end
 
---- `:Docker` の引数から定義を引く。
+--- Look up a definition from the argument of `:Docker`.
 ---@param subcommand string
 ---@return docker.ResourceDefinition|nil
 function M.by_subcommand(subcommand)
@@ -257,7 +262,7 @@ function M.by_subcommand(subcommand)
   return nil
 end
 
----@return string[] `:Docker` のサブコマンド名一覧
+---@return string[] the list of `:Docker` subcommand names
 function M.subcommands()
   local names = {}
   for _, kind in ipairs(ORDER) do

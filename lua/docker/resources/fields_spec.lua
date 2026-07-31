@@ -1,6 +1,6 @@
 local fields = require("docker.resources.fields")
 
---- 一覧取得で得られるコンテナの生データ。指定した項目だけ上書きする。
+--- Raw container data as obtained from the list command. Only the given entries are overridden.
 ---@param overrides table|nil
 ---@return table
 local function container(overrides)
@@ -21,66 +21,66 @@ end
 
 describe("docker.resources.fields", function()
   describe("is_compose", function()
-    it("プロジェクト名とサービス名が揃っているときcompose由来と判定する", function()
+    it("reports a container as compose-managed when both project name and service name are present", function()
       local item = container({ compose_project = "shop", compose_service = "web", compose_oneoff = "False" })
 
       assert.is_true(fields.is_compose(item))
     end)
 
-    it("ラベルが無いコンテナはcompose由来と判定しない", function()
+    it("does not report a container without labels as compose-managed", function()
       assert.is_false(fields.is_compose(container()))
     end)
 
-    it("プロジェクト名だけありサービス名が空ならcompose由来と判定しない", function()
+    it("does not report a container as compose-managed when only the project name is set", function()
       assert.is_false(fields.is_compose(container({ compose_project = "shop" })))
     end)
 
-    it("サービス名だけありプロジェクト名が空ならcompose由来と判定しない", function()
+    it("does not report a container as compose-managed when only the service name is set", function()
       assert.is_false(fields.is_compose(container({ compose_service = "web" })))
     end)
   end)
 
   describe("is_oneoff", function()
-    it("oneoffラベルがTrueのとき単発コンテナと判定する", function()
+    it("reports a container as one-off when the oneoff label is True", function()
       local item = container({ compose_project = "shop", compose_service = "web", compose_oneoff = "True" })
 
       assert.is_true(fields.is_oneoff(item))
     end)
 
-    it("oneoffラベルがFalseのとき単発コンテナと判定しない", function()
+    it("does not report a container as one-off when the oneoff label is False", function()
       assert.is_false(fields.is_oneoff(container({ compose_oneoff = "False" })))
     end)
 
-    it("oneoffラベルが空のとき単発コンテナと判定しない", function()
+    it("does not report a container as one-off when the oneoff label is empty", function()
       assert.is_false(fields.is_oneoff(container()))
     end)
   end)
 
   describe("service_of", function()
-    it("compose由来の通常コンテナはプロジェクトとサービスの組を返す", function()
+    it("returns the project and service pair for a regular compose-managed container", function()
       local item = container({ compose_project = "shop", compose_service = "web", compose_oneoff = "False" })
 
       assert.are.same({ project = "shop", service = "web" }, fields.service_of(item))
     end)
 
-    it("単発コンテナはサービスに紐付けない", function()
-      -- BR-006: `docker compose run` が作る単発コンテナはサービスの実体ではない。
+    it("does not tie a one-off container to a service", function()
+      -- BR-006: a one-off container created by `docker compose run` is not the instance of a service.
       local item = container({ compose_project = "shop", compose_service = "web", compose_oneoff = "True" })
 
       assert.is_nil(fields.service_of(item))
     end)
 
-    it("compose由来でないコンテナはサービスに紐付けない", function()
+    it("does not tie a container that did not come from compose to a service", function()
       assert.is_nil(fields.service_of(container()))
     end)
   end)
 
   describe("ports", function()
-    it("公開ポートが無いとき空文字列を返す", function()
+    it("returns an empty string when there are no published ports", function()
       assert.are.equal("", fields.ports(container()))
     end)
 
-    it("公開ポートの文字列をそのまま返す", function()
+    it("returns the published ports string as is", function()
       local item = container({ ports = "0.0.0.0:8080->80/tcp" })
 
       assert.are.equal("0.0.0.0:8080->80/tcp", fields.ports(item))
@@ -88,11 +88,11 @@ describe("docker.resources.fields", function()
   end)
 
   describe("state", function()
-    it("状態の文字列をそのまま返す", function()
+    it("returns the state string as is", function()
       assert.are.equal("running", fields.state(container()))
     end)
 
-    it("状態が欠けているとき空文字列を返す", function()
+    it("returns an empty string when the state is missing", function()
       local item = container()
       item.state = nil
 

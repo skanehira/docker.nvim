@@ -1,15 +1,17 @@
---- compose サービス一覧の取得。
+--- Fetching of the compose service list.
 ---
---- サービス一覧は docker の単一コマンドで取れないため、複数の取得結果を突き合わせて
---- 組み立てる (7.3)。多段の非同期を含むので、宣言的定義である registry から分けてここに置く。
---- コンテナ一覧の引数は registry から `container_args` で受け取る
---- (registry を require し返すと循環参照になる)。
+--- The service list cannot be obtained by a single docker command, so it is assembled by matching
+--- the results of several fetches (section 7.3). It involves multi-stage asynchrony, so it is kept
+--- here separately from registry, which holds the declarative definitions.
+--- The arguments for the container list are received from registry through `container_args`
+--- (requiring registry back would create a circular reference).
 ---
---- compose ファイルがある場所でしか一覧を出せないと、プロジェクトの外からは何も見えない。
---- プロジェクトの所在はコンテナのラベルから逆算できるので、次の 3 つを組み合わせる。
----   `compose ls -a`: 存在するプロジェクトの列挙 (停止中を含む)
----   コンテナ一覧    : サービスの実体と、compose ファイルのある場所 (working_dir ラベル)
----   `compose config`: サービスの定義全件。起動していないサービスはここでしか分からない
+--- If the list could only be shown where a compose file exists, nothing would be visible from
+--- outside a project. The location of a project can be derived from the container labels, so the
+--- following three are combined.
+---   `compose ls -a`: enumeration of the existing projects (including stopped ones)
+---   container list : the service instances, and the location of the compose file (working_dir label)
+---   `compose config`: all of the service definitions. Services that are not started are only known here
 local cli = require("docker.adapters.docker.cli")
 local compose = require("docker.adapters.docker.compose")
 local services = require("docker.resources.services")
@@ -17,16 +19,16 @@ local services = require("docker.resources.services")
 local M = {}
 
 ---@class docker.ServiceLoadContext
----@field cwd string              ビューを開いた時点の作業ディレクトリ
----@field container_args string[] コンテナ一覧を取る docker 引数
+---@field cwd string              the working directory at the moment the view was opened
+---@field container_args string[] the docker arguments that fetch the container list
 
 ---@class docker.ServiceLoadResult : docker.Result
----@field warning string|nil 一覧は出せるが利用者に伝えることがある場合の文言
+---@field warning string|nil wording for cases where the list can be shown but there is something to tell the user
 
---- コンテナのラベルから、そのプロジェクトの compose ファイルがある場所を拾う。
+--- Picks up the location of the compose file of that project from the container labels.
 ---@param project_name string
 ---@param containers table[]
----@return string 分からなければ空文字列
+---@return string an empty string if it is unknown
 local function working_dir_from_containers(project_name, containers)
   for _, item in ipairs(containers) do
     if item.compose_project == project_name then
@@ -39,10 +41,11 @@ local function working_dir_from_containers(project_name, containers)
   return ""
 end
 
---- 設定ファイルのパスから場所を割り出す。working_dir ラベルが無い場合の受け皿。
---- 複数ある場合はカンマ区切りで並ぶので、先頭 (基底となる compose ファイル) を使う。
+--- Works out the location from the paths of the config files. The fallback for when there is no
+--- working_dir label. When there are several they are listed comma-separated, so the first one
+--- (the base compose file) is used.
 ---@param config_files string
----@return string 分からなければ空文字列
+---@return string an empty string if it is unknown
 local function working_dir_from_config_files(config_files)
   local first = vim.split(config_files, ",", { plain = true })[1]
   if type(first) ~= "string" or first == "" then
@@ -51,12 +54,12 @@ local function working_dir_from_config_files(config_files)
   return vim.fs.dirname(first)
 end
 
---- 列挙されたプロジェクトと作業ディレクトリのプロジェクトを 1 つの集合にする。
---- 作業ディレクトリ側はサービスの定義まで分かっているので、同名なら優先する。
+--- Puts the enumerated projects and the project of the working directory into a single set.
+--- The working directory side knows the service definitions too, so it wins on the same name.
 ---@param listings docker.ComposeProjectListing[]
 ---@param cwd_project docker.ComposeProject|nil
 ---@param containers table[]
----@return docker.ComposeProject[] service_names が nil のものは定義が未解決
+---@return docker.ComposeProject[] the ones whose service_names is nil have unresolved definitions
 local function collect_projects(listings, cwd_project, containers)
   local projects, index = {}, {}
 
@@ -83,8 +86,9 @@ local function collect_projects(listings, cwd_project, containers)
   return projects
 end
 
---- 定義が未解決のプロジェクトについて `compose config` を並列に引く。
---- 引けなかったプロジェクトはコンテナのラベルから逆算する (起動中のサービスのみ)。
+--- Runs `compose config` in parallel for the projects whose definitions are unresolved.
+--- For projects it could not look up, the names are derived from the container labels (running
+--- services only).
 ---@param projects docker.ComposeProject[]
 ---@param containers table[]
 ---@param on_done fun()
@@ -100,7 +104,7 @@ local function resolve_pending(projects, containers, on_done)
     end
   end
 
-  -- 1 件も引く必要が無いときにここを抜けないと、完了が呼ばれないまま止まる。
+  -- Without leaving here when there is nothing to look up, completion is never called and it stalls.
   if #pending == 0 then
     on_done()
     return
@@ -112,8 +116,8 @@ local function resolve_pending(projects, containers, on_done)
       if resolved.ok then
         project.service_names = resolved.data.service_names
       else
-        -- compose ファイルが消えている場合も含め、引けない理由は問わない。
-        -- 一覧そのものは出せるので、実体のあるサービスだけで代替する。
+        -- The reason it cannot be looked up does not matter, including the compose file being gone.
+        -- The list itself can be shown, so the services that have an instance stand in for it.
         project.service_names = services.derive_service_names(project.name, containers)
       end
       remaining = remaining - 1
@@ -124,7 +128,7 @@ local function resolve_pending(projects, containers, on_done)
   end
 end
 
---- サービス一覧を取得する。
+--- Fetches the service list.
 ---@param ctx docker.ServiceLoadContext
 ---@param on_done fun(result: docker.ServiceLoadResult)
 function M.load(ctx, on_done)
@@ -140,8 +144,8 @@ function M.load(ctx, on_done)
       return
     end
 
-    -- プロジェクト外での実行は珍しくないので失敗として扱わない。
-    -- compose ファイルが壊れている場合だけ、一覧を出したうえで理由を伝える。
+    -- Running outside a project is not unusual, so it is not treated as a failure.
+    -- Only when the compose file is broken, the list is shown along with the reason.
     local cwd_project = cwd_resolved.ok and cwd_resolved.data or nil
     local warning = nil
     if not cwd_resolved.ok and cwd_resolved.reason == "invalid" then

@@ -1,5 +1,5 @@
---- 利用者への通知を 1 箇所に集約する。
---- 通知の種別は DESIGN_DETAIL_APP.md「6.5 メッセージ方針」に対応する。
+--- Collects the notifications shown to the user in one place.
+--- The notification kinds correspond to DESIGN_DETAIL_APP.md section 6.5.
 local M = {}
 
 local TITLE = "docker.nvim"
@@ -12,7 +12,7 @@ local function emit(msg, level)
   vim.notify(msg, level, { title = TITLE })
 end
 
---- デバッグ出力の有効・無効を切り替える (既定は無効)。
+--- Switch debug output on or off (off by default).
 ---@param enabled boolean
 function M.set_debug(enabled)
   debug_enabled = enabled and true or false
@@ -23,8 +23,8 @@ function M.is_debug()
   return debug_enabled
 end
 
---- 実行した docker コマンドと終了コード、解析に失敗した行数を出力する。
---- 有効にしたときのみ出力する。
+--- Report the docker command that was run, its exit code, and the number of lines that
+--- failed to parse. Only emitted when debug output is enabled.
 ---@param msg string
 function M.debug(msg)
   if debug_enabled then
@@ -32,19 +32,19 @@ function M.debug(msg)
   end
 end
 
---- 操作の成功を伝える。
+--- Report that an operation succeeded.
 ---@param msg string
 function M.info(msg)
   emit(msg, vim.log.levels.INFO)
 end
 
---- 前提を満たさない操作・重複要求を伝える。
+--- Report an operation whose preconditions are not met, or a duplicate request.
 ---@param msg string
 function M.warn(msg)
   emit(msg, vim.log.levels.WARN)
 end
 
---- 操作の失敗・環境問題を伝える。
+--- Report a failed operation or an environment problem.
 ---@param msg string
 function M.error(msg)
   emit(msg, vim.log.levels.ERROR)

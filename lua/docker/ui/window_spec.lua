@@ -20,8 +20,8 @@ describe("docker.ui.window", function()
     return handle
   end
 
-  --- 実際に画面へ出る winbar。オプションの生の値には切り詰めの書式が入るため、
-  --- 描画結果で確かめる。
+  --- The winbar as it actually appears on screen. The raw option value contains the
+  --- truncation format, so the rendered result is what gets checked.
   ---@param handle docker.Window
   ---@return string
   local function rendered_winbar(handle)
@@ -32,8 +32,8 @@ describe("docker.ui.window", function()
     }).str
   end
 
-  --- winbar に当たっているハイライト。`groups` は Neovim 0.11 で増えたので、
-  --- 0.10 でも取れる項目だけに絞って比べる。
+  --- The highlights applied to the winbar. `groups` was added in Neovim 0.11, so the
+  --- comparison is narrowed to the fields that can be obtained on 0.10 as well.
   ---@param handle docker.Window
   ---@return { start: integer, group: string }[]
   local function applied_highlights(handle)
@@ -50,7 +50,7 @@ describe("docker.ui.window", function()
     return applied
   end
 
-  --- 窓を細くして、見出しがはみ出す状況を作る。
+  --- Narrow the window to create a situation where the header overflows.
   ---@param handle docker.Window
   ---@param width integer
   local function narrow(handle, width)
@@ -60,31 +60,32 @@ describe("docker.ui.window", function()
   end
 
   describe("open", function()
-    it("エディタ基準のフロートウィンドウを開く", function()
+    it("opens a float window positioned relative to the editor", function()
       local handle = open()
 
       local config = vim.api.nvim_win_get_config(handle.winid)
       assert.are.equal("editor", config.relative)
     end)
 
-    it("外枠とタイトルを持つ", function()
+    it("has a border and a title", function()
       local handle = open({ title = "Containers" })
 
       local config = vim.api.nvim_win_get_config(handle.winid)
-      assert.is_truthy(config.border, "border が設定されていること")
-      -- title は { { text, hl } } の形で返る。
+      assert.is_truthy(config.border, "border must be set")
+      -- title is returned in the shape { { text, hl } }.
       assert.are.equal("Containers", config.title[1][1])
     end)
 
-    it("折り返しの有無を指定できる", function()
-      -- 一覧は折り返すと行と画面行がずれ、見出しと桁が合わなくなる。
+    it("lets the caller choose whether lines wrap", function()
+      -- If the list wrapped, the buffer lines and the screen lines would diverge and the
+      -- header would no longer line up with the columns.
       local wrapped = open({ title = "Wrapped" })
       local clipped = open({ title = "Clipped", wrap = false })
 
       assert.are.same({ true, false }, { vim.wo[wrapped.winid].wrap, vim.wo[clipped.winid].wrap })
     end)
 
-    it("バッファは書き込み対象にならない設定になる", function()
+    it("configures the buffer so that it is not a write target", function()
       local handle = open()
 
       assert.are.equal("nofile", vim.bo[handle.bufnr].buftype)
@@ -92,7 +93,7 @@ describe("docker.ui.window", function()
       assert.is_false(vim.bo[handle.bufnr].swapfile)
     end)
 
-    it("重ね合わせの高さを指定できる", function()
+    it("lets the caller specify the stacking height", function()
       local lower = open({ zindex = 40 })
       local upper = open({ zindex = 60 })
 
@@ -100,15 +101,16 @@ describe("docker.ui.window", function()
       assert.are.equal(60, vim.api.nvim_win_get_config(upper.winid).zindex)
     end)
 
-    it("本体と外枠の背景をエディタと同じにし、minimalの指定も残す", function()
-      -- 既定のままだと本文は NormalFloat の背景で塗られ、winbar だけが
-      -- 透過して見える。背景を Normal に寄せてフロート全体を揃える。
-      -- あわせて style="minimal" が入れる EndOfBuffer の打ち消しを消さない。
-      -- 上書きすると、EndOfBuffer に背景色を持つカラースキームで
-      -- データ行より下だけ別色になる。
+    it("matches the body and border background to the editor while keeping the minimal settings", function()
+      -- Left at the defaults, the body is painted with the NormalFloat background and only
+      -- the winbar looks transparent. Moving the background to Normal makes the whole float
+      -- consistent.
+      -- At the same time, the EndOfBuffer cancellation that style="minimal" adds is not dropped.
+      -- Overwriting it would make everything below the data rows a different color under color
+      -- schemes that give EndOfBuffer a background color.
       local handle = open()
 
-      -- 並び順に左右されないよう、対応表に開いて比べる。
+      -- Unfolded into a mapping so that the comparison does not depend on the order.
       local winhighlight = vim.wo[handle.winid].winhighlight
       local mapping = {}
       for pair in winhighlight:gmatch("[^,]+") do
@@ -117,12 +119,12 @@ describe("docker.ui.window", function()
       end
       assert.are.same({ EndOfBuffer = "", NormalFloat = "Normal", FloatBorder = "Normal" }, mapping)
 
-      -- 追記の仕方を誤ると同じ指定が二重に入る。対応表では潰れて見えない。
+      -- Appending it wrongly would insert the same setting twice, which the mapping would hide.
       local _, occurrences = winhighlight:gsub("NormalFloat:", "")
       assert.are.equal(1, occurrences, winhighlight)
     end)
 
-    it("エディタの中央に配置する", function()
+    it("places the window at the center of the editor", function()
       local handle = open()
 
       local config = vim.api.nvim_win_get_config(handle.winid)
@@ -134,13 +136,13 @@ describe("docker.ui.window", function()
     local HEADER = "NAME  IMAGE  STATUS  PORTS  PROJECT  SERVICE"
 
     before_each(function()
-      -- 見出しのハイライトは本番では lifecycle が定義する。
+      -- In production the header highlight is defined by lifecycle.
       require("docker.ui.highlight").setup()
     end)
 
-    it("はみ出すときは末尾を落とす", function()
-      -- 既定では先頭が落ちて `<` が付く。本文は右端でクリップされるので、
-      -- 見出しだけが左へずれて桁が合わなくなる。
+    it("drops the tail when the header overflows", function()
+      -- By default the head is dropped and a `<` is prepended. The body is clipped at the
+      -- right edge, so only the header would shift left and the columns would stop lining up.
       local handle = open()
       narrow(handle, 20)
 
@@ -149,7 +151,7 @@ describe("docker.ui.window", function()
       assert.are.equal("NAME  IMAGE  STATUS>", rendered_winbar(handle))
     end)
 
-    it("収まるときはそのまま出す", function()
+    it("shows the header as is when it fits", function()
       local handle = open()
       narrow(handle, #HEADER)
 
@@ -158,8 +160,8 @@ describe("docker.ui.window", function()
       assert.are.equal(HEADER, rendered_winbar(handle))
     end)
 
-    it("横スクロールすると見出しもその分ずれる", function()
-      -- 追従しないと、スクロールした先で見出しと列が食い違う。
+    it("shifts the header by the same amount when the view scrolls horizontally", function()
+      -- Without following along, the header and the columns disagree wherever the view scrolls to.
       local handle = open()
       narrow(handle, 20)
       window.set_lines(handle, { string.rep("x", 200) })
@@ -170,14 +172,15 @@ describe("docker.ui.window", function()
       end)
       window.sync_winbar(handle)
 
-      -- 6 桁ぶん先頭を落とし、幅 20 に収まらない末尾が `>` に潰れる。
+      -- Six columns are dropped from the head, and the tail that does not fit into width 20
+      -- is taken up by `>`.
       assert.are.equal("IMAGE  STATUS  PORT>", rendered_winbar(handle))
-      -- 切り直した後も色は乗ったままであること。
+      -- The color must still be applied after the header is re-clipped.
       assert.are.same({ { start = 0, group = "DockerHeader" } }, applied_highlights(handle))
     end)
 
-    it("カーソル移動を合図に見出しが追従する", function()
-      -- 明示的に呼ばなくても、操作しただけで追従すること。
+    it("makes the header follow along on cursor movement", function()
+      -- It must follow along from the interaction alone, without being called explicitly.
       local handle = open()
       narrow(handle, 20)
       window.set_lines(handle, { string.rep("x", 200) })
@@ -192,9 +195,9 @@ describe("docker.ui.window", function()
       assert.are.equal("IMAGE  STATUS  PORT>", rendered_winbar(handle))
     end)
 
-    it("カーソルが動かないスクロールでも追従する", function()
-      -- `zl` / `zh` はカーソルを動かさずに横へ送る。CursorMoved だけを見ていると
-      -- このとき見出しが取り残される。
+    it("follows along even for scrolling that does not move the cursor", function()
+      -- `zl` / `zh` scroll sideways without moving the cursor. Watching only CursorMoved would
+      -- leave the header behind in that case.
       local handle = open()
       narrow(handle, 20)
       window.set_lines(handle, { string.rep("x", 200) })
@@ -208,21 +211,22 @@ describe("docker.ui.window", function()
       assert.are.equal("IMAGE  STATUS  PORT>", rendered_winbar(handle))
     end)
 
-    it("全角の見出しも表示幅で切る", function()
-      -- バイト単位で落とすと、全角の見出しでは切る位置がずれる。
+    it("cuts a full-width header by display width too", function()
+      -- Dropping by bytes would shift the cut position for a full-width header.
+      -- Each of these characters is 3 bytes long but 2 columns wide, so the two units disagree.
       local handle = open()
       narrow(handle, 20)
-      window.set_winbar(handle, "名前  イメージ  状態")
+      window.set_winbar(handle, "ＡＢ  ＣＤＥＦ  ＧＨ")
 
       vim.api.nvim_win_call(handle.winid, function()
         vim.fn.winrestview({ leftcol = 6 })
       end)
       window.sync_winbar(handle)
 
-      assert.are.equal("イメージ  状態", rendered_winbar(handle))
+      assert.are.equal("ＣＤＥＦ  ＧＨ", rendered_winbar(handle))
     end)
 
-    it("見出し全体に専用のハイライトを当てる", function()
+    it("applies the dedicated highlight to the whole header", function()
       local handle = open()
       narrow(handle, 20)
 
@@ -231,8 +235,8 @@ describe("docker.ui.window", function()
       assert.are.same({ { start = 0, group = "DockerHeader" } }, applied_highlights(handle))
     end)
 
-    it("見出しに%が入っても書式として解釈しない", function()
-      -- winbar は statusline 書式なので、素通しすると `%d` 等が展開される。
+    it("does not interpret a % in the header as a format item", function()
+      -- The winbar uses statusline format, so passing text through unescaped would expand `%d` and friends.
       local handle = open()
 
       window.set_winbar(handle, "USE%  MEM%")
@@ -240,7 +244,7 @@ describe("docker.ui.window", function()
       assert.are.equal("USE%  MEM%", rendered_winbar(handle))
     end)
 
-    it("複数の窓で見出しが混ざらない", function()
+    it("does not mix up the headers of multiple windows", function()
       local containers = open({ title = "Containers" })
       local images = open({ title = "Images" })
       narrow(containers, 20)
@@ -259,8 +263,8 @@ describe("docker.ui.window", function()
       )
     end)
 
-    it("描き直しても追従の仕掛けが増えない", function()
-      -- 再描画のたびに張り重ねると、スクロール 1 回で何度も走る。
+    it("does not add another follow-along hook on redraw", function()
+      -- Stacking one on every redraw would make a single scroll run it many times.
       local handle = open()
 
       window.set_winbar(handle, HEADER)
@@ -273,7 +277,7 @@ describe("docker.ui.window", function()
   end)
 
   describe("set_lines", function()
-    it("書き込み不可のバッファにも行を書ける", function()
+    it("can write lines into a non-modifiable buffer", function()
       local handle = open()
 
       window.set_lines(handle, { "web    alpine", "db     postgres" })
@@ -281,7 +285,7 @@ describe("docker.ui.window", function()
       assert.are.same({ "web    alpine", "db     postgres" }, vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false))
     end)
 
-    it("書き込んだ後も書き込み不可のままになる", function()
+    it("leaves the buffer non-modifiable after writing", function()
       local handle = open()
 
       window.set_lines(handle, { "web" })
@@ -289,7 +293,7 @@ describe("docker.ui.window", function()
       assert.is_false(vim.bo[handle.bufnr].modifiable)
     end)
 
-    it("行を差し替えると前の内容は残らない", function()
+    it("leaves none of the previous content behind when the lines are replaced", function()
       local handle = open()
       window.set_lines(handle, { "a", "b", "c" })
 
@@ -300,7 +304,7 @@ describe("docker.ui.window", function()
   end)
 
   describe("close", function()
-    it("ウィンドウを閉じる", function()
+    it("closes the window", function()
       local handle = window.open({ title = "Containers" })
 
       window.close(handle)
@@ -308,8 +312,8 @@ describe("docker.ui.window", function()
       assert.is_false(vim.api.nvim_win_is_valid(handle.winid))
     end)
 
-    it("閉じるとバッファも破棄される", function()
-      -- 残したままだと開閉のたびに無名バッファが溜まる。
+    it("discards the buffer as well on close", function()
+      -- Leaving it around would pile up unnamed buffers with every open and close.
       local handle = window.open({ title = "Containers" })
 
       window.close(handle)
@@ -317,7 +321,7 @@ describe("docker.ui.window", function()
       assert.is_false(vim.api.nvim_buf_is_valid(handle.bufnr))
     end)
 
-    it("既に閉じたウィンドウをもう一度閉じてもエラーにならない", function()
+    it("does not error when an already closed window is closed again", function()
       local handle = window.open({ title = "Containers" })
       window.close(handle)
 
@@ -328,7 +332,7 @@ describe("docker.ui.window", function()
   end)
 
   describe("VimResized", function()
-    it("エディタの幅が変わるとウィンドウの大きさが追従する", function()
+    it("makes the window size follow along when the editor width changes", function()
       local original = vim.o.columns
       local handle = open()
       local before = vim.api.nvim_win_get_config(handle.winid).width
@@ -340,7 +344,7 @@ describe("docker.ui.window", function()
       vim.o.columns = original
       vim.api.nvim_exec_autocmds("VimResized", {})
 
-      assert.is_true(after > before, ("幅が追従すること: before=%d after=%d"):format(before, after))
+      assert.is_true(after > before, ("the width must follow along: before=%d after=%d"):format(before, after))
     end)
   end)
 end)

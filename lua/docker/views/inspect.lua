@@ -1,25 +1,25 @@
---- 詳細ビュー。`docker inspect` の結果を JSON として表示する。
+--- Inspect view. Shows the result of `docker inspect` as JSON.
 ---
---- 一覧の上に `zindex` で重ねるだけで、下層の一覧は触らない。閉じたときに
---- 一覧の内容とカーソル位置がそのまま残る (BR-018)。
+--- It is only stacked above the list with `zindex`; the list below is left untouched.
+--- Closing it keeps the content and the cursor position of the list as they were (BR-018).
 local cli = require("docker.adapters.docker.cli")
 local notify = require("docker.notify")
 local window = require("docker.ui.window")
 
 local M = {}
 
---- 詳細は一覧より前面、ヘルプよりは背面に置く。
+--- The inspect view is placed in front of the list but behind the help.
 local ZINDEX = 150
 
---- `docker inspect` の出力は既に整形済みなので、そのまま行に分けて表示する。
---- 解析し直して整形すると外部の整形器が要るうえ、キーの順序も崩れる。
+--- The output of `docker inspect` is already formatted, so it is split into lines and shown as is.
+--- Re-parsing and re-formatting it would require an external formatter and would break the key order.
 ---@param stdout string
 ---@return string[]
 local function to_lines(stdout)
   return vim.split(stdout, "\n", { plain = true, trimempty = true })
 end
 
---- 詳細ビューを開く。取得に失敗したときはビューを開かない。
+--- Open the inspect view. The view is not opened when fetching fails.
 ---@param def docker.ResourceDefinition
 ---@param item table
 ---@param on_done fun(handle: docker.Window|nil)|nil
@@ -31,8 +31,8 @@ function M.open(def, item, on_done)
   end
 
   local id = tostring(def.id(item))
-  -- 出力はそのまま表示するが、解析できることは確かめてから開く
-  -- (docker がエラーを標準出力へ書く場合に備える)。
+  -- The output is shown as is, but the view is only opened after checking that it parses
+  -- (docker may write errors to stdout).
   cli.run({ "inspect", id }, function(result)
     if not result.ok then
       notify.error(result.error or "詳細を取得できませんでした")
@@ -57,7 +57,7 @@ function M.open(def, item, on_done)
     window.set_lines(handle, to_lines(raw))
     vim.bo[handle.bufnr].filetype = "json"
 
-    -- `q` で閉じると下層の一覧がそのまま残る。
+    -- Closing with `q` leaves the list below as it was.
     vim.keymap.set("n", "q", function()
       window.close(handle)
     end, { buffer = handle.bufnr, nowait = true, silent = true, desc = "docker.nvim: 詳細を閉じる" })

@@ -5,15 +5,15 @@ local jobs = require("docker.handlers.jobs")
 local lifecycle = require("docker.handlers.lifecycle")
 local store = require("docker.state.store")
 
-describe("compose サービス一覧のビュー", function()
+describe("the compose service list view", function()
   local notified, event_handlers
   local original_notify
 
-  --- プロジェクトの列挙・コンテナ一覧・compose の定義に応える偽の docker。
+  --- A fake docker that answers project enumeration, the container list and the compose definition.
   ---@param opts { projects: table<string, string[]>|nil, containers: table[]|nil,
   ---             cwd_project: string|nil, cwd_stderr: string|nil, compose_stderr: string|nil }
   local function stub(opts)
-    --- プロジェクト名 -> サービス名の一覧。既定は shop に web だけがある状態。
+    --- project name -> list of service names. The default is a shop project with only web in it.
     local projects = opts.projects or { shop = { "web" } }
 
     cli._set_executor(function(cmd, _, on_exit)
@@ -23,7 +23,7 @@ describe("compose サービス一覧のビュー", function()
       end
 
       if cmd[2] == "compose" then
-        -- compose サブコマンド自体が使えない状況は、どの compose 呼び出しでも同じ失敗になる。
+        -- When the compose subcommand itself is unavailable, every compose call fails the same way.
         if opts.compose_stderr then
           on_exit({ code = 1, stdout = "", stderr = opts.compose_stderr })
           return
@@ -41,7 +41,8 @@ describe("compose サービス一覧のビュー", function()
           return
         end
 
-        -- 定義の取得。`-p` の有無で、名指しか作業ディレクトリ由来かが決まる。
+        -- Fetching the definition. The presence of `-p` decides whether the project is named
+        -- explicitly or derived from the working directory.
         local name = cmd[3] == "-p" and cmd[4] or opts.cwd_project
         if not name then
           on_exit({ code = 1, stdout = "", stderr = opts.cwd_stderr or "no configuration file provided: not found" })
@@ -123,25 +124,26 @@ describe("compose サービス一覧のビュー", function()
     store._reset()
   end)
 
-  describe("開く", function()
-    it("サービスと紐付くコンテナを一覧に出す", function()
+  describe("opening", function()
+    it("lists the services together with the containers they are tied to", function()
       stub({ projects = { shop = { "web", "never-started" } }, containers = { container() } })
 
       local handle = assert(open_services())
 
-      -- 起動していないサービスは CONTAINER 列が空なので、行末の余白は残らない。
+      -- A service that is not running has an empty CONTAINER column, so no trailing
+      -- whitespace is left at the end of the line.
       assert.are.same({
         "shop     never-started  none",
         "shop     web            running  shop-web-1",
       }, vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
     end)
 
-    it("見出しはPROJECT_SERVICE_STATUS_CONTAINERの順に並ぶ", function()
+    it("orders the headers as PROJECT, SERVICE, STATUS, CONTAINER", function()
       stub({ containers = { container() } })
 
       local handle = assert(open_services())
 
-      -- winbar にはハイライトの指定が混ざるので、見出しの語だけを順に取り出して見る。
+      -- The winbar has highlight specifiers mixed in, so pull out only the header words in order.
       local headers = {}
       for word in vim.wo[handle.window.winid].winbar:gmatch("%u%u+") do
         table.insert(headers, word)
@@ -149,7 +151,7 @@ describe("compose サービス一覧のビュー", function()
       assert.are.same({ "PROJECT", "SERVICE", "STATUS", "CONTAINER" }, headers)
     end)
 
-    it("起動していないサービスは状態がnoneになる", function()
+    it("shows none as the status of a service that is not running", function()
       -- BR-005
       stub({ projects = { shop = { "never-started" } }, containers = {} })
 
@@ -158,8 +160,9 @@ describe("compose サービス一覧のビュー", function()
       assert.are.same({ "shop     never-started  none" }, vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
     end)
 
-    it("composeプロジェクト外でも全プロジェクトの一覧を出す", function()
-      -- 作業ディレクトリに compose ファイルが無くても、コンテナのラベルから逆算できる。
+    it("lists every project even outside a compose project", function()
+      -- Even with no compose file in the working directory, the projects can be worked out
+      -- backwards from the containers' labels.
       stub({
         projects = { shop = { "web" }, blog = { "cms" } },
         containers = {
@@ -182,7 +185,7 @@ describe("compose サービス一覧のビュー", function()
       }, vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
     end)
 
-    it("compose プロジェクトが1つも無いときは空の一覧を開く", function()
+    it("opens an empty list when there is not a single compose project", function()
       stub({ projects = {}, containers = {} })
       local windows_before = #vim.api.nvim_list_wins()
 
@@ -195,13 +198,13 @@ describe("compose サービス一覧のビュー", function()
       assert.are.equal(windows_before + 1, #vim.api.nvim_list_wins())
     end)
 
-    it("composeサブコマンドが無いときはビューを開かない", function()
+    it("does not open the view when the compose subcommand is unavailable", function()
       stub({ compose_stderr = "docker: unknown command: docker compose" })
       local windows_before = #vim.api.nvim_list_wins()
 
       assert.is_nil(open_services())
       assert.is_nil(lifecycle.get("service"))
-      assert.are.equal(windows_before, #vim.api.nvim_list_wins(), "ウィンドウを増やさないこと")
+      assert.are.equal(windows_before, #vim.api.nvim_list_wins(), "no extra window should be created")
       assert.are.equal(
         "docker compose サブコマンドが使えません。compose プラグインの導入を確認してください。",
         notified[#notified].msg
@@ -209,9 +212,9 @@ describe("compose サービス一覧のビュー", function()
     end)
 
     it(
-      "作業ディレクトリのcomposeファイルが不正でも一覧を開いて出力をそのまま伝える",
+      "opens the list and reports the output as-is even when the working directory's compose file is invalid",
       function()
-        -- 他のプロジェクトは見えるので、一覧そのものは出す。
+        -- The other projects are still visible, so the list itself is shown.
         stub({
           containers = { container() },
           cwd_stderr = "yaml: mapping values are not allowed in this context",
@@ -228,13 +231,13 @@ describe("compose サービス一覧のビュー", function()
     )
   end)
 
-  describe("ライブ更新", function()
-    it("コンテナのイベントでサービスの状態が変わる", function()
+  describe("live updates", function()
+    it("changes the status of a service on a container event", function()
       stub({ containers = { container({ state = "running" }) } })
       local handle = assert(open_services())
       assert.is_truthy(vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("running", 1, true))
 
-      -- コンテナが停止した状態で再取得されるようにしてからイベントを流す
+      -- Make the re-fetch return the container in a stopped state before emitting the event
       stub({ containers = { container({ state = "exited" }) } })
       event_handlers[1].on_stdout(vim.json.encode({
         Type = "container",
@@ -247,11 +250,11 @@ describe("compose サービス一覧のビュー", function()
         vim.wait(2000, function()
           return vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("exited", 1, true) ~= nil
         end),
-        "サービスの状態が更新されること"
+        "the service status should be updated"
       )
     end)
 
-    it("コンテナが消えるとサービスがnoneに戻る", function()
+    it("returns the service to none when its container disappears", function()
       stub({ containers = { container() } })
       local handle = assert(open_services())
 
@@ -268,9 +271,9 @@ describe("compose サービス一覧のビュー", function()
       end))
     end)
 
-    it("同じ警告をイベントのたびに繰り返さない", function()
-      -- 一覧はコンテナのイベントごとに取り直す。作業ディレクトリの compose ファイルが
-      -- 壊れたままだと、更新のたびに同じ文言が積み上がる。
+    it("does not repeat the same warning on every event", function()
+      -- The list is re-fetched on every container event. While the compose file in the working
+      -- directory stays broken, the same text would pile up on each refresh.
       local stderr = "yaml: mapping values are not allowed in this context"
       stub({ containers = { container({ state = "running" }) }, cwd_stderr = stderr })
       local handle = assert(open_services())
@@ -291,8 +294,9 @@ describe("compose サービス一覧のビュー", function()
       assert.are.equal(notified_before, #notified)
     end)
 
-    it("警告の内容が変わったら伝え直す", function()
-      -- 抑止を「初回だけ通知」にすると、compose ファイルの壊れ方が変わっても気付けない。
+    it("reports the warning again once its content changes", function()
+      -- If the suppression were "notify only the first time", a change in how the compose file
+      -- is broken would go unnoticed.
       local first = "yaml: mapping values are not allowed in this context"
       local second = "yaml: did not find expected key"
       stub({ containers = { container({ state = "running" }) }, cwd_stderr = first })

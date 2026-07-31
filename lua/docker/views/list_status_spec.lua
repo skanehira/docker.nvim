@@ -23,7 +23,7 @@ local function container(overrides)
   }, overrides or {})
 end
 
-describe("一覧ビューの状態表示", function()
+describe("state display of the list view", function()
   ---@type docker.ResourceDefinition
   local def
   local handle
@@ -47,7 +47,7 @@ describe("一覧ビューの状態表示", function()
     return vim.api.nvim_buf_get_extmarks(handle.bufnr, highlight.namespace(), 0, -1, { details = true })
   end
 
-  ---@param lnum integer 1 始まり
+  ---@param lnum integer 1-based
   ---@return string
   local function status_text_at(lnum)
     local got = marks()[lnum]
@@ -55,7 +55,7 @@ describe("一覧ビューの状態表示", function()
     return line:sub(got[3] + 1, got[4].end_col)
   end
 
-  it("ストアの状態が変わるとSTATUS列の文字列が変わる", function()
+  it("changes the text of the STATUS column when the state in the store changes", function()
     store.replace_all("container", { container({ state = "running", status = "Up 5 days" }) })
     list.render(handle, def, store.list("container"))
     assert.are.equal("Up 5 days", status_text_at(1))
@@ -66,7 +66,7 @@ describe("一覧ビューの状態表示", function()
     assert.are.equal("Exited (0) 1 minute ago", status_text_at(1))
   end)
 
-  it("ストアの状態が変わるとSTATUS列のハイライトが変わる", function()
+  it("changes the highlight of the STATUS column when the state in the store changes", function()
     store.replace_all("container", { container({ state = "running" }) })
     list.render(handle, def, store.list("container"))
     assert.are.equal("DockerStatusRunning", marks()[1][4].hl_group)
@@ -77,7 +77,7 @@ describe("一覧ビューの状態表示", function()
     assert.are.equal("DockerStatusExited", marks()[1][4].hl_group)
   end)
 
-  it("状態ごとに異なるハイライトが行ごとに付く", function()
+  it("applies a different highlight per row according to each state", function()
     store.replace_all("container", {
       container({ id = "1", name = "a", state = "running" }),
       container({ id = "2", name = "b", state = "paused" }),
@@ -93,16 +93,16 @@ describe("一覧ビューの状態表示", function()
     assert.are.same({ "DockerStatusRunning", "DockerStatusPaused", "DockerStatusExited" }, groups)
   end)
 
-  it("ハイライトはSTATUS列の範囲だけに付く", function()
+  it("applies the highlight only within the range of the STATUS column", function()
     store.replace_all("container", { container({ name = "web", state = "running", status = "Up 5 days" }) })
 
     list.render(handle, def, store.list("container"))
 
-    -- 直前の NAME 列や直後の PORTS 列を巻き込んでいないこと。
+    -- The preceding NAME column and the following PORTS column must not be caught up in it.
     assert.are.equal("Up 5 days", status_text_at(1))
   end)
 
-  it("0件になるとハイライトが残らない", function()
+  it("leaves no highlight behind once the list becomes empty", function()
     store.replace_all("container", { container({ state = "running" }) })
     list.render(handle, def, store.list("container"))
 
@@ -113,7 +113,7 @@ describe("一覧ビューの状態表示", function()
     assert.are.same({ "コンテナがありません" }, vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false))
   end)
 
-  it("再描画で古いハイライトが重ならない", function()
+  it("does not stack stale highlights on re-render", function()
     store.replace_all("container", { container({ state = "running" }) })
     list.render(handle, def, store.list("container"))
     list.render(handle, def, store.list("container"))
@@ -121,7 +121,7 @@ describe("一覧ビューの状態表示", function()
     assert.are.equal(1, #marks())
   end)
 
-  describe("実行中表示", function()
+  describe("busy display", function()
     ---@return fun(item: table): boolean
     local function busy_from_ledger()
       return function(item)
@@ -129,7 +129,7 @@ describe("一覧ビューの状態表示", function()
       end
     end
 
-    it("操作を開始すると対象行に実行中の印が現れる", function()
+    it("shows the busy marker on the target row once an operation starts", function()
       store.replace_all("container", { container({ id = "abc123", status = "Up 5 days" }) })
       list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
       assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
@@ -140,7 +140,7 @@ describe("一覧ビューの状態表示", function()
       assert.is_truthy(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
     end)
 
-    it("操作が完了すると実行中の印が消える", function()
+    it("removes the busy marker once the operation finishes", function()
       store.replace_all("container", { container({ id = "abc123" }) })
       operations.begin("abc123", "stop")
       list.render(handle, def, store.list("container"), { busy = busy_from_ledger() })
@@ -151,7 +151,7 @@ describe("一覧ビューの状態表示", function()
       assert.is_nil(vim.api.nvim_buf_get_lines(handle.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
     end)
 
-    it("実行中でない行には印が付かない", function()
+    it("puts no marker on rows that are not busy", function()
       store.replace_all("container", {
         container({ id = "a", name = "busy-one" }),
         container({ id = "b", name = "idle-one" }),
@@ -165,7 +165,7 @@ describe("一覧ビューの状態表示", function()
       assert.is_nil(lines[2]:find("実行中", 1, true), lines[2])
     end)
 
-    it("実行中の判定を渡さないときは印を付けない", function()
+    it("puts no marker at all when no busy predicate is passed", function()
       store.replace_all("container", { container({ id = "abc123" }) })
       operations.begin("abc123", "stop")
 

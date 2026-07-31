@@ -8,7 +8,7 @@ describe("docker.handlers.lifecycle", function()
   local notified
   local original_notify
 
-  --- 接続確認と一覧取得の両方に応える偽の docker。
+  --- A fake docker that answers both the connection check and the list fetch.
   local function fake_docker(cmd, _, on_exit)
     if cmd[2] == "version" then
       on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
@@ -37,7 +37,7 @@ describe("docker.handlers.lifecycle", function()
     cli._set_executor(fake_docker)
   end)
 
-  --- ビューが開き終わるまで待つ (docker への接続確認が非同期のため)。
+  --- Wait until the view has finished opening (the connection check against docker is asynchronous).
   ---@param kind string
   ---@return docker.ViewHandle|nil
   local function open_view(kind)
@@ -49,7 +49,7 @@ describe("docker.handlers.lifecycle", function()
       vim.wait(3000, function()
         return called
       end),
-      "open のコールバックが呼ばれなかった"
+      "the open callback was never called"
     )
     return captured
   end
@@ -63,21 +63,21 @@ describe("docker.handlers.lifecycle", function()
   end)
 
   describe("open", function()
-    it("一覧ビューを開く", function()
+    it("opens the list view", function()
       local handle = assert(open_view("container"))
       assert.is_true(vim.api.nvim_win_is_valid(handle.window.winid))
     end)
 
-    it("取得した内容をバッファへ描画する", function()
+    it("renders the fetched contents into the buffer", function()
       local handle = assert(open_view("container"))
 
       local lines = vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false)
       assert.is_truthy(lines[1]:find("web", 1, true), lines[1])
     end)
 
-    it("開き終わる前に閉じられても同じ種別のフロートが2枚にならない", function()
-      -- 応答待ちの間に close_all が走ると受付が戻るため、2 回目の応答で
-      -- もう 1 枚開き、閉じられない孤児のフロートが残る。
+    it("does not end up with two floats of the same kind when closed before the open finishes", function()
+      -- If close_all runs while waiting for the answer, requests are accepted again, so the
+      -- second answer opens one more float and leaves an orphan that cannot be closed.
       local replies = {}
       cli._set_executor(function(cmd, _, on_exit)
         table.insert(replies, function()
@@ -99,11 +99,11 @@ describe("docker.handlers.lifecycle", function()
       vim.wait(200)
 
       local opened = #vim.api.nvim_list_wins() - before
-      assert.are.equal(1, opened, ("開いたままのフロートは 1 枚 (実際 %d 枚)"):format(opened))
+      assert.are.equal(1, opened, ("exactly 1 float should stay open (actually %d)"):format(opened))
     end)
 
-    it("同じ種別を再度開くと新しいバッファを作らず既存へ移動する", function()
-      -- US-026: 複数タブで開いてもバッファは 1 つに保つ。
+    it("moves to the existing buffer instead of creating a new one when the same kind is reopened", function()
+      -- US-026: keep a single buffer even when opened across multiple tabs.
       local first = assert(open_view("container"))
 
       local second = assert(open_view("container"))
@@ -111,19 +111,19 @@ describe("docker.handlers.lifecycle", function()
       assert.are.equal(first.window.bufnr, second.window.bufnr)
     end)
 
-    it("キーマップをバッファローカルに設定する", function()
-      -- BR-014: 一覧ビュー以外のバッファでプラグインのキーが作用しない。
+    it("sets the keymaps buffer-locally", function()
+      -- BR-014: the plugin's keys do not take effect in buffers other than the list views.
       local handle = assert(open_view("container"))
 
       local mapped = {}
       for _, m in ipairs(vim.api.nvim_buf_get_keymap(handle.window.bufnr, "n")) do
         mapped[m.lhs] = true
       end
-      assert.is_true(mapped["u"], "start のキーが設定されていること")
-      assert.is_true(mapped["q"], "close のキーが設定されていること")
+      assert.is_true(mapped["u"], "the key for start should be mapped")
+      assert.is_true(mapped["q"], "the key for close should be mapped")
     end)
 
-    it("プラグインのキーは他のバッファには設定されない", function()
+    it("does not set the plugin keys on other buffers", function()
       open_view("container")
 
       local scratch = vim.api.nvim_create_buf(false, true)
@@ -131,14 +131,14 @@ describe("docker.handlers.lifecycle", function()
       vim.api.nvim_buf_delete(scratch, { force = true })
     end)
 
-    it("未知の種別は開かずに警告する", function()
+    it("warns without opening anything for an unknown kind", function()
       local handle = open_view("nonexistent")
 
       assert.is_nil(handle)
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
     end)
 
-    it("dockerに接続できないときはビューを開かずエラーを通知する", function()
+    it("notifies an error without opening the view when docker cannot be reached", function()
       cli._set_executor(function(_, _, on_exit)
         on_exit({ code = 1, stdout = "", stderr = "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" })
       end)
@@ -152,8 +152,8 @@ describe("docker.handlers.lifecycle", function()
     end)
   end)
 
-  describe("一覧の桁揃え", function()
-    --- 実際に画面へ出る見出し。
+  describe("column alignment of the list", function()
+    --- The header as it actually appears on screen.
     ---@param handle docker.ViewHandle
     ---@return string
     local function rendered_winbar(handle)
@@ -164,8 +164,9 @@ describe("docker.handlers.lifecycle", function()
       }).str
     end
 
-    it("行が長くても画面行とデータ行の数が一致する", function()
-      -- 折り返すと 1 行が画面 2 行になり、以降の行が下へずれて見出しと対応しなくなる。
+    it("keeps the screen line count equal to the data row count even for long rows", function()
+      -- With wrapping, one row becomes two screen lines, and the rows after it shift down and
+      -- stop corresponding to the header.
       cli._set_executor(function(cmd, opts, on_exit)
         if cmd[2] == "ps" then
           on_exit({
@@ -197,19 +198,19 @@ describe("docker.handlers.lifecycle", function()
       local handle = assert(open_view("container"))
 
       local buffer_lines = vim.api.nvim_buf_line_count(handle.window.bufnr)
-      assert.are.equal(2, buffer_lines, "2 件が並ぶこと")
+      assert.are.equal(2, buffer_lines, "2 rows should be listed")
       assert.are.equal(buffer_lines, vim.api.nvim_win_text_height(handle.window.winid, {}).all)
     end)
 
-    it("一覧を開くと見出しの色が定義される", function()
-      -- winbar は未定義のグループを指しても黙って無視されるため、
-      -- 定義を呼び忘れると色が付かないまま気付けない。
+    it("defines the header highlight when the list is opened", function()
+      -- The winbar silently ignores a reference to an undefined group, so forgetting to call
+      -- the definition leaves it uncolored without anyone noticing.
       open_view("container")
 
       assert.are.equal(1, vim.fn.hlexists("DockerHeader"))
     end)
 
-    it("横スクロールすると見出しも一緒に動く", function()
+    it("moves the header together with the content when scrolling horizontally", function()
       local handle = assert(open_view("container"))
       local before = rendered_winbar(handle)
       assert.are.equal("NAME", before:sub(1, 4), before)
@@ -225,7 +226,7 @@ describe("docker.handlers.lifecycle", function()
   end)
 
   describe("close", function()
-    it("ビューを閉じる", function()
+    it("closes the view", function()
       local handle = assert(open_view("container"))
 
       lifecycle.close("container")
@@ -233,7 +234,7 @@ describe("docker.handlers.lifecycle", function()
       assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid))
     end)
 
-    it("閉じた後に開くと新しいバッファになる", function()
+    it("uses a new buffer when opened again after being closed", function()
       local first = assert(open_view("container"))
       lifecycle.close("container")
 
@@ -242,13 +243,13 @@ describe("docker.handlers.lifecycle", function()
       assert.is_true(first.window.bufnr ~= second.window.bufnr)
     end)
 
-    it("開いていない種別を閉じてもエラーにならない", function()
+    it("does not error when closing a kind that is not open", function()
       lifecycle.close("container")
     end)
   end)
 
   describe("close_all", function()
-    it("開いている全てのビューを閉じる", function()
+    it("closes every open view", function()
       local handle = assert(open_view("container"))
 
       lifecycle.close_all()
@@ -257,8 +258,8 @@ describe("docker.handlers.lifecycle", function()
     end)
   end)
 
-  describe("フォーカスが外れたとき", function()
-    --- 通常のウィンドウ (ターミナルを開いたときと同じ形) を下に作って移る。
+  describe("when focus leaves the list", function()
+    --- Create a plain window below (the same shape as when a terminal is opened) and move into it.
     ---@return integer
     local function enter_plain_window()
       vim.cmd("botright new")
@@ -266,7 +267,7 @@ describe("docker.handlers.lifecycle", function()
     end
 
     after_each(function()
-      -- テストで作った通常ウィンドウを片付ける。
+      -- Clean up the plain windows created by the tests.
       for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
         if #vim.api.nvim_tabpage_list_wins(0) > 1 then
           pcall(vim.api.nvim_win_close, winid, true)
@@ -274,38 +275,39 @@ describe("docker.handlers.lifecycle", function()
       end
     end)
 
-    it("一覧の外のウィンドウへ移ると一覧が閉じる", function()
-      -- ログやシェルを開くと一覧の裏にフロートが残り続けてしまう。
+    it("closes the list when moving to a window outside it", function()
+      -- Opening logs or a shell would otherwise leave the float lingering behind the list.
       local handle = assert(open_view("container"))
 
       enter_plain_window()
 
-      assert.is_nil(lifecycle.get("container"), "ビューが解除されること")
+      assert.is_nil(lifecycle.get("container"), "the view should be released")
       assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid))
     end)
 
-    it("一覧の外へ移るとイベントの購読も止まる", function()
-      -- ウィンドウだけ閉じて購読が残ると docker events の子プロセスが漏れる。
+    it("stops the event subscription too when moving outside the list", function()
+      -- If only the window is closed and the subscription remains, the docker events child
+      -- process leaks.
       local handle = assert(open_view("container"))
-      local subscription = assert(handle.subscription, "購読が張られていること")
+      local subscription = assert(handle.subscription, "a subscription should be established")
 
       enter_plain_window()
 
       assert.is_false(subscription.is_alive())
     end)
 
-    it("ヘルプを前面に開いても一覧は閉じない", function()
-      -- BR-018: 上層を閉じたときに下層の内容とカーソル位置を残す。
+    it("keeps the list open when help is opened in front of it", function()
+      -- BR-018: closing the upper layer preserves the lower layer's contents and cursor position.
       local handle = assert(open_view("container"))
 
       vim.api.nvim_set_current_win(handle.window.winid)
       lifecycle.dispatch_for_test(handle, "help")
 
-      assert.is_truthy(lifecycle.get("container"), "一覧が残ること")
+      assert.is_truthy(lifecycle.get("container"), "the list should remain")
       assert.is_true(vim.api.nvim_win_is_valid(handle.window.winid))
     end)
 
-    it("別種別の一覧へ辿っても元の一覧は閉じない", function()
+    it("keeps the original list open when drilling down into a list of another kind", function()
       local handle = assert(open_view("container"))
 
       vim.api.nvim_set_current_win(handle.window.winid)
@@ -314,13 +316,13 @@ describe("docker.handlers.lifecycle", function()
         return lifecycle.get("image") ~= nil
       end)
 
-      assert.is_truthy(lifecycle.get("image"), "辿った先が開くこと")
-      assert.is_truthy(lifecycle.get("container"), "元の一覧が残ること")
+      assert.is_truthy(lifecycle.get("image"), "the drilldown target should open")
+      assert.is_truthy(lifecycle.get("container"), "the original list should remain")
     end)
 
-    it("プラグイン以外のフロートへ移っても一覧は閉じない", function()
-      -- vim.ui.input をフロートで実装している環境で、確認プロンプトを出しただけで
-      -- 一覧が消えないようにする。
+    it("keeps the list open when moving to a float that does not belong to the plugin", function()
+      -- In environments that implement vim.ui.input as a float, merely showing a confirmation
+      -- prompt must not make the list disappear.
       local handle = assert(open_view("container"))
 
       local bufnr = vim.api.nvim_create_buf(false, true)
@@ -333,12 +335,12 @@ describe("docker.handlers.lifecycle", function()
         style = "minimal",
       })
 
-      assert.is_truthy(lifecycle.get("container"), "一覧が残ること")
+      assert.is_truthy(lifecycle.get("container"), "the list should remain")
       assert.is_true(vim.api.nvim_win_is_valid(handle.window.winid))
       vim.api.nvim_win_close(prompt, true)
     end)
 
-    it("ヘルプを開いたまま一覧の外へ移ると両方とも閉じる", function()
+    it("closes both when moving outside the list while help is still open", function()
       local handle = assert(open_view("container"))
       vim.api.nvim_set_current_win(handle.window.winid)
       lifecycle.dispatch_for_test(handle, "help")
@@ -346,17 +348,17 @@ describe("docker.handlers.lifecycle", function()
 
       enter_plain_window()
 
-      assert.is_false(vim.api.nvim_win_is_valid(help_winid), "ヘルプが閉じること")
-      assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid), "一覧も閉じること")
+      assert.is_false(vim.api.nvim_win_is_valid(help_winid), "the help view should close")
+      assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid), "the list should close too")
     end)
 
-    it("複数の一覧を開いていても全て閉じて購読も止まる", function()
-      -- 1 件だけ閉じて残りを取りこぼすと、docker events の子プロセスが漏れる。
+    it("closes every list and stops their subscriptions even when several are open", function()
+      -- Closing only one and missing the rest leaks the docker events child processes.
       local containers = assert(open_view("container"))
       local images = assert(open_view("image"))
       local subscriptions = {
-        assert(containers.subscription, "container の購読が張られていること"),
-        assert(images.subscription, "image の購読が張られていること"),
+        assert(containers.subscription, "a subscription should be established for container"),
+        assert(images.subscription, "a subscription should be established for image"),
       }
 
       enter_plain_window()
@@ -369,9 +371,9 @@ describe("docker.handlers.lifecycle", function()
       assert.is_false(vim.api.nvim_win_is_valid(images.window.winid))
     end)
 
-    it("フロートへフォーカスがあるまま最後の一覧を閉じても監視が残らない", function()
-      -- 閉じたことで起きるフォーカス移動に後始末を任せると、移動先が
-      -- プラグインのフロートだったときに監視だけが常駐する。
+    it("leaves no watcher behind when the last list is closed while focus is on a float", function()
+      -- Leaving the cleanup to the focus move caused by closing would keep only the watcher
+      -- resident when the destination is one of the plugin's floats.
       local handle = assert(open_view("container"))
       vim.api.nvim_set_current_win(handle.window.winid)
       lifecycle.dispatch_for_test(handle, "help")
@@ -382,7 +384,7 @@ describe("docker.handlers.lifecycle", function()
       assert.are.same({}, vim.api.nvim_get_autocmds({ group = "DockerNvimViewFocus" }))
     end)
 
-    it("qで一覧を1つ閉じても残っている一覧の監視は続く", function()
+    it("keeps watching the remaining lists after closing one of them with q", function()
       local containers = assert(open_view("container"))
       local images = assert(open_view("image"))
 
@@ -390,14 +392,14 @@ describe("docker.handlers.lifecycle", function()
       lifecycle.dispatch_for_test(containers, "close")
       enter_plain_window()
 
-      assert.is_nil(lifecycle.get("image"), "残っていた一覧も外へ移れば閉じること")
+      assert.is_nil(lifecycle.get("image"), "the remaining list should also close once focus moves outside")
       assert.is_false(vim.api.nvim_win_is_valid(images.window.winid))
     end)
 
-    it("コンテナ内のファイルを開いた後でも一覧を開き直せる", function()
-      -- 一覧のフロートのバッファを差し替えると、bufhidden=wipe の一覧バッファが
-      -- 破棄されたままウィンドウだけが残り、以後 open が「既存ビューへ移動」に
-      -- 捕まって一覧が二度と描画されなくなる。
+    it("can reopen the list even after opening a file inside a container", function()
+      -- Replacing the buffer of the list float destroys the bufhidden=wipe list buffer while
+      -- only the window remains, after which open is caught by the "move to the existing view"
+      -- path and the list is never rendered again.
       local file_edit = require("docker.handlers.file_edit")
       local handle = assert(open_view("container"))
       local original_input = vim.ui.input
@@ -405,7 +407,7 @@ describe("docker.handlers.lifecycle", function()
       vim.ui.input = function(_, on_confirm)
         on_confirm("/etc/hosts")
       end
-      -- `cp` だけ横取りし、一覧の取得は既定の偽 docker のまま通す。
+      -- Intercept only `cp`, and let the list fetch go through the default fake docker.
       cli._set_executor(function(cmd, opts, on_exit)
         if cmd[2] == "cp" then
           vim.fn.writefile({ "127.0.0.1 localhost" }, cmd[4])
@@ -421,13 +423,13 @@ describe("docker.handlers.lifecycle", function()
         vim.wait(3000, function()
           return vim.bo.buftype == "acwrite"
         end),
-        "編集バッファが開かなかった"
+        "the edit buffer never opened"
       )
       vim.ui.input = original_input
       local edit_bufnr = vim.api.nvim_get_current_buf()
 
-      -- 一覧は閉じ、開き直すと中身が描かれる。
-      assert.is_nil(lifecycle.get("container"), "一覧が閉じること")
+      -- The list is closed, and reopening it renders the contents.
+      assert.is_nil(lifecycle.get("container"), "the list should close")
       local reopened = assert(open_view("container"))
       local lines = vim.api.nvim_buf_get_lines(reopened.window.bufnr, 0, -1, false)
       assert.is_truthy(lines[1]:find("web", 1, true), lines[1])
@@ -436,8 +438,8 @@ describe("docker.handlers.lifecycle", function()
       vim.api.nvim_buf_delete(edit_bufnr, { force = true })
     end)
 
-    it("ビューを閉じた後はウィンドウ移動の監視が残らない", function()
-      -- 常駐すると一覧を開いていない間もウィンドウ移動のたびに走ってしまう。
+    it("leaves no window-move watcher behind after the views are closed", function()
+      -- If it stayed resident, it would run on every window move even while no list is open.
       open_view("container")
 
       lifecycle.close_all()
@@ -446,7 +448,7 @@ describe("docker.handlers.lifecycle", function()
       assert.are.same({}, watchers)
     end)
 
-    it("閉じた後にもう一度開いても外れたときに閉じる", function()
+    it("still closes on focus loss when opened again after being closed", function()
       open_view("container")
       lifecycle.close_all()
 
@@ -458,7 +460,7 @@ describe("docker.handlers.lifecycle", function()
     end)
   end)
 
-  describe("キー操作のディスパッチ", function()
+  describe("dispatching key presses", function()
     ---@param handle table
     ---@param key string
     local function press(handle, key)
@@ -466,7 +468,7 @@ describe("docker.handlers.lifecycle", function()
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), "x", false)
     end
 
-    it("qで一覧が閉じる", function()
+    it("closes the list on q", function()
       local handle = assert(open_view("container"))
 
       press(handle, "q")
@@ -474,19 +476,19 @@ describe("docker.handlers.lifecycle", function()
       assert.is_nil(lifecycle.get("container"))
     end)
 
-    it("?でヘルプが前面に開く", function()
+    it("opens help in front on ?", function()
       local handle = assert(open_view("container"))
 
       press(handle, "?")
 
       local current = vim.api.nvim_get_current_win()
-      assert.is_true(current ~= handle.window.winid, "ヘルプのウィンドウへ移ること")
+      assert.is_true(current ~= handle.window.winid, "focus should move to the help window")
       local joined = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
       assert.is_truthy(joined:find("start", 1, true), joined)
     end)
 
-    it("Rで一覧を取り直すためdockerを再度呼ぶ", function()
-      -- 行数だけを見ていると、R が何もしなくても気付けない。
+    it("calls docker again on R to re-fetch the list", function()
+      -- Looking only at the line count would not reveal that R did nothing at all.
       local handle = assert(open_view("container"))
       local calls = {}
       cli._set_executor(function(cmd, _, on_exit)
@@ -496,18 +498,18 @@ describe("docker.handlers.lifecycle", function()
 
       press(handle, "R")
 
-      assert.are.equal(1, #calls, "一覧取得を 1 回発行すること")
+      assert.are.equal(1, #calls, "the list fetch should be issued exactly once")
       assert.are.equal("ps", calls[1][2])
     end)
   end)
 
-  describe("非同期な接続確認との競合", function()
-    it("応答を待っている間に再度開いてもフロートが二重に開かない", function()
-      -- `:Docker containers` を連打すると、接続確認の応答前に何枚も開いてしまう。
-      -- 孤児になったフロートは q でも close() でも閉じられなくなる。
+  describe("racing with the asynchronous connection check", function()
+    it("does not open a second float when opened again while waiting for the answer", function()
+      -- Hammering `:Docker containers` would open several floats before the connection check
+      -- answers. The orphaned floats can no longer be closed with q or close().
       local pending_replies = {}
       cli._set_executor(function(cmd, _, on_exit)
-        -- 接続確認の応答を保留し、その間に 2 回目・3 回目を発行する
+        -- Hold back the connection-check answer and issue the second and third open meanwhile
         table.insert(pending_replies, function()
           if cmd[2] == "version" then
             on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
@@ -527,10 +529,10 @@ describe("docker.handlers.lifecycle", function()
       vim.wait(200)
 
       local opened = #vim.api.nvim_list_wins() - before
-      assert.is_true(opened <= 1, ("開いたウィンドウは 1 枚まで (実際 %d 枚)"):format(opened))
+      assert.is_true(opened <= 1, ("at most 1 window should be opened (actually %d)"):format(opened))
     end)
 
-    it("接続に失敗した後でも改めて開ける", function()
+    it("can still be opened again after the connection failed", function()
       cli._set_executor(function(_, _, on_exit)
         on_exit({ code = 1, stdout = "", stderr = "Cannot connect to the Docker daemon" })
       end)
@@ -544,13 +546,13 @@ describe("docker.handlers.lifecycle", function()
         end
       end)
 
-      assert.is_truthy(open_view("container"), "失敗後に開けなくならないこと")
+      assert.is_truthy(open_view("container"), "opening should not become impossible after a failure")
     end)
   end)
 
-  describe("実行中表示の結線", function()
-    it("操作を開始すると一覧に実行中の印が出る", function()
-      -- 台帳に印を付けるだけでは画面は変わらない。再描画まで繋がっている必要がある。
+  describe("wiring of the busy marker", function()
+    it("shows the busy marker in the list when an operation starts", function()
+      -- Marking the ledger alone does not change the screen; it has to be wired through to a redraw.
       local handle = assert(open_view("container"))
       assert.is_nil(vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]:find("実行中", 1, true))
 
@@ -562,7 +564,7 @@ describe("docker.handlers.lifecycle", function()
       )
     end)
 
-    it("操作が終わると実行中の印が消える", function()
+    it("removes the busy marker when the operation finishes", function()
       local handle = assert(open_view("container"))
       operations.begin("abc123", "stop")
 
@@ -572,8 +574,8 @@ describe("docker.handlers.lifecycle", function()
     end)
   end)
 
-  describe("再描画とカーソル", function()
-    it("再取得してもカーソル行が先頭へ戻らない", function()
+  describe("redraw and the cursor", function()
+    it("does not send the cursor line back to the top when the list is re-fetched", function()
       cli._set_executor(function(cmd, _, on_exit)
         if cmd[2] == "version" then
           on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
@@ -598,12 +600,12 @@ describe("docker.handlers.lifecycle", function()
     end)
   end)
 
-  describe("キーマップの適用範囲", function()
-    it("プラグインのキーをグローバルに張らない", function()
-      -- BR-014: 一覧ビュー以外のバッファでプラグインのキーが作用しない。
-      -- `nvim_buf_get_keymap` はバッファローカルしか見ないためグローバル併設を
-      -- 検出できない。グローバルのマップ一覧に一覧ビューのキーが無いことを直接見る。
-      -- (前のテストで既に開いている可能性があるので、差分ではなく実在で判定する)
+  describe("scope of the keymaps", function()
+    it("does not map the plugin keys globally", function()
+      -- BR-014: the plugin's keys do not take effect in buffers other than the list views.
+      -- `nvim_buf_get_keymap` only looks at buffer-local maps, so it cannot detect a globally
+      -- set map alongside them. Look directly at the global map list for the list view's keys.
+      -- (A previous test may have already opened a view, so judge by presence rather than by diff.)
       assert(open_view("container"))
 
       local global = {}
@@ -617,26 +619,26 @@ describe("docker.handlers.lifecycle", function()
           table.insert(leaked, key)
         end
       end
-      assert.are.same({}, leaked, "グローバルへ漏れたキー: " .. vim.inspect(leaked))
+      assert.are.same({}, leaked, "keys leaked to the global scope: " .. vim.inspect(leaked))
     end)
 
-    it("ビューを閉じるとそのバッファのキーも消える", function()
+    it("removes that buffer's keys when the view is closed", function()
       local handle = assert(open_view("container"))
       local bufnr = handle.window.bufnr
 
       lifecycle.close("container")
 
-      assert.is_false(vim.api.nvim_buf_is_valid(bufnr), "バッファごと破棄されること")
+      assert.is_false(vim.api.nvim_buf_is_valid(bufnr), "the buffer itself should be wiped")
     end)
   end)
 
-  describe("ビュー切替", function()
-    it("選んだ種別へ切り替えて元のビューを閉じる", function()
+  describe("switching views", function()
+    it("switches to the chosen kind and closes the original view", function()
       local handle = assert(open_view("container"))
       local original_select = vim.ui.select
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.ui.select = function(items, _, on_choice)
-        -- images を選ぶ
+        -- pick images
         for _, item in ipairs(items) do
           if item == "images" then
             on_choice(item)
@@ -652,11 +654,11 @@ describe("docker.handlers.lifecycle", function()
       end)
       vim.ui.select = original_select
 
-      assert.is_truthy(lifecycle.get("image"), "切替先が開くこと")
-      assert.is_nil(lifecycle.get("container"), "元のビューは閉じること")
+      assert.is_truthy(lifecycle.get("image"), "the switch target should open")
+      assert.is_nil(lifecycle.get("container"), "the original view should close")
     end)
 
-    it("選択をキャンセルすると今のビューが残る", function()
+    it("keeps the current view when the selection is cancelled", function()
       local handle = assert(open_view("container"))
       local original_select = vim.ui.select
       ---@diagnostic disable-next-line: duplicate-set-field
@@ -668,11 +670,11 @@ describe("docker.handlers.lifecycle", function()
       vim.wait(200)
       vim.ui.select = original_select
 
-      assert.is_truthy(lifecycle.get("container"), "今のビューが残ること")
+      assert.is_truthy(lifecycle.get("container"), "the current view should remain")
     end)
 
-    it("切替先を開けなかったときは今のビューを閉じない", function()
-      -- compose プロジェクト外で services へ切り替えた場合など。
+    it("does not close the current view when the switch target could not be opened", function()
+      -- For example switching to services from outside a compose project.
       local handle = assert(open_view("container"))
       local original_select = vim.ui.select
       ---@diagnostic disable-next-line: duplicate-set-field
@@ -692,11 +694,11 @@ describe("docker.handlers.lifecycle", function()
       vim.ui.select = original_select
 
       assert.is_nil(lifecycle.get("service"))
-      assert.is_truthy(lifecycle.get("container"), "切替に失敗したら今のビューを残すこと")
+      assert.is_truthy(lifecycle.get("container"), "the current view should remain when the switch fails")
     end)
   end)
 
-  describe("ドリルダウン", function()
+  describe("drilldown", function()
     ---@param cmd_handler fun(cmd: string[]): string
     local function stub_lists(cmd_handler)
       cli._set_executor(function(cmd, _, on_exit)
@@ -734,7 +736,7 @@ describe("docker.handlers.lifecycle", function()
       }, over or {}))
     end
 
-    it("コンテナからそのイメージへ移り対象行にカーソルが当たる", function()
+    it("moves from a container to its image with the cursor on the target line", function()
       stub_lists(function(cmd)
         if cmd[2] == "image" then
           return image_json({ id = "i0", repository = "other", tag = "1" })
@@ -752,11 +754,11 @@ describe("docker.handlers.lifecycle", function()
       end))
 
       local images = assert(lifecycle.get("image"))
-      -- `docker ps` の .Image はタグ省略形 ("alpine") になることがある。
-      assert.are.equal(2, vim.api.nvim_win_get_cursor(images.window.winid)[1], "alpine の行に当たること")
+      -- The .Image of `docker ps` can be the tag-less form ("alpine").
+      assert.are.equal(2, vim.api.nvim_win_get_cursor(images.window.winid)[1], "cursor should land on the alpine row")
     end)
 
-    it("イメージからそれを使うコンテナへ移る", function()
+    it("moves from an image to the container that uses it", function()
       stub_lists(function(cmd)
         if cmd[2] == "image" then
           return image_json({ repository = "alpine", tag = "3.20" })
@@ -777,7 +779,7 @@ describe("docker.handlers.lifecycle", function()
       assert.are.equal(2, vim.api.nvim_win_get_cursor(containers.window.winid)[1])
     end)
 
-    it("辿れる先が無いときは警告して開かない", function()
+    it("warns and opens nothing when there is nowhere to drill down to", function()
       stub_lists(function()
         return container_json({ image = "" })
       end)
@@ -792,7 +794,7 @@ describe("docker.handlers.lifecycle", function()
     end)
   end)
 
-  describe("一括削除", function()
+  describe("bulk delete", function()
     ---@param count integer
     local function stub_containers(count)
       cli._set_executor(function(cmd, _, on_exit)
@@ -827,8 +829,8 @@ describe("docker.handlers.lifecycle", function()
       end)
     end
 
-    it("Visual モードにも削除のキーが張られる", function()
-      -- ノーマルモードだけだと、範囲を選んで押してもプラグインに届かない。
+    it("maps the delete key in Visual mode as well", function()
+      -- With Normal mode alone, selecting a range and pressing the key never reaches the plugin.
       stub_containers(3)
       local handle = assert(open_view("container"))
 
@@ -837,10 +839,10 @@ describe("docker.handlers.lifecycle", function()
         visual[m.lhs] = true
       end
 
-      assert.is_true(visual["D"], "Visual に D が張られていること")
+      assert.is_true(visual["D"], "D should be mapped in Visual mode")
     end)
 
-    it("選択範囲の件数を確認プロンプトに出す", function()
+    it("shows the number of selected rows in the confirmation prompt", function()
       stub_containers(3)
       local handle = assert(open_view("container"))
       local prompts = {}
@@ -857,11 +859,11 @@ describe("docker.handlers.lifecycle", function()
       vim.wait(300)
       vim.ui.input = original_input
 
-      assert.are.equal(1, #prompts, "確認が 1 回出ること")
+      assert.are.equal(1, #prompts, "the confirmation should be shown exactly once")
       assert.is_truthy(prompts[1]:find("3", 1, true), prompts[1])
     end)
 
-    it("確認でyと答えると選択した件数ぶん削除する", function()
+    it("deletes as many rows as were selected when the confirmation is answered with y", function()
       stub_containers(3)
       local handle = assert(open_view("container"))
       local removed = {}
@@ -889,7 +891,7 @@ describe("docker.handlers.lifecycle", function()
       assert.are.same({ "id1", "id2" }, removed)
     end)
 
-    it("確認でnと答えると1件も削除しない", function()
+    it("deletes nothing when the confirmation is answered with n", function()
       stub_containers(3)
       local handle = assert(open_view("container"))
       local removed = {}
@@ -914,7 +916,7 @@ describe("docker.handlers.lifecycle", function()
       assert.are.same({}, removed)
     end)
 
-    it("一部が失敗しても残りは削除し失敗分をまとめて知らせる", function()
+    it("deletes the rest even when some fail and reports the failures together", function()
       stub_containers(3)
       local handle = assert(open_view("container"))
       local removed = {}
@@ -942,16 +944,17 @@ describe("docker.handlers.lifecycle", function()
       vim.wait(500)
       vim.ui.input = original_input
 
-      assert.are.equal(2, #removed, "失敗しても他は実行すること")
+      assert.are.equal(2, #removed, "the others should still run even when one fails")
       local last = notified[#notified]
       assert.are.equal(vim.log.levels.ERROR, last.level)
       assert.is_truthy(last.msg:find("id1", 1, true) or last.msg:find("c1", 1, true), last.msg)
     end)
   end)
 
-  describe("詳細ビューの対象", function()
-    it("カーソル行のリソースを inspect する", function()
-      -- 常に 1 行目を見る実装だと、別のコンテナの詳細を出してしまう。
+  describe("target of the inspect view", function()
+    it("inspects the resource on the cursor line", function()
+      -- An implementation that always looks at the first line would show the details of a
+      -- different container.
       local inspected = {}
       cli._set_executor(function(cmd, _, on_exit)
         if cmd[2] == "version" then

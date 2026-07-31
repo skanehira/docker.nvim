@@ -7,7 +7,7 @@ describe("docker.handlers.file_edit", function()
   local original_notify
   local opened_buffers
 
-  --- `docker cp` を横取りし、取り出し側では中身を書き出す偽の docker。
+  --- A fake docker that intercepts `docker cp` and writes the contents out on the pull side.
   ---@param opts { fail_pull: boolean|nil, fail_push: boolean|nil, contents: string[]|nil }
   local function stub(opts)
     cli._set_executor(function(cmd, _, on_exit)
@@ -62,8 +62,8 @@ describe("docker.handlers.file_edit", function()
         vim.api.nvim_buf_delete(bufnr, { force = true })
       end
     end
-    -- 開いたウィンドウを片付ける。溜めたままだと分割が積み上がって
-    -- 途中から E36 (Not enough room) で開けなくなる。
+    -- Clean up the opened windows. Letting them accumulate piles splits up and
+    -- at some point opening fails with E36 (Not enough room).
     for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
       if #vim.api.nvim_tabpage_list_wins(0) > 1 then
         pcall(vim.api.nvim_win_close, winid, true)
@@ -75,7 +75,7 @@ describe("docker.handlers.file_edit", function()
   end)
 
   describe("open", function()
-    it("コンテナからファイルを取り出す", function()
+    it("pulls the file out of the container", function()
       stub({})
 
       open("abc123", "web", "/etc/hosts")
@@ -85,7 +85,7 @@ describe("docker.handlers.file_edit", function()
       assert.are.equal("abc123:/etc/hosts", runs[1][3])
     end)
 
-    it("バッファ名をdockerスキームにする", function()
+    it("gives the buffer a name in the docker scheme", function()
       stub({})
 
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
@@ -93,17 +93,17 @@ describe("docker.handlers.file_edit", function()
       assert.are.equal("docker://web/etc/hosts", vim.fn.bufname(bufnr))
     end)
 
-    it("取り出した内容をバッファに読み込む", function()
+    it("loads the pulled contents into the buffer", function()
       stub({ contents = { "line1", "line2" } })
 
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
 
       assert.are.same({ "line1", "line2" }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
-      assert.is_false(vim.bo[bufnr].modified, "開いた直後は未変更であること")
+      assert.is_false(vim.bo[bufnr].modified, "must be unmodified right after opening")
     end)
 
-    it("一時ファイルの名前にコンテナごとの識別子が入る", function()
-      -- 名前がパスだけだと、別のコンテナの同じパスで内容を取り違える。
+    it("puts a per-container identifier into the temporary file name", function()
+      -- If the name were the path alone, the same path in another container would mix the contents up.
       local pulled = {}
       cli._set_executor(function(cmd, _, on_exit)
         table.insert(pulled, cmd[4])
@@ -115,15 +115,15 @@ describe("docker.handlers.file_edit", function()
       open("bbbbbbbbbbbb", "db", "/etc/hosts")
 
       assert.are.equal(2, #pulled)
-      assert.is_true(pulled[1] ~= pulled[2], "一時ファイルの名前が別になること: " .. pulled[1])
+      assert.is_true(pulled[1] ~= pulled[2], "the temporary file names must differ: " .. pulled[1])
     end)
 
-    it("同じパスを別のコンテナで開いても書き戻し先が混ざらない", function()
+    it("does not mix up the write-back destinations when the same path is opened in another container", function()
       stub({})
       local first = assert(open("aaaaaaaaaaaa", "web", "/etc/hosts"))
       local second = assert(open("bbbbbbbbbbbb", "db", "/etc/hosts"))
 
-      assert.is_true(first ~= second, "別のバッファになること")
+      assert.is_true(first ~= second, "must be a different buffer")
 
       runs = {}
       vim.api.nvim_buf_set_lines(second, 0, -1, false, { "changed" })
@@ -132,28 +132,28 @@ describe("docker.handlers.file_edit", function()
         return #runs > 0
       end))
 
-      assert.are.equal("bbbbbbbbbbbb:/etc/hosts", runs[1][4], "2 つ目のコンテナへ書き戻すこと")
+      assert.are.equal("bbbbbbbbbbbb:/etc/hosts", runs[1][4], "must write back to the second container")
     end)
 
-    it("名前が前方一致する別のバッファを掴まない", function()
-      -- 名前でバッファを探すときにパターン照合を使うと、利用者が開いていた
-      -- docker://web/etc/hosts.orig を「同じファイル」と誤認して
-      -- コンテナの中身で上書きしてしまう。
-      stub({ contents = { "コンテナの内容" } })
+    it("does not grab another buffer whose name merely shares the prefix", function()
+      -- Using pattern matching to look a buffer up by name would mistake
+      -- docker://web/etc/hosts.orig, which the user had open, for "the same file"
+      -- and overwrite it with the container's contents.
+      stub({ contents = { "container contents" } })
       local other = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_name(other, "docker://web/etc/hosts.orig")
-      vim.api.nvim_buf_set_lines(other, 0, -1, false, { "利用者の内容" })
+      vim.api.nvim_buf_set_lines(other, 0, -1, false, { "user contents" })
 
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
 
-      assert.is_true(bufnr ~= other, "別のバッファを使うこと")
-      assert.are.same({ "利用者の内容" }, vim.api.nvim_buf_get_lines(other, 0, -1, false))
+      assert.is_true(bufnr ~= other, "must use a different buffer")
+      assert.are.same({ "user contents" }, vim.api.nvim_buf_get_lines(other, 0, -1, false))
       vim.api.nvim_buf_delete(other, { force = true })
     end)
 
-    it("ディレクトリを指定したときは開かずに取り出した中身も残さない", function()
-      -- `docker cp` はディレクトリを指定すると丸ごと降ろす。そのまま
-      -- readfile に渡すと例外になり、降ろした中身がキャッシュに残り続ける。
+    it("neither opens a buffer nor keeps the pulled contents when a directory is given", function()
+      -- Given a directory, `docker cp` pulls the whole thing down. Passing that straight to
+      -- readfile raises, and the pulled contents stay in the cache forever.
       local pulled
       cli._set_executor(function(cmd, _, on_exit)
         table.insert(runs, cmd)
@@ -165,19 +165,15 @@ describe("docker.handlers.file_edit", function()
 
       local bufnr = open("abc123", "web", "/etc")
 
-      assert.is_nil(bufnr, "バッファを開かないこと")
+      assert.is_nil(bufnr, "must not open a buffer")
       assert.are.same(
         { msg = "/etc はディレクトリなので編集できません", level = vim.log.levels.ERROR },
         notified[#notified]
       )
-      assert.are.equal(
-        0,
-        vim.fn.isdirectory(pulled),
-        "取り出した中身を残さないこと: " .. tostring(pulled)
-      )
+      assert.are.equal(0, vim.fn.isdirectory(pulled), "must not keep the pulled contents: " .. tostring(pulled))
     end)
 
-    it("取り出しに失敗するとバッファを開かない", function()
+    it("does not open a buffer when the pull fails", function()
       stub({ fail_pull = true })
 
       local bufnr = open("abc123", "web", "/nope")
@@ -186,34 +182,34 @@ describe("docker.handlers.file_edit", function()
       assert.are.equal(vim.log.levels.ERROR, notified[#notified].level)
     end)
 
-    it("フォーカスのあるフロートのバッファを奪わない", function()
-      -- フロートにフォーカスがある状態でバッファを差し替えると、bufhidden=wipe の
-      -- 一覧バッファが破棄され、フロートだけが生き残って一覧が二度と描画されない。
+    it("does not steal the buffer of the focused float", function()
+      -- Swapping the buffer while the float has focus wipes out the list buffer, which is
+      -- bufhidden=wipe, leaving only the float alive so the list is never drawn again.
       stub({})
       local float = window.open({ title = "Containers" })
       window.set_lines(float, { "web  alpine" })
 
       open("abc123", "web", "/etc/hosts")
 
-      assert.is_true(vim.api.nvim_buf_is_valid(float.bufnr), "一覧のバッファが生きていること")
+      assert.is_true(vim.api.nvim_buf_is_valid(float.bufnr), "the list buffer must stay alive")
       assert.are.same({ "web  alpine" }, vim.api.nvim_buf_get_lines(float.bufnr, 0, -1, false))
       window.close(float)
     end)
 
-    it("フロートとは別のウィンドウに開く", function()
+    it("opens in a window separate from the float", function()
       stub({})
       local float = window.open({ title = "Containers" })
 
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
 
       local winid = vim.api.nvim_get_current_win()
-      assert.is_true(winid ~= float.winid, "フロートとは別のウィンドウであること")
-      assert.are.equal(bufnr, vim.api.nvim_win_get_buf(winid), "開いたバッファが出ていること")
+      assert.is_true(winid ~= float.winid, "must be a window separate from the float")
+      assert.are.equal(bufnr, vim.api.nvim_win_get_buf(winid), "the opened buffer must be displayed")
       window.close(float)
     end)
 
-    it("既に開いているファイルは同じウィンドウへ戻る", function()
-      -- 開くたびに分割を足すと、同じファイルの窓が何枚も積み上がる。
+    it("returns to the same window for a file that is already open", function()
+      -- Adding a split on every open piles up window after window for the same file.
       stub({})
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
       local first_win = vim.api.nvim_get_current_win()
@@ -221,11 +217,11 @@ describe("docker.handlers.file_edit", function()
 
       assert.are.equal(bufnr, open("abc123", "web", "/etc/hosts"))
 
-      assert.are.equal(first_win, vim.api.nvim_get_current_win(), "同じウィンドウへ戻ること")
-      assert.are.equal(windows_before, #vim.api.nvim_tabpage_list_wins(0), "窓が増えないこと")
+      assert.are.equal(first_win, vim.api.nvim_get_current_win(), "must return to the same window")
+      assert.are.equal(windows_before, #vim.api.nvim_tabpage_list_wins(0), "must not add a window")
     end)
 
-    it("保存を横取りするバッファ種別にする", function()
+    it("gives the buffer a type that intercepts saving", function()
       stub({})
 
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
@@ -234,13 +230,13 @@ describe("docker.handlers.file_edit", function()
     end)
   end)
 
-  describe("バッファの後始末", function()
-    it("同じファイルを2回開いても書き戻しは1回だけ走る", function()
-      -- 開くたびに BufWriteCmd を重ねて張ると、保存 1 回で docker cp が
-      -- 何度も走り、通知も回数ぶん出る。
+  describe("buffer cleanup", function()
+    it("runs the write back only once even when the same file is opened twice", function()
+      -- Attaching BufWriteCmd again on every open makes a single save run docker cp
+      -- several times and emit just as many notifications.
       stub({})
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
-      assert.are.equal(bufnr, open("abc123", "web", "/etc/hosts"), "同じバッファを使い回すこと")
+      assert.are.equal(bufnr, open("abc123", "web", "/etc/hosts"), "must reuse the same buffer")
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "changed" })
       runs = {}
 
@@ -249,12 +245,12 @@ describe("docker.handlers.file_edit", function()
         return #runs > 1
       end)
 
-      assert.are.equal(1, #runs, "書き戻しは 1 回だけ")
+      assert.are.equal(1, #runs, "the write back must run only once")
     end)
 
-    it("バッファを閉じると書き戻し先の対応付けが外れる", function()
-      -- `:bdelete` はバッファ番号を残したまま解放するため、番号だけを
-      -- 見ていると閉じた後も書き戻せてしまう。
+    it("detaches the write-back mapping when the buffer is closed", function()
+      -- `:bdelete` releases the buffer while keeping its number, so looking at the number
+      -- alone would still allow writing back after it was closed.
       stub({})
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "changed" })
@@ -264,7 +260,7 @@ describe("docker.handlers.file_edit", function()
       assert(vim.wait(2000, function()
         return #runs > 0
       end))
-      assert.are.equal("abc123:/etc/hosts", runs[1][4], "閉じる前は書き戻せること")
+      assert.are.equal("abc123:/etc/hosts", runs[1][4], "must be able to write back before closing")
 
       vim.cmd(("silent %dbdelete!"):format(bufnr))
       runs = {}
@@ -273,12 +269,12 @@ describe("docker.handlers.file_edit", function()
         return #runs > 0
       end)
 
-      assert.are.same({}, runs, "閉じた後は書き戻さないこと")
+      assert.are.same({}, runs, "must not write back after closing")
     end)
 
-    it("閉じたバッファを開き直しても書き戻しは1回だけ走る", function()
-      -- `:bdelete` ではバッファ番号が生き残るため、開き直しで同じ番号を
-      -- 掴む。後始末で横取りを解いておかないと BufWriteCmd が二重に張られる。
+    it("runs the write back only once when a closed buffer is reopened", function()
+      -- With `:bdelete` the buffer number survives, so reopening grabs the same number.
+      -- Unless the cleanup releases the interception, BufWriteCmd is attached twice.
       stub({})
       local first = assert(open("abc123", "web", "/etc/hosts"))
       vim.cmd(("silent %dbdelete!"):format(first))
@@ -292,12 +288,12 @@ describe("docker.handlers.file_edit", function()
         return #runs > 1
       end)
 
-      assert.are.equal(1, #runs, "書き戻しは 1 回だけ")
+      assert.are.equal(1, #runs, "the write back must run only once")
     end)
 
-    it("バッファを破棄すると一時ファイルも消える", function()
-      -- 取り出した中身がキャッシュへ残り続けると、コンテナの中身が
-      -- ホスト側に溜まる。
+    it("deletes the temporary file as well when the buffer is wiped out", function()
+      -- If the pulled contents kept piling up in the cache, the container's contents would
+      -- accumulate on the host side.
       local pulled
       cli._set_executor(function(cmd, _, on_exit)
         table.insert(runs, cmd)
@@ -306,16 +302,16 @@ describe("docker.handlers.file_edit", function()
         on_exit({ code = 0, stdout = "", stderr = "" })
       end)
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
-      assert.are.equal(1, vim.fn.filereadable(pulled), "取り出した時点では在ること")
+      assert.are.equal(1, vim.fn.filereadable(pulled), "must exist at the moment it is pulled")
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
 
-      assert.are.equal(0, vim.fn.filereadable(pulled), "破棄したら消えること: " .. tostring(pulled))
+      assert.are.equal(0, vim.fn.filereadable(pulled), "must be deleted once wiped out: " .. tostring(pulled))
     end)
   end)
 
-  describe("保存", function()
-    it("書き込むとコンテナへ書き戻す", function()
+  describe("saving", function()
+    it("writes back to the container on write", function()
       stub({})
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "changed" })
@@ -329,7 +325,7 @@ describe("docker.handlers.file_edit", function()
       assert.are.equal("abc123:/etc/hosts", runs[1][4])
     end)
 
-    it("書き戻しに成功すると未変更になる", function()
+    it("becomes unmodified when the write back succeeds", function()
       stub({})
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "changed" })
@@ -343,8 +339,8 @@ describe("docker.handlers.file_edit", function()
       assert.is_false(vim.bo[bufnr].modified)
     end)
 
-    it("書き戻しに失敗すると変更を保持したままにする", function()
-      -- modified を落とすと、書き戻せていないのに保存済みに見えてしまう。
+    it("keeps the changes when the write back fails", function()
+      -- Clearing modified would make it look saved even though the write back did not happen.
       stub({ fail_push = true })
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "changed" })
@@ -354,12 +350,12 @@ describe("docker.handlers.file_edit", function()
         return #notified > 0 and notified[#notified].level == vim.log.levels.ERROR
       end))
 
-      assert.is_true(vim.bo[bufnr].modified, "変更が残ること")
+      assert.is_true(vim.bo[bufnr].modified, "the change must remain")
     end)
 
-    it("書き込みコマンドで書き戻しが走る", function()
-      -- BufWriteCmd の横取りが実際に効いているかを :write で確かめる。
-      -- open が開いたウィンドウにフォーカスがあるので、そのまま :write できる。
+    it("runs the write back on the write command", function()
+      -- Checks with :write that the BufWriteCmd interception is actually in effect.
+      -- The window opened by open has focus, so :write can be issued as is.
       stub({})
       local bufnr = assert(open("abc123", "web", "/etc/hosts"))
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "changed" })

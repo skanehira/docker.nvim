@@ -1,7 +1,7 @@
 version: 2
 
-# uses: をコミット SHA で固定しているため、放置すると脆弱性修正が届かない。
-# 固定と自動更新はセットで初めて意味を持つ。
+# Because every uses: is pinned to a commit SHA, leaving them alone keeps vulnerability
+# fixes from arriving. Pinning only makes sense together with automatic updates.
 updates:
   - package-ecosystem: github-actions
     directory: /

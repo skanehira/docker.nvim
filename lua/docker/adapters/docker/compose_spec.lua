@@ -4,7 +4,7 @@ local compose = require("docker.adapters.docker.compose")
 describe("docker.adapters.docker.compose", function()
   local runs
 
-  --- 与えた終了状態を返す偽の docker。
+  --- A fake docker that returns the given exit state.
   local function stub(out)
     cli._set_executor(function(cmd, opts, on_exit)
       table.insert(runs, { cmd = cmd, opts = opts })
@@ -30,8 +30,8 @@ describe("docker.adapters.docker.compose", function()
   end)
 
   describe("resolve_project", function()
-    it("設定をJSONで取得する引数でdocker composeを呼ぶ", function()
-      -- `config --services` は出力順が実行のたびに変わるため使わない。
+    it("calls docker compose with arguments that fetch the config as JSON", function()
+      -- `config --services` is not used because its output order changes on every run.
       stub({ code = 0, stdout = '{"name":"shop","services":{}}' })
 
       resolve()
@@ -39,8 +39,8 @@ describe("docker.adapters.docker.compose", function()
       assert.are.same({ "docker", "compose", "config", "--format", "json" }, runs[1].cmd)
     end)
 
-    it("ビューを開いた時点の作業ディレクトリで実行する", function()
-      -- BR-003: compose の解決はカレントディレクトリに依存する。
+    it("runs in the working directory as of the moment the view was opened", function()
+      -- BR-003: resolving compose depends on the current directory.
       stub({ code = 0, stdout = '{"name":"shop","services":{}}' })
 
       resolve("/work/shop")
@@ -48,7 +48,7 @@ describe("docker.adapters.docker.compose", function()
       assert.are.equal("/work/shop", runs[1].opts.cwd)
     end)
 
-    it("プロジェクト名とサービス全件を取り出す", function()
+    it("extracts the project name and all of its services", function()
       stub({
         code = 0,
         stdout = '{"name":"shop","services":{"web":{},"worker":{},"db":{}},"networks":{}}',
@@ -62,20 +62,21 @@ describe("docker.adapters.docker.compose", function()
       assert.are.same({ "db", "web", "worker" }, result.data.service_names)
     end)
 
-    it("サービス名は常に同じ順序で返す", function()
-      -- JSON オブジェクトのキー順は保証されない。行順が実行のたびに変わらないよう並べる。
+    it("returns the service names always in the same order", function()
+      -- JSON object key order is not guaranteed. They are sorted so that the row order does not
+      -- change on every run.
       stub({ code = 0, stdout = '{"name":"shop","services":{"zeta":{},"alpha":{},"mid":{}}}' })
 
       assert.are.same({ "alpha", "mid", "zeta" }, resolve().data.service_names)
     end)
 
-    it("起動していないサービスも含めて返す", function()
+    it("returns services that have never been started as well", function()
       stub({ code = 0, stdout = '{"name":"shop","services":{"web":{},"never-started":{}}}' })
 
       assert.are.same({ "never-started", "web" }, resolve().data.service_names)
     end)
 
-    it("サービスが0件でも成功として扱う", function()
+    it("treats 0 services as a success", function()
       stub({ code = 0, stdout = '{"name":"shop","services":{}}' })
 
       local result = resolve()
@@ -85,10 +86,10 @@ describe("docker.adapters.docker.compose", function()
     end)
   end)
 
-  describe("3つの失敗を区別する", function()
-    it("composeプロジェクト外だとわかる区分を返す", function()
-      -- 実機 (compose v5.1.2) の文言。
-      -- プロジェクト外は正常系として扱うので、独自の案内文は持たせない。
+  describe("distinguishing the three failures", function()
+    it("returns a category that tells the caller it is outside a compose project", function()
+      -- The wording from a real machine (compose v5.1.2).
+      -- Being outside a project is handled as a normal case, so it gets no dedicated guidance.
       stub({ code = 1, stderr = "no configuration file provided: not found" })
 
       local result = resolve()
@@ -98,8 +99,8 @@ describe("docker.adapters.docker.compose", function()
       assert.are.equal("no configuration file provided: not found", result.error)
     end)
 
-    it("composeサブコマンドが使えないとわかるメッセージを返す", function()
-      -- docker 29 は "unknown command"、それ以前は "'compose' is not a docker command"。
+    it("returns a message that tells the user the compose subcommand is unavailable", function()
+      -- docker 29 says "unknown command", earlier versions "'compose' is not a docker command".
       local messages = {}
       for _, stderr in ipairs({
         "docker: unknown command: docker compose",
@@ -117,7 +118,7 @@ describe("docker.adapters.docker.compose", function()
       }, messages)
     end)
 
-    it("composeファイルが不正なときはdockerの出力をそのまま返す", function()
+    it("returns docker's output as-is when the compose file is invalid", function()
       local stderr = "yaml: while parsing a flow sequence at line 2, column 12: did not find expected ',' or ']'"
       stub({ code = 1, stderr = stderr })
 
@@ -127,8 +128,8 @@ describe("docker.adapters.docker.compose", function()
       assert.are.equal(stderr, result.error)
     end)
 
-    it("3つの失敗はそれぞれ異なる区分と文言になる", function()
-      -- G11: compose サブコマンド不在が他と区別できること。
+    it("gives each of the three failures a different category and wording", function()
+      -- G11: a missing compose subcommand must be distinguishable from the others.
       local outcomes = {}
       for _, stderr in ipairs({
         "no configuration file provided: not found",
@@ -140,7 +141,7 @@ describe("docker.adapters.docker.compose", function()
         table.insert(outcomes, { reason = result.reason, message = result.error })
       end
 
-      -- 区分だけでなく、利用者に見える文言も取り違えていないこと。
+      -- Not only the category but also the wording the user sees must not be mixed up.
       assert.are.same({
         { reason = "outside", message = "no configuration file provided: not found" },
         {
@@ -151,7 +152,7 @@ describe("docker.adapters.docker.compose", function()
       }, outcomes)
     end)
 
-    it("出力が解析できないときは不正として扱う", function()
+    it("treats output that cannot be parsed as invalid", function()
       stub({ code = 0, stdout = "not json" })
 
       assert.are.equal("invalid", resolve().reason)
@@ -168,8 +169,8 @@ describe("docker.adapters.docker.compose", function()
       return assert(captured, "on_done was not called")
     end
 
-    it("停止中を含む全プロジェクトをJSONで取得する引数でdocker composeを呼ぶ", function()
-      -- `-a` が無いと稼働中のプロジェクトしか出ず、停止したプロジェクトが一覧から消える。
+    it("calls docker compose with arguments that fetch every project including stopped ones as JSON", function()
+      -- Without `-a` only running projects are listed and stopped projects disappear from the list.
       stub({ code = 0, stdout = "[]" })
 
       list()
@@ -177,8 +178,8 @@ describe("docker.adapters.docker.compose", function()
       assert.are.same({ "docker", "compose", "ls", "-a", "--format", "json" }, runs[1].cmd)
     end)
 
-    it("どの作業ディレクトリにも依存せず実行する", function()
-      -- プロジェクトの列挙はラベル由来で、compose ファイルの場所に依存しない。
+    it("runs without depending on any working directory", function()
+      -- Enumerating projects comes from labels and does not depend on where the compose file is.
       stub({ code = 0, stdout = "[]" })
 
       list()
@@ -186,7 +187,7 @@ describe("docker.adapters.docker.compose", function()
       assert.is_nil(runs[1].opts.cwd)
     end)
 
-    it("プロジェクト名と設定ファイルのパスを取り出す", function()
+    it("extracts the project name and the config file path", function()
       stub({
         code = 0,
         stdout = '[{"Name":"shop","Status":"running(2)","ConfigFiles":"/work/shop/compose.yaml"},'
@@ -202,7 +203,7 @@ describe("docker.adapters.docker.compose", function()
       }, result.data)
     end)
 
-    it("プロジェクトが0件でも成功として扱う", function()
+    it("treats 0 projects as a success", function()
       stub({ code = 0, stdout = "[]" })
 
       local result = list()
@@ -211,13 +212,13 @@ describe("docker.adapters.docker.compose", function()
       assert.are.same({}, result.data)
     end)
 
-    it("設定ファイルのパスが無いプロジェクトは空文字列にする", function()
+    it("uses an empty string for a project that has no config file path", function()
       stub({ code = 0, stdout = '[{"Name":"shop","Status":"running(1)"}]' })
 
       assert.are.same({ { name = "shop", config_files = "" } }, list().data)
     end)
 
-    it("composeサブコマンドが使えないとわかるメッセージを返す", function()
+    it("returns a message that tells the user the compose subcommand is unavailable", function()
       stub({ code = 1, stderr = "docker: unknown command: docker compose" })
 
       local result = list()
@@ -230,7 +231,7 @@ describe("docker.adapters.docker.compose", function()
       )
     end)
 
-    it("出力が解析できないときは不正として扱う", function()
+    it("treats output that cannot be parsed as invalid", function()
       stub({ code = 0, stdout = "not json" })
 
       local result = list()
@@ -240,10 +241,11 @@ describe("docker.adapters.docker.compose", function()
     end)
   end)
 
-  describe("既存プロジェクトの定義の補完", function()
-    it("プロジェクト名を指定すると-pを付けて実行する", function()
-      -- ディレクトリ名から決まる既定のプロジェクト名と、コンテナのラベルにある
-      -- プロジェクト名は COMPOSE_PROJECT_NAME や -p 起動でずれる。名指しして取り違えを防ぐ。
+  describe("completing the definition of an existing project", function()
+    it("runs with -p when a project name is specified", function()
+      -- The default project name derived from the directory name and the project name recorded in
+      -- the container labels diverge with COMPOSE_PROJECT_NAME or a -p start. Naming the project
+      -- explicitly prevents picking the wrong one.
       stub({ code = 0, stdout = '{"name":"shop","services":{"web":{}}}' })
 
       local captured
@@ -258,7 +260,7 @@ describe("docker.adapters.docker.compose", function()
   end)
 
   describe("run", function()
-    it("compose のサブコマンドを作業ディレクトリで実行する", function()
+    it("runs a compose subcommand in the working directory", function()
       stub({ code = 0, stdout = "" })
 
       compose.run({ "up", "-d", "web" }, "/work/shop", function() end)
@@ -267,7 +269,7 @@ describe("docker.adapters.docker.compose", function()
       assert.are.equal("/work/shop", runs[1].opts.cwd)
     end)
 
-    it("失敗するとdockerの標準エラー出力をそのまま返す", function()
+    it("returns docker's stderr as-is when it fails", function()
       stub({ code = 1, stderr = 'service "nope" is not defined' })
 
       local captured

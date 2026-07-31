@@ -2,13 +2,13 @@ local view = require("docker.state.view")
 
 describe("docker.state.view", function()
   describe("new", function()
-    it("種別を持ち項目が空でカーソルが先頭の状態を作る", function()
+    it("creates a state that has the kind, no items and the cursor at the top", function()
       assert.are.same({ kind = "container", items = {}, cursor = 1, filter = "" }, view.new("container"))
     end)
   end)
 
   describe("with_items", function()
-    it("項目を差し替えた新しい状態を返す", function()
+    it("returns a new state with the items swapped", function()
       local before = view.new("container")
 
       local after = view.with_items(before, { { id = "a" } })
@@ -16,8 +16,8 @@ describe("docker.state.view", function()
       assert.are.same({ kind = "container", items = { { id = "a" } }, cursor = 1, filter = "" }, after)
     end)
 
-    it("元の状態を書き換えない", function()
-      -- 状態を唯一の源として描画するため、更新は必ず新しい値を作る。
+    it("does not rewrite the original state", function()
+      -- The drawing uses the state as the single source of truth, so an update always creates a new value.
       local before = view.new("container")
 
       view.with_items(before, { { id = "a" } })
@@ -25,9 +25,9 @@ describe("docker.state.view", function()
       assert.are.same({ kind = "container", items = {}, cursor = 1, filter = "" }, before)
     end)
 
-    it("渡した配列を後から変更しても状態の項目は変わらない", function()
-      -- 呼び出し側の配列をそのまま抱えると、ストア側の更新でビュー状態が
-      -- 黙って変わり、描画とカーソルの整合が取れなくなる。
+    it("keeps the items of the state unchanged when the passed array is modified afterwards", function()
+      -- Holding on to the caller's array would make the view state change silently on a store
+      -- update, putting the drawing and the cursor out of sync.
       local items = { { id = "a" } }
       local state = view.with_items(view.new("container"), items)
 
@@ -37,7 +37,7 @@ describe("docker.state.view", function()
       assert.are.same({ { id = "a" } }, state.items)
     end)
 
-    it("カーソル位置は保つ", function()
+    it("keeps the cursor position", function()
       local before = view.with_cursor(view.with_items(view.new("container"), { { id = "a" }, { id = "b" } }), 2)
 
       local after = view.with_items(before, { { id = "a" }, { id = "b" }, { id = "c" } })
@@ -45,7 +45,7 @@ describe("docker.state.view", function()
       assert.are.equal(2, after.cursor)
     end)
 
-    it("項目が減ってカーソルが範囲外になるときは最後の行に寄せる", function()
+    it("moves the cursor to the last line when the items shrink and it falls out of range", function()
       local before = view.with_cursor(view.with_items(view.new("container"), { { id = "a" }, { id = "b" } }), 2)
 
       local after = view.with_items(before, { { id = "a" } })
@@ -53,7 +53,7 @@ describe("docker.state.view", function()
       assert.are.equal(1, after.cursor)
     end)
 
-    it("項目が0件になってもカーソルは1のままになる", function()
+    it("keeps the cursor at 1 even when the items become 0", function()
       local before = view.with_cursor(view.with_items(view.new("container"), { { id = "a" }, { id = "b" } }), 2)
 
       local after = view.with_items(before, {})
@@ -63,7 +63,7 @@ describe("docker.state.view", function()
   end)
 
   describe("with_cursor", function()
-    it("カーソル位置を変えた新しい状態を返す", function()
+    it("returns a new state with the cursor position changed", function()
       local before = view.with_items(view.new("container"), { { id = "a" }, { id = "b" } })
 
       local after = view.with_cursor(before, 2)
@@ -72,13 +72,13 @@ describe("docker.state.view", function()
       assert.are.equal(1, before.cursor)
     end)
 
-    it("項目数を超える位置は最後の行に丸める", function()
+    it("clamps a position beyond the number of items to the last line", function()
       local before = view.with_items(view.new("container"), { { id = "a" }, { id = "b" } })
 
       assert.are.equal(2, view.with_cursor(before, 99).cursor)
     end)
 
-    it("1より小さい位置は先頭に丸める", function()
+    it("clamps a position smaller than 1 to the top", function()
       local before = view.with_items(view.new("container"), { { id = "a" } })
 
       assert.are.equal(1, view.with_cursor(before, 0).cursor)
@@ -86,18 +86,18 @@ describe("docker.state.view", function()
   end)
 
   describe("selected", function()
-    it("カーソル位置の項目を返す", function()
+    it("returns the item at the cursor position", function()
       local state = view.with_cursor(view.with_items(view.new("container"), { { id = "a" }, { id = "b" } }), 2)
 
       assert.are.same({ id = "b" }, view.selected(state))
     end)
 
-    it("項目が0件のときはnilを返す", function()
+    it("returns nil when there are 0 items", function()
       assert.is_nil(view.selected(view.new("container")))
     end)
   end)
 
-  describe("絞り込み", function()
+  describe("filtering", function()
     local registry = require("docker.resources.registry")
     local def = assert(registry.get("container"))
 
@@ -122,13 +122,13 @@ describe("docker.state.view", function()
       return view.with_items(view.new("container"), items)
     end
 
-    it("絞り込みが空なら全件を返す", function()
+    it("returns every item when the filter is empty", function()
       local state = with({ container({ id = "1" }), container({ id = "2" }) })
 
       assert.are.equal(2, #view.visible_items(state, def))
     end)
 
-    it("表示値に部分一致する行だけを返す", function()
+    it("returns only the rows that partially match a displayed value", function()
       local state = with({
         container({ id = "1", name = "web-server" }),
         container({ id = "2", name = "database" }),
@@ -140,25 +140,25 @@ describe("docker.state.view", function()
       assert.are.equal("web-server", visible[1].name)
     end)
 
-    it("大文字小文字を区別しない", function()
+    it("does not distinguish upper case from lower case", function()
       local state = with({ container({ name = "WebServer" }) })
 
       assert.are.equal(1, #view.visible_items(view.with_filter(state, "webserver"), def))
     end)
 
-    it("名前以外の列にも一致する", function()
+    it("matches columns other than the name too", function()
       local state = with({ container({ name = "a", image = "postgres:16" }) })
 
       assert.are.equal(1, #view.visible_items(view.with_filter(state, "postgres"), def))
     end)
 
-    it("一致しなければ0件になる", function()
+    it("returns 0 items when nothing matches", function()
       local state = with({ container({ name = "web" }) })
 
       assert.are.same({}, view.visible_items(view.with_filter(state, "zzz"), def))
     end)
 
-    it("絞り込みを解除すると全行に戻る", function()
+    it("goes back to every row when the filter is cleared", function()
       local state = with({ container({ id = "1", name = "web" }), container({ id = "2", name = "db" }) })
       local filtered = view.with_filter(state, "web")
 
@@ -167,14 +167,15 @@ describe("docker.state.view", function()
       assert.are.equal(2, #view.visible_items(cleared, def))
     end)
 
-    it("絞り込みを変えるとカーソルは先頭へ戻る", function()
-      -- 行と項目の対応が変わるため、位置を保つと別の対象を指してしまう。
+    it("moves the cursor back to the top when the filter changes", function()
+      -- The correspondence between rows and items changes, so keeping the position would point at
+      -- a different target.
       local state = view.with_cursor(with({ container({ id = "1" }), container({ id = "2" }) }), 2)
 
       assert.are.equal(1, view.with_filter(state, "web").cursor)
     end)
 
-    it("項目を差し替えても絞り込みは保つ", function()
+    it("keeps the filter when the items are swapped", function()
       local state = view.with_filter(with({ container({ name = "web" }) }), "web")
 
       assert.are.equal("web", view.with_items(state, { container({ name = "web" }) }).filter)

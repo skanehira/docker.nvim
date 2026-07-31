@@ -2,7 +2,7 @@ local list = require("docker.views.list")
 local registry = require("docker.resources.registry")
 local tbl = require("docker.ui.table")
 
---- 一覧取得で得られるコンテナの生データ。指定した項目だけ上書きする。
+--- Raw container data as returned by listing. Only the given fields are overridden.
 ---@param overrides table|nil
 ---@return table
 local function container(overrides)
@@ -30,8 +30,8 @@ describe("docker.views.list", function()
   end)
 
   describe("build", function()
-    it("見出しはバッファ行に含めずwinbarに入れる", function()
-      -- 見出しをバッファに入れないことで、カーソル行とデータ行の添字が 1 対 1 になる。
+    it("puts the header into the winbar instead of a buffer line", function()
+      -- Keeping the header out of the buffer makes the cursor line and the data row index map one to one.
       local built = list.build(def, { container() })
 
       assert.are.equal(1, #built.lines)
@@ -39,7 +39,7 @@ describe("docker.views.list", function()
       assert.is_truthy(built.winbar:find("STATUS", 1, true))
     end)
 
-    it("リソース1件につきバッファ行を1行生成する", function()
+    it("generates one buffer line per resource", function()
       local built = list.build(def, {
         container({ id = "1", name = "web" }),
         container({ id = "2", name = "db" }),
@@ -49,9 +49,9 @@ describe("docker.views.list", function()
       assert.are.equal(3, #built.lines)
     end)
 
-    it("compose由来のコンテナはPROJECTとSERVICEの値が行に出る", function()
-      -- 名前・プロジェクト名・サービス名を互いに異なる値にする。
-      -- コンテナ名に含まれる語で照合すると、列が空でもテストが通ってしまう。
+    it("shows the PROJECT and SERVICE values in the row of a compose-managed container", function()
+      -- The name, the project name and the service name are all made different from each other.
+      -- Matching on a word contained in the container name would let the test pass with empty columns.
       local built = list.build(def, {
         container({
           name = "ctr",
@@ -63,37 +63,37 @@ describe("docker.views.list", function()
         }),
       })
 
-      -- 列幅は見出し (NAME/IMAGE/STATUS/PORTS/PROJECT/SERVICE) の長さで決まる。
-      -- PORTS は空なので、STATUS と PROJECT の間はその幅ぶん空く。
+      -- The column widths are determined by the length of the headers (NAME/IMAGE/STATUS/PORTS/PROJECT/SERVICE).
+      -- PORTS is empty, so the gap between STATUS and PROJECT spans that width.
       assert.are.equal("ctr   img    Up             projalpha  svcbeta", built.lines[1])
     end)
 
-    it("compose由来でないコンテナはPROJECTとSERVICEが空欄になる", function()
+    it("leaves PROJECT and SERVICE blank for a container not managed by compose", function()
       local built = list.build(def, { container({ name = "plain" }) })
 
-      -- 末尾の余白は残さないので、compose 列が空なら行は SERVICE の手前で終わる。
+      -- No trailing padding is left, so when the compose columns are empty the row ends before SERVICE.
       assert.are.equal("plain  alpine:3.20  Up 5 days", built.lines[1])
     end)
 
-    it("0件のときは項目が無いことを示す1行を出す", function()
+    it("emits a single line stating that there are no items when the list is empty", function()
       local built = list.build(def, {})
 
       assert.are.same({ "コンテナがありません" }, built.lines)
     end)
 
-    it("0件のときも見出しは出す", function()
+    it("still emits the header when the list is empty", function()
       local built = list.build(def, {})
 
       assert.is_truthy(built.winbar:find("NAME", 1, true))
     end)
 
-    it("列は各行の最大幅に揃う", function()
+    it("aligns each column to the widest value across the rows", function()
       local built = list.build(def, {
         container({ id = "1", name = "web" }),
         container({ id = "2", name = "very-long-container-name" }),
       })
 
-      -- 2 行とも IMAGE 列が同じ桁から始まる。
+      -- The IMAGE column starts at the same position in both rows.
       local first = built.lines[1]:find("alpine", 1, true)
       local second = built.lines[2]:find("alpine", 1, true)
       assert.are.equal(first, second)
@@ -101,21 +101,21 @@ describe("docker.views.list", function()
   end)
 
   describe("item_at", function()
-    it("カーソル行に対応するリソースを返す", function()
+    it("returns the resource that corresponds to the cursor line", function()
       local items = { container({ id = "1" }), container({ id = "2" }), container({ id = "3" }) }
 
       assert.are.equal("2", list.item_at(items, 2).id)
     end)
 
-    it("0件のときはどの行を指してもnilを返す", function()
+    it("returns nil for any line when there are no items", function()
       assert.is_nil(list.item_at({}, 1))
     end)
 
-    it("項目数を超える行はnilを返す", function()
+    it("returns nil for a line beyond the number of items", function()
       assert.is_nil(list.item_at({ container() }, 2))
     end)
 
-    it("0以下の行はnilを返す", function()
+    it("returns nil for a line number of zero or less", function()
       assert.is_nil(list.item_at({ container() }, 0))
     end)
   end)
@@ -131,16 +131,16 @@ describe("docker.views.list", function()
       end
     end)
 
-    it("行が長くて収まらなくても見出しと本文の桁が一致する", function()
-      -- 収まらないとき、winbar は既定では先頭が落ちるため見出しだけが左へずれる。
+    it("keeps the header and the body in the same columns even when a row is too long to fit", function()
+      -- When the text does not fit, the winbar drops its head by default, so only the header shifts left.
       handle = window.open({ title = "Containers", wrap = false })
 
       local built = list.render(handle, def, {
         container({ id = "1", name = "web", ports = string.rep("0.0.0.0:5001->5000/tcp, ", 8) }),
       })
 
-      -- 画面に出ている見出しが、行と同じ幅で組んだ見出しの先頭と一致すること。
-      -- 末尾の 1 桁は切り詰めの印に潰れる。
+      -- The header shown on screen must match the head of the header laid out at the same width as the rows.
+      -- The last column is taken up by the truncation marker.
       local width = vim.api.nvim_win_get_width(handle.winid)
       local rendered = vim.api.nvim_eval_statusline(vim.wo[handle.winid].winbar, {
         winid = handle.winid,
@@ -149,7 +149,7 @@ describe("docker.views.list", function()
       }).str
       assert.are.equal(built.winbar:sub(1, width - 1) .. ">", rendered)
 
-      -- 全ての列で、見出しと本文の開始桁が揃っていること。
+      -- For every column, the start position of the header and of the body must line up.
       local headers = {}
       for _, column in ipairs(def.columns) do
         table.insert(headers, column.header)
@@ -162,7 +162,7 @@ describe("docker.views.list", function()
       assert.are.same(header_starts, row_starts)
     end)
 
-    it("ウィンドウに行と見出しを反映する", function()
+    it("reflects the rows and the header in the window", function()
       handle = window.open({ title = "Containers" })
 
       list.render(handle, def, { container({ name = "web" }), container({ name = "db" }) })
@@ -173,7 +173,7 @@ describe("docker.views.list", function()
       assert.is_truthy(vim.wo[handle.winid].winbar:find("NAME", 1, true))
     end)
 
-    it("再描画しても前の内容は残らない", function()
+    it("leaves none of the previous content behind on re-render", function()
       handle = window.open({ title = "Containers" })
       list.render(handle, def, { container({ name = "web" }), container({ name = "db" }) })
 
@@ -183,12 +183,12 @@ describe("docker.views.list", function()
     end)
   end)
 
-  describe("表示行の安全性", function()
+  describe("safety of the rendered lines", function()
     local window = require("docker.ui.window")
 
-    it("改行を含む値があっても一覧全体が描画できる", function()
-      -- compose のラベル値は任意の文字を取れる。改行を含む値が 1 件でもあると
-      -- nvim_buf_set_lines が失敗し、一覧そのものが出せなくなる。
+    it("still renders the whole list when a value contains a newline", function()
+      -- compose label values may contain any character. Even a single value containing a
+      -- newline makes nvim_buf_set_lines fail, so the list itself cannot be shown.
       local handle = window.open({ title = "Containers" })
 
       list.render(handle, def, {
@@ -197,12 +197,12 @@ describe("docker.views.list", function()
       })
 
       local lines = vim.api.nvim_buf_get_lines(handle.bufnr, 0, -1, false)
-      assert.are.equal(2, #lines, "2 件とも描画されること")
+      assert.are.equal(2, #lines, "both items must be rendered")
       assert.is_truthy(lines[2]:find("proj EVIL", 1, true), lines[2])
       window.close(handle)
     end)
 
-    it("復帰やタブを含む値も1行に収める", function()
+    it("fits a value containing a carriage return or a tab into a single line", function()
       local handle = window.open({ title = "Containers" })
 
       list.render(handle, def, { container({ name = "a\tb\rc" }) })
@@ -213,7 +213,7 @@ describe("docker.views.list", function()
       window.close(handle)
     end)
 
-    it("改行を含む値でも桁揃えが崩れない", function()
+    it("keeps the column alignment intact for a value containing a newline", function()
       local handle = window.open({ title = "Containers" })
 
       list.render(handle, def, {
@@ -226,8 +226,8 @@ describe("docker.views.list", function()
       window.close(handle)
     end)
 
-    it("閉じたウィンドウへ描画してもエラーにならない", function()
-      -- 取得中にビューを閉じると、結果が返ってきた時点でバッファは無効になっている。
+    it("does not error when rendering into a closed window", function()
+      -- If the view is closed while fetching, the buffer is already invalid when the result arrives.
       local handle = window.open({ title = "Containers" })
       window.close(handle)
 
@@ -235,8 +235,8 @@ describe("docker.views.list", function()
     end)
   end)
 
-  describe("各リソース種別の描画", function()
-    -- G6 の検証手順が list_spec に「各種別の一覧が描画されること」を求めている。
+  describe("rendering of each resource kind", function()
+    -- The verification steps of G6 require list_spec to cover that the list of each kind is rendered.
     local samples = {
       image = { id = "i1", repository = "alpine", tag = "3.20", size = "5MB", created_since = "2 days ago" },
       volume = { name = "v1", driver = "local", mountpoint = "/var/lib/docker/volumes/v1" },
@@ -244,7 +244,7 @@ describe("docker.views.list", function()
       service = { project = "shop", name = "web", container = "shop-web-1", container_id = "c1", status = "running" },
     }
 
-    it("種別ごとに見出しと行が生成される", function()
+    it("generates a header and a row for every kind", function()
       local expected = {
         image = { "REPOSITORY  TAG   SIZE  CREATED", "alpine      3.20  5MB   2 days ago" },
         volume = { "NAME  DRIVER  MOUNTPOINT", "v1    local   /var/lib/docker/volumes/v1" },
@@ -261,7 +261,7 @@ describe("docker.views.list", function()
       assert.are.same(expected, actual)
     end)
 
-    it("種別ごとに0件の文言が出る", function()
+    it("emits the kind-specific empty message when there are no items", function()
       local actual = {}
       for kind in pairs(samples) do
         actual[kind] = list.build(assert(registry.get(kind)), {}).lines

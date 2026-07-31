@@ -5,7 +5,7 @@ local jobs = require("docker.handlers.jobs")
 local lifecycle = require("docker.handlers.lifecycle")
 local store = require("docker.state.store")
 
-describe("一覧の絞り込み", function()
+describe("filtering the list", function()
   local original_input
 
   before_each(function()
@@ -88,13 +88,13 @@ describe("一覧の絞り込み", function()
     return vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false)
   end
 
-  it("絞り込む前は全件が並ぶ", function()
+  it("lists every item before any filter is applied", function()
     local handle = open_view()
 
     assert.are.equal(3, #lines(handle))
   end)
 
-  it("部分一致する行だけが表示される", function()
+  it("shows only the rows that match the filter as a substring", function()
     local handle = open_view()
     answer_filter("web")
 
@@ -105,7 +105,7 @@ describe("一覧の絞り込み", function()
     assert.is_truthy(shown[1]:find("web-server", 1, true), shown[1])
   end)
 
-  it("名前以外の列にも一致する", function()
+  it("matches columns other than the name as well", function()
     local handle = open_view()
     answer_filter("postgres")
 
@@ -116,7 +116,7 @@ describe("一覧の絞り込み", function()
     assert.is_truthy(shown[1]:find("database", 1, true), shown[1])
   end)
 
-  it("空文字を入れると全行に戻る", function()
+  it("goes back to every row when an empty string is entered", function()
     local handle = open_view()
     answer_filter("web")
     lifecycle.dispatch_for_test(handle, "filter")
@@ -128,7 +128,7 @@ describe("一覧の絞り込み", function()
     assert.are.equal(3, #lines(handle))
   end)
 
-  it("入力をキャンセルすると絞り込みは変わらない", function()
+  it("leaves the filter unchanged when the input is cancelled", function()
     local handle = open_view()
     answer_filter("web")
     lifecycle.dispatch_for_test(handle, "filter")
@@ -139,7 +139,7 @@ describe("一覧の絞り込み", function()
     assert.are.equal(1, #lines(handle))
   end)
 
-  it("一致しないときは0件の表示になる", function()
+  it("falls back to the empty display when nothing matches", function()
     local handle = open_view()
     answer_filter("zzz-no-match")
 
@@ -148,8 +148,8 @@ describe("一覧の絞り込み", function()
     assert.are.same({ "コンテナがありません" }, lines(handle))
   end)
 
-  it("絞り込み中の操作は表示されている行の対象に効く", function()
-    -- 行と項目の対応がずれると、別のコンテナを操作してしまう。
+  it("applies an operation to the target of the displayed row while a filter is active", function()
+    -- If the rows and the items get out of sync, a different container would be operated on.
     local handle = open_view()
     answer_filter("cache")
     lifecycle.dispatch_for_test(handle, "filter")
@@ -162,11 +162,11 @@ describe("一覧の絞り込み", function()
     vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
     lifecycle.dispatch_for_test(handle, "stop")
 
-    assert.are.same({ "docker", "stop", "3" }, runs[1], "絞り込み後の 1 行目 (cache) が対象になること")
+    assert.are.same({ "docker", "stop", "3" }, runs[1], "the first row after filtering (cache) must be the target")
   end)
 
-  it("絞り込みのキーは Ctrl-f で / は奪わない", function()
-    -- `/` は Neovim 本来の検索として残す。
+  it("binds the filter to Ctrl-f and does not take over /", function()
+    -- `/` is left as Neovim's own search.
     local handle = open_view()
 
     local mapped = {}
@@ -174,7 +174,7 @@ describe("一覧の絞り込み", function()
       mapped[m.lhs] = true
     end
 
-    assert.is_true(mapped["<C-F>"] or mapped["<C-f>"], "Ctrl-f が割り当てられていること")
-    assert.is_nil(mapped["/"], "/ は割り当てないこと")
+    assert.is_true(mapped["<C-F>"] or mapped["<C-f>"], "Ctrl-f must be bound")
+    assert.is_nil(mapped["/"], "/ must not be bound")
   end)
 end)

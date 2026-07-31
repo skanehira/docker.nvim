@@ -21,9 +21,9 @@ describe("docker.config", function()
     notify.set_debug(false)
   end)
 
-  describe("既定値", function()
-    it("コンテナ一覧の既定キーマップが全て定義される", function()
-      -- 抜き取り検査だと割り当てが消えても気付けない。全体で比較する。
+  describe("default values", function()
+    it("defines every default keymap of the container list", function()
+      -- Spot checks would not notice a binding disappearing, so the whole table is compared.
       config.setup()
 
       assert.are.same({
@@ -45,7 +45,7 @@ describe("docker.config", function()
       }, config.get().keymaps.container_list)
     end)
 
-    it("イメージ・ボリューム・ネットワーク一覧の既定キーマップが定義される", function()
+    it("defines the default keymaps of the image, volume and network lists", function()
       config.setup()
 
       local keymaps = config.get().keymaps
@@ -54,7 +54,7 @@ describe("docker.config", function()
       assert.are.same({ delete = "D" }, keymaps.network_list)
     end)
 
-    it("全ビュー共通のキーが定義される", function()
+    it("defines the keys common to every view", function()
       config.setup()
 
       local common = config.get().keymaps.common
@@ -68,8 +68,8 @@ describe("docker.config", function()
       }, common)
     end)
 
-    it("同じキーをビュー種別ごとに別のアクションへ割り当てる", function()
-      -- BR-015: `r` はコンテナ一覧では restart、イメージ一覧では quickrun。
+    it("binds the same key to a different action per view type", function()
+      -- BR-015: `r` is restart in the container list and quickrun in the image list.
       config.setup()
 
       local keymaps = config.get().keymaps
@@ -77,7 +77,7 @@ describe("docker.config", function()
       assert.are.equal("r", keymaps.image_list.quickrun)
     end)
 
-    it("composeサービス一覧はサービス単位とプロジェクト単位のキーを持つ", function()
+    it("gives the compose service list both per-service and per-project keys", function()
       config.setup()
 
       assert.are.same({
@@ -91,49 +91,49 @@ describe("docker.config", function()
       }, config.get().keymaps.service_list)
     end)
 
-    it("デバッグ出力は既定で無効になる", function()
+    it("leaves debug output disabled by default", function()
       config.setup()
 
       assert.is_false(config.get().debug)
     end)
   end)
 
-  describe("利用者設定の合成", function()
-    it("指定したキーだけを差し替える", function()
+  describe("merging the user's settings", function()
+    it("replaces only the keys that were specified", function()
       config.setup({ keymaps = { container_list = { start = "s" } } })
 
       local container_list = config.get().keymaps.container_list
       assert.are.equal("s", container_list.start)
-      assert.are.equal("d", container_list.stop, "指定しなかったキーは既定のまま")
+      assert.are.equal("d", container_list.stop, "keys that were not specified stay at their defaults")
     end)
 
-    it("一部のビューだけ指定しても他のビューは既定のままになる", function()
+    it("leaves the other views at their defaults when only some views are specified", function()
       config.setup({ keymaps = { container_list = { start = "s" } } })
 
       assert.are.equal("r", config.get().keymaps.image_list.quickrun)
     end)
 
-    it("キーにfalseを指定するとその割り当てを無効にする", function()
+    it("disables a binding when false is specified as its key", function()
       config.setup({ keymaps = { container_list = { delete = false } } })
 
       assert.is_nil(config.get().keymaps.container_list.delete)
     end)
 
-    it("デバッグを有効にできる", function()
+    it("can enable debug output", function()
       config.setup({ debug = true })
 
       assert.is_true(config.get().debug)
     end)
 
-    it("デバッグを有効にすると通知モジュールにも反映される", function()
+    it("propagates enabling debug output to the notify module as well", function()
       config.setup({ debug = true })
 
       assert.is_true(notify.is_debug())
     end)
   end)
 
-  describe("不正な設定", function()
-    it("未知のビュー種別は無視して警告する", function()
+  describe("invalid settings", function()
+    it("ignores an unknown view type and warns about it", function()
       config.setup({ keymaps = { nonexistent_view = { start = "s" } } })
 
       assert.is_nil(config.get().keymaps.nonexistent_view)
@@ -142,7 +142,7 @@ describe("docker.config", function()
       assert.are.equal(vim.log.levels.WARN, warnings[1].level)
     end)
 
-    it("未知のアクション名は無視して警告する", function()
+    it("ignores an unknown action name and warns about it", function()
       config.setup({ keymaps = { container_list = { fly_to_the_moon = "x" } } })
 
       assert.is_nil(config.get().keymaps.container_list.fly_to_the_moon)
@@ -150,7 +150,7 @@ describe("docker.config", function()
       assert.is_truthy(warnings[1].msg:find("fly_to_the_moon", 1, true))
     end)
 
-    it("正しい設定だけを残して警告は不正な分だけ出す", function()
+    it("keeps only the valid settings and warns once per invalid entry", function()
       config.setup({
         keymaps = {
           container_list = { start = "s", fly_to_the_moon = "x" },
@@ -162,15 +162,15 @@ describe("docker.config", function()
       assert.are.equal(2, #warnings)
     end)
 
-    it("正しい設定だけなら警告しない", function()
+    it("does not warn when every setting is valid", function()
       config.setup({ keymaps = { container_list = { start = "s" } }, debug = true })
 
       assert.are.same({}, warnings)
     end)
   end)
 
-  describe("setupを呼ぶ前", function()
-    it("既定値を返す", function()
+  describe("before setup is called", function()
+    it("returns the default values", function()
       assert.are.equal("u", config.get().keymaps.container_list.start)
     end)
   end)

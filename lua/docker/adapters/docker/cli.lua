@@ -1,7 +1,9 @@
---- docker コマンドの実行 (単発)。
+--- Runs the docker command (one-shot).
 ---
---- 外界に触れるのはこのモジュールだけで、実行そのものは差し替え可能な実行器に委ねる。
---- 例外は投げず、常に `docker.Result` を返して呼び出し側に成否の検査を強制する。
+--- This module is the only one that touches the outside world; the execution itself is delegated
+--- to a swappable executor.
+--- It never throws: it always returns a `docker.Result` so that callers are forced to check
+--- whether the call succeeded.
 local format = require("docker.format")
 local notify = require("docker.notify")
 
@@ -9,15 +11,15 @@ local M = {}
 
 ---@class docker.Result
 ---@field ok boolean
----@field data any          成功時の解析済みデータ
----@field error string|nil  失敗時のメッセージ (docker の stderr をそのまま入れる)
----@field code integer|nil  終了コード
+---@field data any          Parsed data on success
+---@field error string|nil  Message on failure (the docker stderr goes in as-is)
+---@field code integer|nil  Exit code
 
 ---@alias docker.Executor fun(cmd: string[], opts: table, on_exit: fun(out: table))
 
---- docker が見つからないときに合成する stderr。
---- `vim.system` は実行ファイルが無いと同期的に例外を投げるだけで終了コードを返さないため、
---- 環境エラーの判定に載せられるようこの文言へ寄せる。
+--- The stderr synthesized when docker is not found.
+--- `vim.system` only throws synchronously when the executable is missing and never returns an exit
+--- code, so we normalize to this wording to make it detectable as an environment error.
 local EXECUTABLE_NOT_FOUND = "docker: executable not found"
 
 local MESSAGE_NOT_INSTALLED =
@@ -34,8 +36,9 @@ local function contains(haystack, needle)
   return haystack:find(needle, 1, true) ~= nil
 end
 
---- docker の接続先を指す語。権限エラーが docker の文脈で起きたことの確認に使う。
---- docker 29 は "docker API"、28 以前は "Docker daemon socket" を含む文言を出す。
+--- Words that refer to the docker endpoint. Used to confirm that a permission error happened in the
+--- context of docker.
+--- docker 29 emits wording containing "docker API", 28 and earlier "Docker daemon socket".
 local DOCKER_ENDPOINT_HINTS = { "docker api", "docker daemon socket", "docker.sock", "docker_engine" }
 
 ---@param stderr string
@@ -49,22 +52,23 @@ local function mentions_docker_endpoint(stderr)
   return false
 end
 
---- 環境エラーの判定。終了コードだけでは区別できないため stderr の内容で分ける。
---- 上から順に評価する。
+--- Classifies environment errors. The exit code alone cannot tell them apart, so we branch on the
+--- content of stderr. Evaluated from top to bottom.
 ---
---- docker のバージョンで文言が変わる点に注意 (いずれも実機で採取):
----   28 以前 デーモン未起動: "Cannot connect to the Docker daemon at unix://... Is the docker daemon running?"
----   29     デーモン未起動: "failed to connect to the docker API at unix://...; check if the path is
----                          correct and if the daemon is running: ... connect: no such file or directory"
----   28 以前 権限不足:     "Got permission denied while trying to connect to the Docker daemon socket at ..."
----   29     権限不足:     "permission denied while trying to connect to the docker API at unix://..."
---- 新しい文言だけに合わせると古い docker で、古い文言だけに合わせると新しい docker で
---- 判定が黙って効かなくなるため、両方を受ける。
+--- Note that the wording changes with the docker version (all captured on real machines):
+---   28 and earlier / daemon down:   "Cannot connect to the Docker daemon at unix://...
+---                                    Is the docker daemon running?"
+---   29 / daemon down:               "failed to connect to the docker API at unix://...; check if the path is
+---                                    correct and if the daemon is running: ... connect: no such file or directory"
+---   28 and earlier / no permission: "Got permission denied while trying to connect to the Docker daemon socket at ..."
+---   29 / no permission:             "permission denied while trying to connect to the docker API at unix://..."
+--- Matching only the new wording silently breaks the check on old docker, and matching only the old
+--- wording silently breaks it on new docker, so we accept both.
 local ENVIRONMENT_ERRORS = {
   {
-    -- 権限不足は docker の接続先に言及していることまで確認する。
-    -- `permission denied` だけで判定すると、SSH 越しの docker context が返す
-    -- `Permission denied (publickey).` を docker グループの問題として誤案内してしまう。
+    -- For insufficient permission we also confirm that the message mentions the docker endpoint.
+    -- Deciding on `permission denied` alone would misguide the user about
+    -- `Permission denied (publickey).`, returned by a docker context over SSH, as a docker group issue.
     matches = function(stderr)
       return contains(stderr, "permission denied") and mentions_docker_endpoint(stderr)
     end,
@@ -78,8 +82,8 @@ local ENVIRONMENT_ERRORS = {
   },
   {
     matches = function(stderr)
-      -- 28 以前と 29 で 1 つずつ。どちらの文言も片方だけに一致するので、
-      -- 片方を落とせば対応するテストが落ちる (冗長な別名を並べない)。
+      -- One for 28 and earlier, one for 29. Each wording matches only one of the two, so
+      -- dropping either one makes the corresponding test fail (no redundant aliases listed here).
       return contains(stderr, "cannot connect to the docker daemon")
         or contains(stderr, "failed to connect to the docker api")
     end,
@@ -90,24 +94,27 @@ local ENVIRONMENT_ERRORS = {
 ---@type docker.Executor|nil
 local executor = nil
 
---- 既定の実行器。vim.system による非同期実行。
---- docker 自体が見つからない場合、vim.system は終了コードではなく例外を投げる。
---- 呼び出し側に例外を伝播させると `docker.Result` の契約が崩れるため、ここで
---- 終了コード 127 の結果へ変換する (8.3 の「pcall は vim.json.decode に限る」の唯一の例外)。
+--- The default executor. Asynchronous execution via vim.system.
+--- When docker itself is not found, vim.system throws instead of returning an exit code.
+--- Propagating the exception to the caller would break the `docker.Result` contract, so we convert
+--- it into a result with exit code 127 here (the only exception to the rule in section 8.3 that
+--- pcall is limited to vim.json.decode).
 ---@type docker.Executor
 local function default_executor(cmd, opts, on_exit)
-  -- 起動失敗の結果は必ず次のイベントループで返す。ここだけ同期で返すと、
-  -- 先に発行した実行より後から発行した失敗が先に配送され、呼び出し順と
-  -- 配送順が入れ替わる (「cli.run の後にフラグを立てる」書き方が壊れる)。
+  -- The result of a startup failure is always returned on the next event loop tick. Returning only
+  -- this path synchronously would deliver a failure issued later before an execution issued earlier,
+  -- swapping the call order and the delivery order (it breaks code written as
+  -- "set a flag after cli.run").
   local function fail(stderr)
     vim.schedule(function()
       on_exit({ code = 127, stdout = "", stderr = stderr })
     end)
   end
 
-  -- 起動に失敗する理由は docker 不在だけではない。作業ディレクトリが無い場合も
-  -- 同じ経路で失敗するため、「docker をインストールしてください」と誤案内しない。
-  -- 例外メッセージから判別すると Neovim のバージョンで文言が変わるので、事実を直接確かめる。
+  -- A missing docker is not the only reason startup fails. A missing working directory fails through
+  -- the same path, so we must not misguide the user with "please install docker".
+  -- Telling them apart from the exception message would depend on the Neovim version's wording, so
+  -- we check the fact directly.
   if opts.cwd and vim.fn.isdirectory(opts.cwd) == 0 then
     fail("docker: working directory not found (" .. tostring(opts.cwd) .. ")")
     return
@@ -121,11 +128,11 @@ local function default_executor(cmd, opts, on_exit)
   end
 end
 
---- 結果の配送をメインループ上で行う。
---- `vim.system` の on_exit は fast event context で呼ばれ、そこでは `vim.notify` を含む
---- 多くの API が `E5560` で失敗する。呼び出し側 (通知・描画) が必ずこの制約に当たるため、
---- 境界であるアダプタ層で吸収する。同期的な偽の実行器を使うテストでは
---- fast event ではないためそのまま実行され、逐次的に検証できる。
+--- Delivers results on the main loop.
+--- The on_exit of `vim.system` is called in a fast event context, where many APIs including
+--- `vim.notify` fail with `E5560`. Callers (notification, rendering) always hit this constraint, so
+--- the adapter layer, being the boundary, absorbs it. In tests that use a synchronous fake executor
+--- this is not a fast event, so it runs as-is and can be verified sequentially.
 ---@param fn fun()
 local function deliver(fn)
   if vim.in_fast_event() then
@@ -135,7 +142,7 @@ local function deliver(fn)
   end
 end
 
---- テスト用の差し替え口。nil を渡すと既定の実行器に戻る。
+--- Swap point for tests. Passing nil restores the default executor.
 ---@param fn docker.Executor|nil
 function M._set_executor(fn)
   executor = fn
@@ -149,14 +156,14 @@ end
 
 ---@param stdout string
 ---@param parse string|nil
----@return string|nil error  解析できなかった理由 (成功時は nil)
+---@return string|nil error  Why the output could not be parsed (nil on success)
 ---@return any data
 local function parse_output(stdout, parse)
   if parse == "ndjson" then
     local items, skipped = format.parse_ndjson(stdout)
     if skipped > 0 then
       notify.debug(string.format("skipped %d unparsable line(s)", skipped))
-      -- 1 行も解析できなかった場合は「0 件」と区別できないためエラーとして扱う。
+      -- If not a single line could be parsed it is indistinguishable from "0 items", so treat it as an error.
       if #items == 0 then
         return string.format("failed to parse all %d line(s) of docker output", skipped), nil
       end
@@ -169,9 +176,9 @@ local function parse_output(stdout, parse)
       return nil, nil
     end
     local ok, decoded = pcall(vim.json.decode, stdout)
-    -- `{{json .X}}` は値が無いフィールドに null を出すため、オブジェクトや配列以外が
-    -- 返ることが実際にある。呼び出し側が data をテーブルとして扱えるようここで弾く
-    -- (ndjson 側の行単位の判定と揃える)。
+    -- `{{json .X}}` prints null for fields that have no value, so something other than an object or
+    -- an array really can come back. Reject it here so that callers can treat data as a table
+    -- (aligned with the per-line check on the ndjson side).
     if not ok or type(decoded) ~= "table" then
       return "failed to parse docker output", nil
     end
@@ -181,8 +188,8 @@ local function parse_output(stdout, parse)
   return nil, stdout
 end
 
---- docker を実行して結果を `docker.Result` で返す。
----@param args string[] docker に渡す引数 ("docker" 自体は含めない)
+--- Runs docker and returns the outcome as a `docker.Result`.
+---@param args string[] Arguments passed to docker ("docker" itself is not included)
 ---@param on_done fun(result: docker.Result)
 ---@param opts { parse: "ndjson"|"json"|"raw"|nil, cwd: string|nil }|nil
 function M.run(args, on_done, opts)
@@ -200,14 +207,14 @@ function M.run(args, on_done, opts)
         notify.debug(string.format("%s (exit %s)", table.concat(cmd, " "), tostring(code)))
       end
 
-      -- 終了コードを報告しない実行結果は成功と見なせない。
+      -- An execution result that does not report an exit code cannot be regarded as a success.
       if type(code) ~= "number" then
         on_done({ ok = false, data = nil, error = "docker did not report an exit code", code = nil })
         return
       end
 
-      -- シグナルで終了したプロセスは終了コード 0 を返すことがある。
-      -- そのまま成功として扱うと、途中で切れた出力を「全件」と解釈してしまう。
+      -- A process terminated by a signal can return exit code 0.
+      -- Treating that as a success would interpret truncated output as "all items".
       if type(signal) == "number" and signal ~= 0 then
         on_done({
           ok = false,
@@ -238,8 +245,9 @@ function M.run(args, on_done, opts)
   end)
 end
 
---- デーモンへ接続できるかを確認する。
---- 失敗時は「docker 未検出」「デーモン未起動」「ソケット権限不足」を区別した文言を返す。
+--- Checks whether the daemon can be reached.
+--- On failure it returns wording that distinguishes "docker not found", "daemon not running" and
+--- "insufficient socket permission".
 ---@param on_done fun(result: docker.Result)
 function M.check_connection(on_done)
   M.run({ "version", "--format", "{{.Server.Version}}" }, function(result)

@@ -1,6 +1,6 @@
 local events = require("docker.adapters.docker.events")
 
---- docker events が 1 行として出す JSON。
+--- The JSON that docker events emits as one line.
 ---@param overrides table|nil
 ---@return string
 local function raw_line(overrides)
@@ -18,7 +18,7 @@ end
 
 describe("docker.adapters.docker.events", function()
   describe("decoder", function()
-    it("1チャンクに完全な1行が届くとイベントを1件返す", function()
+    it("returns one event when a single chunk carries one complete line", function()
       local decoder = events.new_decoder()
 
       local got = decoder:push(raw_line() .. "\n")
@@ -28,7 +28,7 @@ describe("docker.adapters.docker.events", function()
       assert.are.equal("start", got[1].action)
     end)
 
-    it("行の途中で分割されたチャンク列から完全なイベントを組み立てる", function()
+    it("assembles a complete event from chunks split in the middle of a line", function()
       local line = raw_line() .. "\n"
       local decoder = events.new_decoder()
 
@@ -42,7 +42,7 @@ describe("docker.adapters.docker.events", function()
       assert.are.equal("abc123", third[1].id)
     end)
 
-    it("複数行が1チャンクで届くと全件返す", function()
+    it("returns every event when several lines arrive in one chunk", function()
       local decoder = events.new_decoder()
 
       local got = decoder:push(raw_line({ id = "a", Actor = { ID = "a" } }) .. "\n" .. raw_line({
@@ -55,13 +55,13 @@ describe("docker.adapters.docker.events", function()
       assert.are.equal("b", got[2].id)
     end)
 
-    it("改行が来るまではイベントを返さない", function()
+    it("returns no event until a newline arrives", function()
       local decoder = events.new_decoder()
 
       assert.are.same({}, decoder:push(raw_line()))
     end)
 
-    it("巨大な1行でも組み立てられる", function()
+    it("assembles even a huge single line", function()
       local big = raw_line({ Actor = { ID = "abc123", Attributes = { blob = string.rep("x", 100000) } } })
       local decoder = events.new_decoder()
 
@@ -77,7 +77,7 @@ describe("docker.adapters.docker.events", function()
       assert.are.equal("abc123", got[1].id)
     end)
 
-    it("空行は読み飛ばす", function()
+    it("skips empty lines", function()
       local decoder = events.new_decoder()
 
       local got = decoder:push("\n\n" .. raw_line() .. "\n\n")
@@ -85,7 +85,7 @@ describe("docker.adapters.docker.events", function()
       assert.are.equal(1, #got)
     end)
 
-    it("解析できない行は読み飛ばして後続を処理する", function()
+    it("skips a line that cannot be parsed and processes the following ones", function()
       local decoder = events.new_decoder()
 
       local got = decoder:push("not json\n" .. raw_line() .. "\n")
@@ -94,10 +94,11 @@ describe("docker.adapters.docker.events", function()
     end)
   end)
 
-  describe("イベントの取り出し", function()
-    it("時刻は秒精度のtimeを使いtimeNanoは持ち込まない", function()
-      -- timeNano は vim.json.decode で浮動小数点化され下位桁が落ちるため、
-      -- 再購読の起点には使わない。イベント全体を比較して混入していないことを示す。
+  describe("extracting an event", function()
+    it("uses time with second precision and does not carry timeNano over", function()
+      -- timeNano is turned into a floating point number by vim.json.decode and its low digits are
+      -- lost, so it is not used as the resubscription starting point. We compare the whole event to
+      -- show that it is not mixed in.
       local decoder = events.new_decoder()
 
       local got = decoder:push(raw_line({ time = 1785000000 }) .. "\n")
@@ -110,7 +111,7 @@ describe("docker.adapters.docker.events", function()
       }, got[1])
     end)
 
-    it("コンテナのIDはActorのIDから取る", function()
+    it("takes the container ID from the ID of Actor", function()
       local decoder = events.new_decoder()
 
       local got = decoder:push(raw_line({ Actor = { ID = "container-id" } }) .. "\n")
@@ -118,8 +119,8 @@ describe("docker.adapters.docker.events", function()
       assert.are.equal("container-id", got[1].id)
     end)
 
-    it("ボリュームの名前はActorのIDから取る", function()
-      -- ボリュームのイベントでは名前が Actor.Attributes.name ではなく Actor.ID に入る。
+    it("takes the volume name from the ID of Actor", function()
+      -- In a volume event the name is in Actor.ID, not in Actor.Attributes.name.
       local decoder = events.new_decoder()
 
       local got = decoder:push(raw_line({
@@ -132,7 +133,7 @@ describe("docker.adapters.docker.events", function()
       assert.are.equal("my-volume", got[1].id)
     end)
 
-    it("Actorが無いイベントは読み飛ばす", function()
+    it("skips an event that has no Actor", function()
       local decoder = events.new_decoder()
 
       local got = decoder:push(vim.json.encode({ Type = "container", Action = "start", time = 1 }) .. "\n")
@@ -156,19 +157,19 @@ describe("docker.adapters.docker.events", function()
       events._set_starter(nil)
     end)
 
-    it("docker events をJSON形式で購読する", function()
+    it("subscribes to docker events in JSON format", function()
       events.subscribe({ on_event = function() end })
 
       assert.are.same({ "docker", "events", "--format", "{{json .}}" }, started[1].cmd)
     end)
 
-    it("sinceを指定すると再開位置を渡す", function()
+    it("passes the resume position when since is specified", function()
       events.subscribe({ since = "1785000000", on_event = function() end })
 
       assert.are.same({ "docker", "events", "--format", "{{json .}}", "--since", "1785000000" }, started[1].cmd)
     end)
 
-    it("受信したイベントを通知する", function()
+    it("notifies the events it receives", function()
       local received = {}
       events.subscribe({
         on_event = function(ev)
@@ -182,8 +183,9 @@ describe("docker.adapters.docker.events", function()
       assert.are.equal("start", received[1].action)
     end)
 
-    it("意図的に停止したときは切断として扱わない", function()
-      -- jobstop と外部からの終了は同じ終了コードになるため、停止フラグで区別する。
+    it("does not treat an intentional stop as a disconnect", function()
+      -- jobstop and a termination from the outside produce the same exit code, so we tell them apart
+      -- with the stop flag.
       local disconnects = {}
       local subscription = events.subscribe({
         on_event = function() end,
@@ -198,7 +200,7 @@ describe("docker.adapters.docker.events", function()
       assert.are.same({ true }, disconnects)
     end)
 
-    it("予期しない終了は切断として通知する", function()
+    it("notifies an unexpected termination as a disconnect", function()
       local disconnects = {}
       events.subscribe({
         on_event = function() end,
@@ -212,7 +214,7 @@ describe("docker.adapters.docker.events", function()
       assert.are.same({ false }, disconnects)
     end)
 
-    it("停止すると生存していない扱いになる", function()
+    it("is treated as not alive once it is stopped", function()
       local subscription = events.subscribe({ on_event = function() end })
       assert.is_true(subscription.is_alive())
 
@@ -221,7 +223,7 @@ describe("docker.adapters.docker.events", function()
       assert.is_false(subscription.is_alive())
     end)
 
-    it("停止したジョブはジョブ台帳から外れる", function()
+    it("removes a stopped job from the job ledger", function()
       local jobs = require("docker.handlers.jobs")
       jobs._reset()
       jobs._set_stopper(function() end)

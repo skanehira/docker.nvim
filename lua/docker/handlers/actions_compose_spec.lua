@@ -17,7 +17,7 @@ local function service(overrides)
   }, overrides or {})
 end
 
-describe("compose のサービス操作とプロジェクト操作", function()
+describe("compose service operations and project operations", function()
   local runs, notified, opened
   local original_notify, original_input
   ---@type docker.ResourceDefinition
@@ -55,23 +55,23 @@ describe("compose のサービス操作とプロジェクト操作", function()
     operations._reset()
   end)
 
-  describe("サービス単位の操作", function()
-    it("upはデタッチでサービスを起動する", function()
-      -- BR-023: 起動はデタッチで行う (Neovim をブロックしない)。
+  describe("per-service operations", function()
+    it("up starts the service detached", function()
+      -- BR-023: startup runs detached (it must not block Neovim).
       actions.execute("up", ctx(service({ status = "none" })))
 
       assert.are.same({ "docker", "compose", "-p", "shop", "up", "-d", "web" }, runs[1].cmd)
     end)
 
-    it("upは行のプロジェクトのcomposeファイルがある場所で実行する", function()
-      -- up は compose ファイルを読めないと実行できない。
+    it("up runs in the location of the compose file of the row's project", function()
+      -- up cannot run without reading the compose file.
       actions.execute("up", ctx(service({ status = "none" })))
 
       assert.are.equal("/work/shop", runs[1].opts.cwd)
     end)
 
-    it("composeファイルの場所が分からないサービスは起動せず理由を伝える", function()
-      -- working_dir が失われたプロジェクトでは up を発行しても必ず失敗する。
+    it("does not start a service whose compose file location is unknown and tells why", function()
+      -- For a project whose working_dir has been lost, issuing up would always fail.
       actions.execute("up", ctx(service({ status = "none", working_dir = "" })))
 
       assert.are.equal(
@@ -82,35 +82,35 @@ describe("compose のサービス操作とプロジェクト操作", function()
       assert.are.same({}, runs)
     end)
 
-    it("runningのサービスでstopを押すと-p付きのstopを発行する", function()
+    it("issues stop with -p when stop is pressed on a running service", function()
       actions.execute("stop", ctx(service()))
 
       assert.are.same({ "docker", "compose", "-p", "shop", "stop", "web" }, runs[1].cmd)
     end)
 
-    it("runningのサービスでrestartを押すと-p付きのrestartを発行する", function()
+    it("issues restart with -p when restart is pressed on a running service", function()
       actions.execute("restart", ctx(service()))
 
       assert.are.same({ "docker", "compose", "-p", "shop", "restart", "web" }, runs[1].cmd)
     end)
 
-    it("停止と再起動は作業ディレクトリに依存せず実行する", function()
-      -- プロジェクト名で名指しすれば compose ファイルの場所は要らない。
+    it("stop and restart run without depending on the working directory", function()
+      -- Naming the project explicitly removes the need for the compose file location.
       actions.execute("stop", ctx(service({ working_dir = "" })))
 
       assert.are.same({ "docker", "compose", "-p", "shop", "stop", "web" }, runs[1].cmd)
       assert.is_nil(runs[1].opts.cwd)
     end)
 
-    it("行のプロジェクトを操作の対象にする", function()
-      -- 一覧は全プロジェクトを統合して出すので、対象は行ごとに変わる。
+    it("takes the project of the row as the operation target", function()
+      -- The list merges all projects, so the target differs from row to row.
       actions.execute("stop", ctx(service({ project = "blog", name = "cms", working_dir = "/work/blog" })))
 
       assert.are.same({ "docker", "compose", "-p", "blog", "stop", "cms" }, runs[1].cmd)
     end)
 
-    it("logsはサービスのログをターミナルで追う", function()
-      -- プロジェクト名で名指しするので、compose ファイルの場所は要らない。
+    it("logs follows the service logs in a terminal", function()
+      -- The project is named explicitly, so the compose file location is not needed.
       local starts = {}
       terminal._set_job_starter(function(cmd, cwd)
         table.insert(opened, cmd)
@@ -125,7 +125,7 @@ describe("compose のサービス操作とプロジェクト操作", function()
       }, starts)
     end)
 
-    it("コンテナが無いサービスのログではターミナルを開かず理由を伝える", function()
+    it("does not open a terminal for the logs of a service without a container and tells why", function()
       actions.execute("logs", ctx(service({ status = "none", container = "", container_id = "" })))
 
       assert.are.equal("web はコンテナが無いためログを表示できません", notified[#notified].msg)
@@ -133,7 +133,7 @@ describe("compose のサービス操作とプロジェクト操作", function()
       assert.are.same({}, opened)
     end)
 
-    it("同じサービスへの同じ操作を二重に発行しない", function()
+    it("does not issue the same operation twice for the same service", function()
       cli._set_executor(function(cmd, opts)
         table.insert(runs, { cmd = cmd, opts = opts })
       end)
@@ -144,7 +144,7 @@ describe("compose のサービス操作とプロジェクト操作", function()
       assert.are.equal(1, #runs)
     end)
 
-    it("失敗するとdockerの標準エラー出力をそのまま通知する", function()
+    it("notifies docker's standard error output as-is on failure", function()
       cli._set_executor(function(cmd, opts, on_exit)
         table.insert(runs, { cmd = cmd, opts = opts })
         on_exit({ code = 1, stdout = "", stderr = 'service "web" is not running' })
@@ -158,15 +158,15 @@ describe("compose のサービス操作とプロジェクト操作", function()
     end)
   end)
 
-  describe("プロジェクト単位の操作", function()
-    it("project_upはプロジェクト全体をデタッチで起動する", function()
+  describe("per-project operations", function()
+    it("project_up starts the whole project detached", function()
       actions.execute("project_up", ctx(service()))
 
       assert.are.same({ "docker", "compose", "-p", "shop", "up", "-d" }, runs[1].cmd)
       assert.are.equal("/work/shop", runs[1].opts.cwd)
     end)
 
-    it("composeファイルの場所が分からないプロジェクトは起動せず理由を伝える", function()
+    it("does not start a project whose compose file location is unknown and tells why", function()
       actions.execute("project_up", ctx(service({ working_dir = "" })))
 
       assert.are.equal(
@@ -177,7 +177,7 @@ describe("compose のサービス操作とプロジェクト操作", function()
       assert.are.same({}, runs)
     end)
 
-    it("project_downは確認でyと答えたときだけ破棄する", function()
+    it("project_down tears down only when the confirmation is answered with y", function()
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.ui.input = function(_, on_confirm)
         on_confirm("y")
@@ -185,12 +185,12 @@ describe("compose のサービス操作とプロジェクト操作", function()
 
       actions.execute("project_down", ctx(service({ working_dir = "" })))
 
-      -- 破棄は compose ファイルを読めなくても、プロジェクト名の名指しで実行できる。
+      -- Tearing down works by naming the project even when the compose file cannot be read.
       assert.are.same({ "docker", "compose", "-p", "shop", "down" }, runs[1].cmd)
       assert.is_nil(runs[1].opts.cwd)
     end)
 
-    it("project_downの確認でnと答えると破棄しない", function()
+    it("does not tear down when the project_down confirmation is answered with n", function()
       local prompts = {}
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.ui.input = function(opts, on_confirm)
@@ -200,12 +200,13 @@ describe("compose のサービス操作とプロジェクト操作", function()
 
       actions.execute("project_down", ctx(service()))
 
-      -- 確認まで到達したうえで発行していないこと。確認が出ないだけの実装と区別する。
+      -- It must reach the confirmation and still not issue the command. That distinguishes this
+      -- from an implementation that simply never shows a confirmation.
       assert.are.same({ "shop を破棄しますか? (y/N): " }, prompts)
       assert.are.same({}, runs)
     end)
 
-    it("project_downの確認にプロジェクト名を含める", function()
+    it("includes the project name in the project_down confirmation", function()
       local prompts = {}
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.ui.input = function(opts, on_confirm)
@@ -218,7 +219,7 @@ describe("compose のサービス操作とプロジェクト操作", function()
       assert.is_truthy(prompts[1]:find("shop", 1, true), prompts[1])
     end)
 
-    it("プロジェクト操作も実行中は重複を拒否する", function()
+    it("rejects a duplicate project operation while one is running", function()
       cli._set_executor(function(cmd, opts)
         table.insert(runs, { cmd = cmd, opts = opts })
       end)
@@ -230,7 +231,7 @@ describe("compose のサービス操作とプロジェクト操作", function()
       assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
     end)
 
-    it("プロジェクト操作の排他はサービス操作と混ざらない", function()
+    it("exclusion of project operations does not mix with service operations", function()
       cli._set_executor(function(cmd, opts)
         table.insert(runs, { cmd = cmd, opts = opts })
       end)

@@ -1,4 +1,4 @@
---- 公開 API。設定の取り込みとビューの開閉。
+--- Public API. Taking in the settings, and opening and closing the views.
 local config = require("docker.config")
 local lifecycle = require("docker.handlers.lifecycle")
 local notify = require("docker.notify")
@@ -7,12 +7,12 @@ local version = require("docker.version")
 
 local M = {}
 
---- 要求バージョンを満たさない環境では機能を無効にする。
---- 以降どの操作でも実行時エラーを出さないよう、入口で止める。
+--- The plugin is disabled in environments that do not meet the required version.
+--- It is stopped at the entry point so that no later operation raises a runtime error.
 local disabled = false
 
---- 利用者設定を取り込む。
---- Neovim が要求バージョン未満なら、メッセージを通知して機能を無効化する。
+--- Take in the user's settings.
+--- If Neovim is below the required version, notify a message and disable the plugin.
 ---@param opts docker.Config|nil
 function M.setup(opts)
   if not version.supported() then
@@ -25,8 +25,8 @@ function M.setup(opts)
   config.setup(opts)
 end
 
---- 一覧ビューを開く。
----@param kind string "containers" | "images" | "volumes" | "networks" | "services" のいずれか、または単数形の種別
+--- Open a list view.
+---@param kind string One of "containers" | "images" | "volumes" | "networks" | "services", or the singular kind
 function M.open(kind)
   if disabled then
     return
@@ -41,12 +41,12 @@ function M.open(kind)
   lifecycle.open(def.kind)
 end
 
---- 開いているビューを閉じる。
+--- Close the open views.
 function M.close()
   lifecycle.close_all()
 end
 
---- テスト用。無効化の状態を戻す。
+--- For tests. Resets the disabled state.
 function M._reset()
   disabled = false
 end

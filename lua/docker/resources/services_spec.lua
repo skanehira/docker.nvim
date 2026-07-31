@@ -26,7 +26,7 @@ end
 
 describe("docker.resources.services", function()
   describe("assemble", function()
-    it("サービス名とコンテナをラベルで突き合わせる", function()
+    it("matches service names against containers by label", function()
       local items = services.assemble(project({ "web" }), { container() })
 
       assert.are.same({
@@ -41,17 +41,17 @@ describe("docker.resources.services", function()
       }, items)
     end)
 
-    it("compose ファイルのある場所を各行に持たせる", function()
-      -- 起動系の操作は compose ファイルが読める場所でしか実行できないため、
-      -- 行ごとにその場所を持たせて操作側が参照できるようにする。
+    it("carries the location of the compose file on every row", function()
+      -- Lifecycle operations can only run where the compose file is readable, so every row carries
+      -- that location for the operation side to reference.
       local items = services.assemble(project({ "web", "never-started" }), { container() })
 
       assert.are.equal("/work/shop", items[1].working_dir)
       assert.are.equal("/work/shop", items[2].working_dir)
     end)
 
-    it("対応するコンテナが無いサービスは状態がnoneになる", function()
-      -- BR-005: 定義されているが起動していないサービスも一覧に出す。
+    it("gives a service with no matching container the state none", function()
+      -- BR-005: services that are defined but not started are listed too.
       local items = services.assemble(project({ "web", "never-started" }), { container() })
 
       local by_name = {}
@@ -63,8 +63,8 @@ describe("docker.resources.services", function()
       assert.are.equal("running", by_name["web"].status)
     end)
 
-    it("単発コンテナはサービスに紐付けない", function()
-      -- BR-006: `docker compose run` が作るコンテナはサービスの実体ではない。
+    it("does not tie a one-off container to a service", function()
+      -- BR-006: a container created by `docker compose run` is not the instance of a service.
       local items = services.assemble(project({ "worker" }), {
         container({ id = "one", name = "shop-worker-run-abc", compose_service = "worker", compose_oneoff = "True" }),
       })
@@ -74,7 +74,7 @@ describe("docker.resources.services", function()
       assert.are.equal("", items[1].container)
     end)
 
-    it("単発コンテナがあっても本来のコンテナがあればそちらを使う", function()
+    it("uses the real container when one exists even if a one-off container is present", function()
       local items = services.assemble(project({ "worker" }), {
         container({ id = "one", name = "shop-worker-run-abc", compose_service = "worker", compose_oneoff = "True" }),
         container({ id = "real", name = "shop-worker-1", compose_service = "worker", compose_oneoff = "False" }),
@@ -85,9 +85,9 @@ describe("docker.resources.services", function()
       assert.are.equal("running", items[1].status)
     end)
 
-    it("同じサービスに複数のコンテナがあるとき稼働中を代表にする", function()
-      -- scale したサービスで、先頭が停止していると稼働レプリカがあっても
-      -- 停止として見えてしまう。
+    it("lets a running container represent a service that has several containers", function()
+      -- On a scaled service, a stopped first container would make it look stopped even though a
+      -- running replica exists.
       local items = services.assemble(project({ "web" }), {
         container({ id = "1", name = "shop-web-1", state = "exited" }),
         container({ id = "2", name = "shop-web-2", state = "running" }),
@@ -97,7 +97,7 @@ describe("docker.resources.services", function()
       assert.are.equal("shop-web-2", items[1].container)
     end)
 
-    it("すべて停止しているときはその状態を出す", function()
+    it("shows that state when every container is stopped", function()
       local items = services.assemble(project({ "web" }), {
         container({ id = "1", name = "shop-web-1", state = "exited" }),
         container({ id = "2", name = "shop-web-2", state = "exited" }),
@@ -106,7 +106,7 @@ describe("docker.resources.services", function()
       assert.are.equal("exited", items[1].status)
     end)
 
-    it("別プロジェクトのコンテナは紐付けない", function()
+    it("does not tie a container of another project to a service", function()
       local items = services.assemble(project({ "web" }), {
         container({ compose_project = "other", name = "other-web-1" }),
       })
@@ -114,7 +114,7 @@ describe("docker.resources.services", function()
       assert.are.equal("none", items[1].status)
     end)
 
-    it("compose由来でないコンテナは無視する", function()
+    it("ignores a container that did not come from compose", function()
       local items = services.assemble(project({ "web" }), {
         container({ compose_project = "", compose_service = "", name = "plain" }),
       })
@@ -122,8 +122,8 @@ describe("docker.resources.services", function()
       assert.are.equal("none", items[1].status)
     end)
 
-    it("定義に無いサービスのコンテナは一覧に出さない", function()
-      -- compose.yaml から消えたサービスの残骸を出さない。
+    it("does not list a container whose service is not in the definitions", function()
+      -- Do not show the remains of a service that was removed from compose.yaml.
       local items = services.assemble(project({ "web" }), {
         container(),
         container({ id = "ghost", name = "shop-ghost-1", compose_service = "ghost" }),
@@ -133,7 +133,7 @@ describe("docker.resources.services", function()
       assert.are.equal("web", items[1].name)
     end)
 
-    it("サービスは定義の順序で並ぶ", function()
+    it("orders the services as they appear in the definitions", function()
       local items = services.assemble(project({ "alpha", "mid", "zeta" }), {})
 
       local names = {}
@@ -143,7 +143,7 @@ describe("docker.resources.services", function()
       assert.are.same({ "alpha", "mid", "zeta" }, names)
     end)
 
-    it("停止したコンテナの状態をそのまま反映する", function()
+    it("reflects the state of a stopped container as it is", function()
       local items = services.assemble(project({ "web" }), {
         container({ state = "exited", status = "Exited (0) 1 minute ago" }),
       })
@@ -151,15 +151,15 @@ describe("docker.resources.services", function()
       assert.are.equal("exited", items[1].status)
     end)
 
-    it("サービスが0件なら空を返す", function()
+    it("returns nothing when there are 0 services", function()
       assert.are.same({}, services.assemble(project({}), { container() }))
     end)
   end)
 
   describe("derive_service_names", function()
-    -- compose ファイルを読めないプロジェクトでは定義を引けない。
-    -- そのときはコンテナのラベルからサービス名を逆算する。
-    it("そのプロジェクトのコンテナからサービス名を取り出す", function()
+    -- For a project whose compose file cannot be read the definitions cannot be looked up.
+    -- In that case the service names are derived from the container labels.
+    it("extracts the service names from the containers of that project", function()
       local names = services.derive_service_names("shop", {
         container({ compose_service = "web" }),
         container({ id = "2", compose_service = "db" }),
@@ -168,7 +168,7 @@ describe("docker.resources.services", function()
       assert.are.same({ "db", "web" }, names)
     end)
 
-    it("同じサービスの複数コンテナを1つにまとめる", function()
+    it("collapses several containers of the same service into one", function()
       local names = services.derive_service_names("shop", {
         container({ id = "1", name = "shop-web-1", compose_service = "web" }),
         container({ id = "2", name = "shop-web-2", compose_service = "web" }),
@@ -177,7 +177,7 @@ describe("docker.resources.services", function()
       assert.are.same({ "web" }, names)
     end)
 
-    it("別プロジェクトのコンテナは含めない", function()
+    it("does not include containers of another project", function()
       local names = services.derive_service_names("shop", {
         container({ compose_service = "web" }),
         container({ id = "2", compose_project = "blog", compose_service = "cms" }),
@@ -186,8 +186,8 @@ describe("docker.resources.services", function()
       assert.are.same({ "web" }, names)
     end)
 
-    it("単発コンテナはサービスとして数えない", function()
-      -- BR-006: `docker compose run` が作るコンテナはサービスの実体ではない。
+    it("does not count a one-off container as a service", function()
+      -- BR-006: a container created by `docker compose run` is not the instance of a service.
       local names = services.derive_service_names("shop", {
         container({ compose_service = "worker", compose_oneoff = "True" }),
       })
@@ -195,13 +195,13 @@ describe("docker.resources.services", function()
       assert.are.same({}, names)
     end)
 
-    it("該当するコンテナが無ければ空を返す", function()
+    it("returns nothing when there is no matching container", function()
       assert.are.same({}, services.derive_service_names("shop", {}))
     end)
   end)
 
   describe("assemble_all", function()
-    it("複数プロジェクトのサービスを1つの一覧にまとめる", function()
+    it("merges the services of several projects into a single list", function()
       local items = services.assemble_all({
         { name = "shop", working_dir = "/work/shop", service_names = { "web" } },
         { name = "blog", working_dir = "/work/blog", service_names = { "cms" } },
@@ -230,8 +230,8 @@ describe("docker.resources.services", function()
       }, items)
     end)
 
-    it("プロジェクトは名前順に並ぶ", function()
-      -- 取得元の順序は実行のたびに変わりうる。行の並びを実行ごとに変えない。
+    it("orders the projects by name", function()
+      -- The order of the source can change from run to run. Do not let the row order change per run.
       local items = services.assemble_all({
         { name = "zeta", working_dir = "/z", service_names = { "a" } },
         { name = "alpha", working_dir = "/a", service_names = { "a" } },
@@ -245,7 +245,7 @@ describe("docker.resources.services", function()
       assert.are.same({ "alpha", "mid", "zeta" }, names)
     end)
 
-    it("同名のサービスが別プロジェクトにあっても両方出す", function()
+    it("lists both when services with the same name exist in different projects", function()
       local items = services.assemble_all({
         { name = "shop", working_dir = "/work/shop", service_names = { "web" } },
         { name = "blog", working_dir = "/work/blog", service_names = { "web" } },
@@ -256,7 +256,7 @@ describe("docker.resources.services", function()
       assert.are.equal("shop", items[2].project)
     end)
 
-    it("プロジェクトが0件なら空を返す", function()
+    it("returns nothing when there are 0 projects", function()
       assert.are.same({}, services.assemble_all({}, { container() }))
     end)
   end)

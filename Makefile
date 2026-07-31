@@ -5,15 +5,15 @@ LUA_DIRS := lua/ plugin/ tests/
 
 export MINIMAL_INIT
 
-# 単体・結合テスト。実装と同じディレクトリに置いた *_spec.lua を全実行する。
-# tests/e2e/ は docker を必要とするため含めない (test-e2e が担当)。
-# run-busted.sh が「1 件も実行されていない」を成功と区別する。
+# Unit and integration tests. Runs every *_spec.lua placed next to the implementation.
+# tests/e2e/ is excluded because it requires docker (test-e2e covers it).
+# run-busted.sh tells "nothing ran at all" apart from a success.
 test: spec-layout-check
 	@./scripts/run-busted.sh lua/
 
-# 単一ファイルの実行。ゴールの検証手順がファイル名を名指しするため、検証が空虚に
-# ならないよう次をすべて非 0 で終了させる:
-#   FILE 未指定 / ファイル不在 / *_spec.lua でない / テストが 1 件も実行されなかった
+# Run a single file. The goal verification steps name the file explicitly, so exit non-zero
+# on all of the following to keep the check from being hollow:
+#   FILE not given / file missing / not a *_spec.lua / no test ran at all
 test-file:
 	@test -n "$(FILE)" || { echo "FILE is required: make test-file FILE=path/to/foo_spec.lua" >&2; exit 1; }
 	@test -f "$(FILE)" || { echo "test file not found: $(FILE)" >&2; exit 1; }
@@ -23,12 +23,12 @@ test-file:
 	esac
 	@./scripts/run-busted.sh "$(FILE)"
 
-# G_E2E の通しシナリオ。docker が必要。
+# The end-to-end scenarios of G_E2E. Requires docker.
 test-e2e:
 	@./scripts/e2e.sh
 
-# `make test` が走査するのは lua/ だけなので、そこから外れた spec は
-# 「存在するが一度も実行されない」状態になる。沈黙させず落とす。
+# `make test` only scans lua/, so a spec outside it ends up "present but never run".
+# Fail instead of staying silent.
 spec-layout-check:
 	@stray=$$(find . -type f -name '*_spec.lua' \
 		-not -path './.git/*' -not -path './lua/*' -not -path './tests/e2e/*' -not -path './docs/*'); \
@@ -56,13 +56,13 @@ typecheck:
 check: lint format-check typecheck plugin-check spec-layout-check test
 
 help:
-	@echo "test              - 単体・結合テストを全実行"
-	@echo "test-file         - 単一ファイルを実行 (FILE=path/to/foo_spec.lua)"
-	@echo "test-e2e          - G_E2E の通しシナリオ (docker が必要)"
-	@echo "plugin-check      - plugin/*.lua が読み込みエラーなく source されるか確認"
-	@echo "spec-layout-check - 実行対象から外れた場所に spec が無いか確認"
+	@echo "test              - run every unit and integration test"
+	@echo "test-file         - run a single file (FILE=path/to/foo_spec.lua)"
+	@echo "test-e2e          - the end-to-end scenarios of G_E2E (requires docker)"
+	@echo "plugin-check      - check that plugin/*.lua is sourced without load errors"
+	@echo "spec-layout-check - check that no spec sits outside the run targets"
 	@echo "lint              - luacheck"
-	@echo "format            - stylua で整形"
-	@echo "format-check      - stylua の差分チェック"
+	@echo "format            - format with stylua"
+	@echo "format-check      - check for stylua diffs"
 	@echo "typecheck         - lua-language-server"
-	@echo "check             - 上記の静的検査とテストをまとめて実行"
+	@echo "check             - run all of the static checks above plus the tests"

@@ -3,7 +3,7 @@ local render = require("docker.handlers.render")
 describe("docker.handlers.render", function()
   local scheduled
 
-  --- 偽の時計。実時間を待たずにデバウンスの挙動を検査する。
+  --- A fake clock. Inspects the debounce behavior without waiting for real time.
   local function fake_timers()
     scheduled = {}
     render._set_timer_factory(function(delay, callback)
@@ -17,7 +17,7 @@ describe("docker.handlers.render", function()
     end)
   end
 
-  --- 直近に仕掛けられた、まだ止められていないタイマーを発火させる。
+  --- Fires the timers that have been set up and not yet stopped.
   local function fire_pending()
     for _, entry in ipairs(scheduled) do
       if not entry.stopped then
@@ -38,7 +38,7 @@ describe("docker.handlers.render", function()
   end)
 
   describe("request", function()
-    it("要求してすぐには描画しない", function()
+    it("does not draw immediately after the request", function()
       local drawn = 0
 
       render.request("container", function()
@@ -48,7 +48,7 @@ describe("docker.handlers.render", function()
       assert.are.equal(0, drawn)
     end)
 
-    it("待ち時間が過ぎると描画する", function()
+    it("draws once the wait time has passed", function()
       local drawn = 0
       render.request("container", function()
         drawn = drawn + 1
@@ -59,9 +59,9 @@ describe("docker.handlers.render", function()
       assert.are.equal(1, drawn)
     end)
 
-    it("連続する要求は1回にまとめられる", function()
-      -- docker events にはデーモン全体のイベントが流れるため、
-      -- まとめないと一斉変更のたびに描画が空回りする。
+    it("coalesces consecutive requests into one", function()
+      -- docker events carries events for the whole daemon, so without coalescing
+      -- the rendering spins uselessly on every bulk change.
       local drawn = 0
       local function draw()
         drawn = drawn + 1
@@ -75,7 +75,7 @@ describe("docker.handlers.render", function()
       assert.are.equal(1, drawn)
     end)
 
-    it("まとめられた要求では最後に渡した描画が実行される", function()
+    it("runs the draw passed last when requests are coalesced", function()
       local order = {}
 
       render.request("container", function()
@@ -89,7 +89,7 @@ describe("docker.handlers.render", function()
       assert.are.same({ "last" }, order)
     end)
 
-    it("キーが違う要求はまとめない", function()
+    it("does not coalesce requests with different keys", function()
       local drawn = {}
 
       render.request("container", function()
@@ -103,7 +103,7 @@ describe("docker.handlers.render", function()
       assert.are.equal(2, #drawn)
     end)
 
-    it("描画した後の要求は改めてまとめ直す", function()
+    it("coalesces afresh for requests made after a draw", function()
       local drawn = 0
       local function draw()
         drawn = drawn + 1
@@ -118,20 +118,20 @@ describe("docker.handlers.render", function()
     end)
   end)
 
-  describe("待ち時間", function()
-    it("イベント受信から1秒以内に描画要求が出る幅になっている", function()
-      -- G9: 別プロセスの操作が 1 秒以内に一覧へ反映される。
-      -- 内訳は「デバウンス + 対象の再取得 (実測 20〜60ms) + 描画 (実測 2ms)」。
+  describe("wait time", function()
+    it("is sized so the render request goes out within 1 second of receiving an event", function()
+      -- G9: an operation made by another process is reflected in the list within 1 second.
+      -- The breakdown is "debounce + refetching the target (measured 20-60ms) + rendering (measured 2ms)".
       render.request("container", function() end)
 
       assert.are.equal(render.DELAY_MS, scheduled[1].delay)
-      assert.is_true(render.DELAY_MS < 1000, "1 秒の目標に対し余裕があること")
-      assert.is_true(render.DELAY_MS >= 50, "一斉変更をまとめられる幅があること")
+      assert.is_true(render.DELAY_MS < 1000, "must leave headroom against the 1 second goal")
+      assert.is_true(render.DELAY_MS >= 50, "must be wide enough to coalesce bulk changes")
     end)
   end)
 
   describe("cancel", function()
-    it("待機中の描画要求を取り消せる", function()
+    it("can cancel a pending render request", function()
       local drawn = 0
       render.request("container", function()
         drawn = drawn + 1
@@ -143,7 +143,7 @@ describe("docker.handlers.render", function()
       assert.are.equal(0, drawn)
     end)
 
-    it("取り消した後も新しい要求は受け付ける", function()
+    it("still accepts a new request after a cancellation", function()
       local drawn = 0
       local function draw()
         drawn = drawn + 1

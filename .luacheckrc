@@ -7,7 +7,7 @@ globals = {
 }
 
 read_globals = {
-  -- plenary/busted のテストグローバル
+  -- Test globals of plenary/busted
   "describe",
   "it",
   "before_each",
@@ -16,7 +16,7 @@ read_globals = {
 }
 
 ignore = {
-  "631", -- max_line_length: 整形は stylua が担当する
+  "631", -- max_line_length: formatting is stylua's job
 }
 
 exclude_files = {

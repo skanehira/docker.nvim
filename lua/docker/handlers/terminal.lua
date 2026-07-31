@@ -1,8 +1,8 @@
---- ターミナルバッファでのコマンド実行。
+--- Command execution in a terminal buffer.
 ---
---- ログ追従・シェル・コマンド実行は入出力を伴うため、単発実行の
---- `adapters/docker/cli.lua` ではなくターミナルジョブとして起動する。
---- 起動したジョブは必ず台帳へ載せる (載せ漏れると `:qa` の後に子プロセスが残る)。
+--- Following logs, shells and command execution involve input/output, so they are started as
+--- terminal jobs rather than through `adapters/docker/cli.lua`, which runs one-shot commands.
+--- Every started job must be put on the ledger (a missed one leaves a child process behind after `:qa`).
 local jobs = require("docker.handlers.jobs")
 
 local M = {}
@@ -11,22 +11,22 @@ local M = {}
 ---@field bufnr integer
 ---@field job_id integer
 
---- コンテナ内に bash があれば bash、無ければ sh を使う (BR-019)。
---- コンテナ側で判定するため、シェルのスニペットとして渡す。
+--- Uses bash when the container has it, and sh otherwise (BR-019).
+--- The decision is made inside the container, so it is passed as a shell snippet.
 local SHELL_SNIPPET = "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"
 
 ---@type (fun(cmd: string[], cwd: string|nil): integer|nil)|nil
 local job_starter = nil
 
---- バッファ番号 -> ジョブ ID
+--- buffer number -> job ID
 ---@type table<integer, integer>
 local job_of_buffer = {}
 
---- バッファ名の重複で `E95` にならないよう通し番号を振る。
+--- Assigns a serial number so that duplicate buffer names do not raise `E95`.
 local sequence = 0
 
---- テスト用の差し替え口。ジョブ起動だけを差し替え、ウィンドウとバッファの
---- 用意は本番と同じ経路を通す。nil を渡すと実際のジョブ起動に戻る。
+--- Injection point for tests. Only the job start is replaced; setting up the window and buffer
+--- goes through the same path as in production. Passing nil restores the real job start.
 ---@param fn (fun(cmd: string[], cwd: string|nil): integer|nil)|nil
 function M._set_job_starter(fn)
   job_starter = fn
@@ -44,8 +44,8 @@ end
 ---@param cwd string|nil
 ---@return docker.Terminal
 local function open(cmd, title, cwd)
-  -- 一覧はフロートウィンドウで、そこにフォーカスがある状態で `enew` すると
-  -- bufhidden=wipe の一覧バッファが破棄されてしまう。必ず新しいウィンドウを開く。
+  -- The list is a float window, and running `enew` while it has focus wipes out the
+  -- list buffer, which is bufhidden=wipe. Always open a new window.
   vim.cmd("botright new")
   local bufnr = vim.api.nvim_get_current_buf()
 
@@ -56,8 +56,8 @@ local function open(cmd, title, cwd)
     return { bufnr = bufnr, job_id = job_id }
   end
 
-  -- 名前付けより先に台帳へ載せる。名前が衝突して例外になっても、
-  -- 起動済みのジョブを追跡対象から漏らさない。
+  -- Put it on the ledger before naming it. Even if the name collides and raises,
+  -- an already started job is never dropped from tracking.
   jobs.register(job_id)
   job_of_buffer[bufnr] = job_id
 
@@ -76,7 +76,7 @@ local function open(cmd, title, cwd)
   return { bufnr = bufnr, job_id = job_id }
 end
 
---- バッファが破棄されたときに台帳から外す。
+--- Removes the job from the ledger when the buffer is wiped out.
 ---@param bufnr integer
 function M._on_buffer_closed(bufnr)
   local job_id = job_of_buffer[bufnr]
@@ -86,11 +86,11 @@ function M._on_buffer_closed(bufnr)
   end
 end
 
---- コマンド文字列を語に分ける。引用符で囲んだ部分は 1 語として扱う。
+--- Splits a command string into words. A quoted section is treated as a single word.
 ---@param command string
 ---@return string[]
 local function split_command(command)
-  -- Lua パターンに交替 (|) が無いため手で走査する。
+  -- Lua patterns have no alternation (|), so the scan is done by hand.
   local words = {}
   local i = 1
   local length = #command
@@ -116,7 +116,7 @@ local function split_command(command)
   return words
 end
 
---- ログを追従する。
+--- Follows the logs.
 ---@param id string
 ---@param label string
 ---@return docker.Terminal
@@ -124,7 +124,7 @@ function M.open_logs(id, label)
   return open({ "docker", "logs", "-f", id }, ("logs/%s"):format(label))
 end
 
---- コンテナ内でシェルを開く。
+--- Opens a shell inside the container.
 ---@param id string
 ---@param label string
 ---@return docker.Terminal
@@ -132,8 +132,8 @@ function M.open_shell(id, label)
   return open({ "docker", "exec", "-it", id, "sh", "-c", SHELL_SNIPPET }, ("shell/%s"):format(label))
 end
 
---- compose サービスのログを追従する。
---- プロジェクトを名指しするので、compose ファイルのある場所で実行する必要はない。
+--- Follows the logs of a compose service.
+--- The project is named explicitly, so this does not have to run where the compose file is.
 ---@param project string
 ---@param service string
 ---@param label string
@@ -142,8 +142,8 @@ function M.open_compose_logs(project, service, label)
   return open({ "docker", "compose", "-p", project, "logs", "-f", service }, ("logs/%s"):format(label))
 end
 
---- イメージから使い捨てのコンテナを起動してシェルを開く。
---- `--rm` によりシェルを抜けた時点で自動的に削除される。
+--- Starts a throwaway container from an image and opens a shell in it.
+--- Thanks to `--rm` it is removed automatically as soon as the shell is left.
 ---@param image string
 ---@param label string
 ---@return docker.Terminal
@@ -151,7 +151,7 @@ function M.open_quickrun(image, label)
   return open({ "docker", "run", "--rm", "-it", "--entrypoint", "sh", image }, ("run/%s"):format(label))
 end
 
---- コンテナ内でコマンドを実行する。
+--- Runs a command inside the container.
 ---@param id string
 ---@param label string
 ---@param command string

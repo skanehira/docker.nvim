@@ -5,14 +5,14 @@ local jobs = require("docker.handlers.jobs")
 local lifecycle = require("docker.handlers.lifecycle")
 local store = require("docker.state.store")
 
-describe("手動再取得とビューの後始末", function()
+describe("manual refetch and view cleanup", function()
   local runs
   local original_notify
   local notified
   local event_handlers
   local subscriptions
 
-  --- コンテナ n 件ぶんの NDJSON を返す偽の docker。
+  --- A fake docker that returns NDJSON for n containers.
   ---@param count integer
   local function stub_docker(count)
     cli._set_executor(function(cmd, _, on_exit)
@@ -89,7 +89,7 @@ describe("手動再取得とビューの後始末", function()
   end
 
   describe("refresh", function()
-    it("一覧を取り直す", function()
+    it("refetches the list", function()
       local handle = open_view()
       local before = list_fetch_count()
 
@@ -99,7 +99,7 @@ describe("手動再取得とビューの後始末", function()
       assert.are.equal(before + 1, list_fetch_count())
     end)
 
-    it("取り直した内容が画面へ反映される", function()
+    it("reflects the refetched content on the screen", function()
       local handle = open_view()
       assert.are.equal(3, #vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
 
@@ -110,7 +110,7 @@ describe("手動再取得とビューの後始末", function()
       assert.are.equal(5, #vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
     end)
 
-    it("取り直してもカーソル位置が保たれる", function()
+    it("keeps the cursor position across a refetch", function()
       local handle = open_view()
       vim.api.nvim_win_set_cursor(handle.window.winid, { 3, 0 })
 
@@ -120,8 +120,8 @@ describe("手動再取得とビューの後始末", function()
       assert.are.equal(3, vim.api.nvim_win_get_cursor(handle.window.winid)[1])
     end)
 
-    it("購読が止まっていれば再開する", function()
-      -- G10: R は一覧の取り直しに加えて、切れた購読を戻す。
+    it("restarts the subscription when it has stopped", function()
+      -- G10: on top of refetching the list, R restores a subscription that has been cut.
       local handle = open_view()
       assert.are.equal(1, #event_handlers)
       assert(handle.subscription).stop()
@@ -129,10 +129,10 @@ describe("手動再取得とビューの後始末", function()
       lifecycle.dispatch_for_test(handle, "refresh")
       vim.wait(200)
 
-      assert.are.equal(2, #event_handlers, "購読を張り直すこと")
+      assert.are.equal(2, #event_handlers, "must reattach the subscription")
     end)
 
-    it("購読が生きていれば張り直さない", function()
+    it("does not reattach the subscription when it is alive", function()
       local handle = open_view()
 
       lifecycle.dispatch_for_test(handle, "refresh")
@@ -142,10 +142,10 @@ describe("手動再取得とビューの後始末", function()
     end)
   end)
 
-  describe("ビュー破棄時の後始末", function()
-    it("qで閉じると購読ジョブが止まる", function()
+  describe("cleanup when the view is destroyed", function()
+    it("stops the subscription job when closed with q", function()
       local handle = open_view()
-      -- close は handle から購読を外すので、先に控えておく。
+      -- close detaches the subscription from the handle, so hold on to it beforehand.
       local subscription = assert(handle.subscription)
       assert.is_true(subscription.is_alive())
 
@@ -154,7 +154,7 @@ describe("手動再取得とビューの後始末", function()
       assert.is_false(subscription.is_alive())
     end)
 
-    it("閉じると購読ジョブが台帳から外れる", function()
+    it("removes the subscription job from the ledger when closed", function()
       open_view()
       assert.are.equal(1, #jobs.list())
 
@@ -163,7 +163,7 @@ describe("手動再取得とビューの後始末", function()
       assert.are.same({}, jobs.list())
     end)
 
-    it("close_allでも購読ジョブが止まる", function()
+    it("stops the subscription job on close_all as well", function()
       local handle = open_view()
       local subscription = assert(handle.subscription)
 
@@ -173,7 +173,7 @@ describe("手動再取得とビューの後始末", function()
       assert.are.same({}, jobs.list())
     end)
 
-    it("閉じた後に届いたイベントで再描画しない", function()
+    it("does not redraw for an event that arrives after closing", function()
       local handle = open_view()
       local handlers = event_handlers[1]
       lifecycle.close("container")
@@ -190,8 +190,8 @@ describe("手動再取得とビューの後始末", function()
     end)
   end)
 
-  describe("イベントによるストア更新", function()
-    it("削除のイベントで一覧から取り除く", function()
+  describe("store updates driven by events", function()
+    it("removes the item from the list on a destroy event", function()
       local handle = open_view()
 
       event_handlers[1].on_stdout(vim.json.encode({
@@ -208,7 +208,7 @@ describe("手動再取得とビューの後始末", function()
       assert.is_nil(names:find("c2", 1, true), names)
     end)
 
-    it("開始のイベントでは対象1件だけを取り直す", function()
+    it("refetches only the single target on a start event", function()
       open_view()
       local before = #runs
 
@@ -226,10 +226,10 @@ describe("手動再取得とビューの後始末", function()
           filtered = filtered + 1
         end
       end
-      assert.are.equal(1, filtered, "1 件だけ取り直すこと")
+      assert.are.equal(1, filtered, "must refetch exactly one item")
     end)
 
-    it("既に消えた対象の取得失敗は通知しない", function()
+    it("does not notify when the fetch of an already gone target fails", function()
       open_view()
       cli._set_executor(function(cmd, _, on_exit)
         table.insert(runs, cmd)
@@ -245,10 +245,10 @@ describe("手動再取得とビューの後始末", function()
       }) .. "\n")
       vim.wait(500)
 
-      assert.are.equal(before, #notified, "利用者へ通知しないこと")
+      assert.are.equal(before, #notified, "must not notify the user")
     end)
 
-    it("他の種別のイベントでは取り直さない", function()
+    it("does not refetch for an event of another kind", function()
       open_view()
       local before = #runs
 

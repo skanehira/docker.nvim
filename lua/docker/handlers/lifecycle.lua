@@ -1,9 +1,9 @@
---- ビューの生成・表示・破棄とキーマップ設定。
+--- Creation, display and disposal of views, plus keymap setup.
 ---
---- 同じリソース種別のビューは 1 つだけ持つ。既に開いていれば新しいバッファを
---- 作らずそこへ移動する (US-026)。
---- キーマップは必ずバッファローカルに設定する。一覧ビュー以外のバッファで
---- プラグインのキーが作用しないようにするため (BR-014)。
+--- Only one view is kept per resource kind. If it is already open, move to that
+--- window instead of creating a new buffer (US-026).
+--- Keymaps are always set buffer-locally, so that the plugin's keys do not take
+--- effect in buffers other than the list views (BR-014).
 local actions = require("docker.handlers.actions")
 local cli = require("docker.adapters.docker.cli")
 local events = require("docker.adapters.docker.events")
@@ -28,19 +28,19 @@ local M = {}
 ---@field window docker.Window
 ---@field state docker.ViewState
 ---@field subscription docker.EventSubscription|nil
----@field cwd string                       ビューを開いた時点の作業ディレクトリ (BR-003)
----@field last_warning string|nil          直前に伝えた警告。同じ文言を繰り返さないために持つ
+---@field cwd string                       working directory at the time the view was opened (BR-003)
+---@field last_warning string|nil          the warning reported last time; kept so the same text is not repeated
 
---- 種別 -> 開いているビュー
+--- kind -> the view that is open
 ---@type table<string, docker.ViewHandle>
 local views = {}
 
---- 接続確認の応答を待っている種別。docker への問い合わせは非同期なので、
---- 応答前にもう一度開こうとするとフロートが二重に開く。
+--- Kinds that are waiting for the connection check to answer. Queries to docker are
+--- asynchronous, so trying to open again before the answer arrives opens two floats.
 ---@type table<string, boolean>
 local opening = {}
 
---- カーソル位置を保ったまま描き直す。
+--- Redraw while keeping the cursor position.
 ---@param handle docker.ViewHandle
 local function redraw(handle)
   if not vim.api.nvim_buf_is_valid(handle.window.bufnr) then
@@ -58,14 +58,14 @@ local function redraw(handle)
     end,
   })
 
-  -- 再描画でカーソルが先頭へ戻らないようにする。
+  -- Keep the redraw from sending the cursor back to the first line.
   if cursor and vim.api.nvim_win_is_valid(handle.window.winid) then
     local last = math.max(vim.api.nvim_buf_line_count(handle.window.bufnr), 1)
     pcall(vim.api.nvim_win_set_cursor, handle.window.winid, { math.min(cursor[1], last), cursor[2] })
   end
 end
 
---- 種別のビューを描き直す (外部から状態が変わったとき用)。
+--- Redraw the view of a kind (for when the state is changed from the outside).
 ---@param kind string
 function M.refresh_view(kind)
   local handle = views[kind]
@@ -74,8 +74,8 @@ function M.refresh_view(kind)
   end
 end
 
---- 一覧は出せるが伝えることがある場合の通知。
---- 一覧はイベントのたびに取り直すので、同じ文言をそのまま出すと積み上がる。
+--- Notification for when the list can still be shown but there is something to report.
+--- The list is re-fetched on every event, so emitting the same text as-is would pile up.
 ---@param handle docker.ViewHandle
 ---@param warning string|nil
 local function announce_warning(handle, warning)
@@ -85,7 +85,7 @@ local function announce_warning(handle, warning)
   handle.last_warning = warning
 end
 
---- 一覧を取得してビューへ反映する。
+--- Fetch the list and reflect it into the view.
 ---@param handle docker.ViewHandle
 ---@param on_done fun()|nil
 local function fetch(handle, on_done)
@@ -117,19 +117,19 @@ local function fetch(handle, on_done)
   cli.run(list_args(), apply, { parse = "ndjson" })
 end
 
---- 対象が消えたことを示すイベントか。
+--- Whether the event indicates that the target has disappeared.
 ---@param action string
 ---@return boolean
 local function is_removal(action)
   return action == "destroy" or action == "delete" or action == "remove" or action == "prune"
 end
 
---- イベントで変わった 1 件だけを取り直してストアへ反映する。
+--- Re-fetch only the single item changed by the event and reflect it into the store.
 ---@param handle docker.ViewHandle
 ---@param event docker.Event
 local function apply_event(handle, event)
-  -- 組み立てが必要な種別 (サービス) と、イベントの ID が識別子と対応しない種別
-  -- (イメージ) は 1 件の取り直しでは表せないので全件やり直す。
+  -- Kinds that need assembling (services) and kinds whose event ID does not correspond
+  -- to the identifier (images) cannot be expressed by re-fetching one item, so refetch all.
   if handle.def.load or handle.def.event_reload then
     render.request(handle.kind, function()
       if views[handle.kind] then
@@ -161,7 +161,7 @@ local function apply_event(handle, event)
   end
 
   cli.run(item_args(event.id), function(result)
-    -- 取得できないのは既に消えた場合が大半。利用者へは通知せず一覧から取り除く。
+    -- Failing to fetch mostly means it is already gone. Drop it from the list without notifying the user.
     if not result.ok or type(result.data) ~= "table" or #result.data == 0 then
       store.remove(handle.kind, event.id)
     else
@@ -171,7 +171,7 @@ local function apply_event(handle, event)
   end, { parse = "ndjson" })
 end
 
---- そのビューのイベント購読を始める。
+--- Start subscribing to events for that view.
 ---@param handle docker.ViewHandle
 local function subscribe_events(handle)
   handle.subscription = events.subscribe({
@@ -186,7 +186,7 @@ local function subscribe_events(handle)
       end
     end,
     on_reconnect = function()
-      -- 待機中に取りこぼした分があるため、全件取り直して整合させる。
+      -- Some events were missed while waiting, so re-fetch everything to stay consistent.
       if views[handle.kind] then
         notify.info("docker のイベント購読が回復しました。")
         fetch(handle)
@@ -198,7 +198,7 @@ local function subscribe_events(handle)
   })
 end
 
---- 辿った先で、対応する行へカーソルを合わせる。
+--- Put the cursor on the corresponding line in the view we drilled down into.
 ---@param handle docker.ViewHandle
 ---@param match fun(item: table): boolean
 local function focus_on(handle, match)
@@ -212,7 +212,7 @@ local function focus_on(handle, match)
   end
 end
 
---- カーソル行から辿れる先を決める。
+--- Decide where the cursor line can drill down to.
 ---@param handle docker.ViewHandle
 ---@return { kind: string, match: fun(item: table): boolean }|nil
 local function drilldown_target(handle)
@@ -223,13 +223,13 @@ local function drilldown_target(handle)
   end
 
   if handle.kind == "container" then
-    -- コンテナ -> そのイメージ
+    -- container -> its image
     local image = tostring(item.image or "")
     if image == "" then
       return nil
     end
-    -- `docker ps` の .Image は "alpine" のようにタグを省いた形になることがある。
-    -- イメージ一覧側は repository と tag を持つので、両方の綴りで突き合わせる。
+    -- The .Image of `docker ps` can come back with the tag omitted, such as "alpine".
+    -- The image list side has repository and tag, so match against both spellings.
     return {
       kind = "image",
       match = function(candidate)
@@ -241,7 +241,7 @@ local function drilldown_target(handle)
   end
 
   if handle.kind == "image" then
-    -- イメージ -> それを使うコンテナ
+    -- image -> the containers that use it
     local ref = ("%s:%s"):format(tostring(item.repository), tostring(item.tag))
     return {
       kind = "container",
@@ -252,7 +252,7 @@ local function drilldown_target(handle)
   end
 
   if handle.kind == "service" then
-    -- サービス -> そのコンテナ
+    -- service -> its container
     local container_id = tostring(item.container_id or "")
     if container_id == "" then
       return nil
@@ -268,11 +268,12 @@ local function drilldown_target(handle)
   return nil
 end
 
---- 選択範囲のリソースをまとめて削除する。
---- 一部が失敗しても他は実行し、失敗分をまとめて知らせる (原子性は保証しない)。
+--- Delete the resources in the selected range all at once.
+--- Even if some fail, the rest still run, and the failures are reported together
+--- (atomicity is not guaranteed).
 ---@param handle docker.ViewHandle
 local function bulk_delete(handle)
-  -- Visual モードを抜けてから範囲を取る (抜けないと '< '> が更新されない)。
+  -- Leave Visual mode before taking the range ('< and '> are not updated until we leave).
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
   local first = vim.fn.line("'<")
   local last = vim.fn.line("'>")
@@ -319,7 +320,7 @@ local function bulk_delete(handle)
   end)
 end
 
---- カーソル行のリソースに対してアクションを実行する。
+--- Run an action against the resource on the cursor line.
 ---@param handle docker.ViewHandle
 ---@param action string
 local function dispatch(handle, action)
@@ -330,7 +331,7 @@ local function dispatch(handle, action)
 
   if action == "refresh" then
     fetch(handle)
-    -- 切れた購読はここで戻す (G10)。生きている購読は張り直さない。
+    -- Restore a dropped subscription here (G10). A live subscription is not re-established.
     if not handle.subscription or not handle.subscription.is_alive() then
       subscribe_events(handle)
     end
@@ -356,7 +357,7 @@ local function dispatch(handle, action)
     end
     M.open(target.kind, function(opened)
       if opened then
-        -- 辿った先で対象の行へカーソルを移す。
+        -- Move the cursor to the target line in the view we drilled down into.
         focus_on(opened, target.match)
       end
     end)
@@ -369,7 +370,7 @@ local function dispatch(handle, action)
   end
 
   if action == "switch_view" then
-    -- 切替先を選ばせ、同じ流れで開く (今のビューは閉じる)。
+    -- Let the user pick the switch target and open it through the same flow (the current view is closed).
     local choices = registry.subcommands()
     vim.ui.select(choices, { prompt = "切り替え先のリソース種別" }, function(choice)
       if not choice then
@@ -380,8 +381,9 @@ local function dispatch(handle, action)
         return
       end
       M.open(target.kind, function(opened)
-        -- 切替に成功したときだけ元のビューを閉じる。
-        -- compose プロジェクト外などで開けなかった場合に、今のビューを失わせない。
+        -- Close the original view only when the switch succeeded.
+        -- This keeps the current view from being lost when the target could not be
+        -- opened, for example outside a compose project.
         if opened then
           M.close(handle.kind)
         end
@@ -392,7 +394,7 @@ local function dispatch(handle, action)
 
   if action == "help" then
     local help_window = help.open(handle.def.view_type)
-    -- ヘルプは `q` で閉じて直前の一覧へ戻る (BR-018)。
+    -- Help closes with `q` and returns to the list that was in front of it (BR-018).
     vim.keymap.set("n", "q", function()
       window.close(help_window)
     end, { buffer = help_window.bufnr, nowait = true, silent = true, desc = "docker.nvim: ヘルプを閉じる" })
@@ -409,7 +411,7 @@ local function dispatch(handle, action)
       notify.warn("詳細を表示する対象がありません")
       return
     end
-    -- サービスは docker のオブジェクトではないので、紐付くコンテナを見せる。
+    -- A service is not a docker object, so show the container it is tied to.
     if handle.kind == "service" then
       local container_id = tostring(item.container_id or "")
       if container_id == "" then
@@ -442,8 +444,8 @@ local function bind_keys(handle)
       desc = ("docker.nvim: %s"):format(action),
     })
 
-    -- 一括削除は選択範囲に効く操作なので Visual モードにも張る。
-    -- ノーマルモードだけだと、選択して押してもプラグインに届かない。
+    -- Bulk delete acts on a selected range, so map it in Visual mode too.
+    -- With Normal mode alone, selecting and pressing the key never reaches the plugin.
     if action == "delete" then
       vim.keymap.set("x", key, function()
         bulk_delete(handle)
@@ -457,7 +459,7 @@ local function bind_keys(handle)
   end
 end
 
---- テスト用。キー操作に相当する振り分けを直接呼ぶ。
+--- For tests. Calls the dispatch equivalent to a key press directly.
 ---@param handle docker.ViewHandle
 ---@param action string
 function M.dispatch_for_test(handle, action)
@@ -467,7 +469,7 @@ end
 local focus_group = vim.api.nvim_create_augroup("DockerNvimViewFocus", { clear = true })
 local focus_watching = false
 
---- ウィンドウ移動の監視を止める。ビューを開いていない間は常駐させない。
+--- Stop watching window moves. Do not keep it resident while no view is open.
 local function unwatch_focus()
   if not focus_watching then
     return
@@ -476,8 +478,8 @@ local function unwatch_focus()
   vim.api.nvim_clear_autocmds({ group = focus_group })
 end
 
---- 一覧の外へフォーカスが移ったらフロートを閉じる。
---- ログやシェルのターミナルを開いた後に、一覧が裏へ残り続けないようにする。
+--- Close the float once focus moves outside the list.
+--- Keeps the list from lingering behind after a log or shell terminal is opened.
 local function watch_focus()
   if focus_watching then
     return
@@ -487,9 +489,10 @@ local function watch_focus()
     group = focus_group,
     desc = "docker.nvim: 一覧の外へフォーカスが移ったらフロートを閉じる",
     callback = function()
-      -- 移動先がフロートなら残す。プラグインのビューは全てフロートなので
-      -- 詳細・ヘルプ・別種別の一覧への移動がこれで除ける (BR-018)。
-      -- vim.ui.input をフロートで実装している環境の確認プロンプトも同様に除ける。
+      -- Keep it if the destination is a float. All of the plugin's views are floats, so
+      -- this excludes moves to the inspect view, the help view and lists of other kinds (BR-018).
+      -- It likewise excludes confirmation prompts in environments that implement
+      -- vim.ui.input as a float.
       local winid = vim.api.nvim_get_current_win()
       if vim.api.nvim_win_get_config(winid).relative ~= "" then
         return
@@ -499,8 +502,9 @@ local function watch_focus()
   })
 end
 
---- 一覧ビューを開く。既に開いていればそのウィンドウへ移動する。
---- docker への接続確認が非同期なので、開き終わりは `on_open` で受け取る。
+--- Open the list view. If it is already open, move to that window.
+--- The connection check against docker is asynchronous, so the completion of the open
+--- is received through `on_open`.
 ---@param kind string
 ---@param on_open fun(handle: docker.ViewHandle|nil)|nil
 function M.open(kind, on_open)
@@ -522,15 +526,15 @@ function M.open(kind, on_open)
     return done(existing)
   end
 
-  -- 応答を待っている間に再度開こうとしても、フロートを二重に作らない。
+  -- Trying to open again while waiting for the answer must not create a second float.
   if opening[kind] then
     return done(nil)
   end
   opening[kind] = true
 
-  --- 開き終わり (成功・失敗のいずれでも) に受付を再開する。
-  --- 接続確認の直後に解除すると、一覧の取得が終わるまで views[kind] が nil のままなので
-  --- その窓で二重にフロートが開く。
+  --- Accept requests again once the open finishes (whether it succeeded or failed).
+  --- Releasing it right after the connection check would leave views[kind] nil until the
+  --- list is fetched, and a second float would open during that window.
   local function finish(handle)
     opening[kind] = nil
     done(handle)
@@ -542,22 +546,25 @@ function M.open(kind, on_open)
       return finish(nil)
     end
 
-    -- 合流させる作業ディレクトリのプロジェクトは、開いた時点で固定する (BR-003)。
-    -- イベントで取り直すたびに引き直すと、その間に cd した分だけ一覧が動く。
+    -- The project of the working directory to merge in is fixed at the time of opening (BR-003).
+    -- Re-reading it on every event-driven refetch would make the list shift by whatever
+    -- was cd'd into in the meantime.
     local cwd = vim.fn.getcwd()
 
-    -- 最初の取得が成功してからウィンドウを開く。取得失敗のときに
-    -- 空のフロートだけが残らないようにする (7.3)。
+    -- Open the window only after the first fetch succeeds, so that a failed fetch does not
+    -- leave nothing but an empty float (7.3).
     local function present(loaded)
       highlight.setup()
-      -- 応答を待っている間に閉じられて開き直されると、受付が戻っているため
-      -- ここへ 2 度到達する。古い方を閉じないと孤児のフロートが残る。
+      -- If the view is closed and reopened while waiting for the answer, requests are
+      -- accepted again and we reach this point twice. Without closing the older one,
+      -- an orphaned float is left behind.
       M.close(kind)
       local handle = {
         kind = kind,
         def = def,
         cwd = cwd,
-        -- 折り返すと 1 行が画面 2 行になり、winbar の見出しと桁が合わなくなる。
+        -- With wrapping, one row becomes two screen lines and the columns stop lining up
+        -- with the winbar header.
         window = window.open({ title = def.display_name, wrap = false }),
         state = view.new(kind),
       }
@@ -591,7 +598,7 @@ function M.open(kind, on_open)
   end)
 end
 
---- 種別のビューを閉じる。開いていなければ何もしない。
+--- Close the view of a kind. Does nothing if it is not open.
 ---@param kind string
 function M.close(kind)
   local handle = views[kind]
@@ -604,36 +611,36 @@ function M.close(kind)
     handle.subscription.stop()
     handle.subscription = nil
   end
-  -- 最後の 1 つを閉じたら監視も外す。閉じたことで起きるフォーカス移動に
-  -- 任せると、移動先がフロートだったときに監視だけが残る。
+  -- Drop the watcher too once the last one is closed. Leaving it to the focus move caused
+  -- by the close would leave only the watcher behind when the destination is a float.
   if next(views) == nil then
     unwatch_focus()
   end
   window.close(handle.window)
 end
 
---- 開いている全てのビューを閉じる。
+--- Close every open view.
 function M.close_all()
-  -- 先に監視を止める。閉じたことで起きるフォーカス移動で再入しないようにする。
+  -- Stop the watcher first, so the focus move caused by closing does not re-enter here.
   unwatch_focus()
   for kind in pairs(views) do
     M.close(kind)
   end
   views = {}
   opening = {}
-  -- 詳細とヘルプは views に載らないので、ここでまとめて片付ける。
+  -- The inspect and help views are not tracked in `views`, so clean them up together here.
   window.close_all()
 end
 
---- 開いているビューを返す。
+--- Return the open view.
 ---@param kind string
 ---@return docker.ViewHandle|nil
 function M.get(kind)
   return views[kind]
 end
 
---- 実行中の操作が変わったら、その種別の一覧を描き直す。
---- これが無いと「実行中」の印が画面に出ない。
+--- Redraw the list of a kind whenever the set of in-flight operations changes.
+--- Without this, the busy marker never appears on screen.
 operations.subscribe(function()
   for kind in pairs(views) do
     M.refresh_view(kind)

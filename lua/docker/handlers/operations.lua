@@ -1,23 +1,23 @@
---- 実行中操作の台帳。
+--- Ledger of in-flight operations.
 ---
---- 同一対象への同種の操作は同時に 1 つまでとする (BR-009)。docker 側のロックには
---- 依存せず、ここで受け付けを判断する。
+--- At most one operation of the same kind may run against the same target at a time (BR-009).
+--- Acceptance is decided here rather than relying on locking on the docker side.
 local M = {}
 
---- 対象 ID -> 操作名 -> true
+--- target ID -> operation name -> true
 ---@type table<string, table<string, boolean>>
 local running = {}
 
---- 実行中の操作が変わったことの通知先 (一覧の「実行中」表示の更新に使う)。
+--- Where changes to the in-flight operations are announced (used to refresh the list's "running" display).
 ---@type fun()[]
 local listeners = {}
 
---- テスト用。台帳を空に戻す (購読は残す)。
+--- For tests. Empties the ledger (subscriptions are kept).
 function M._reset()
   running = {}
 end
 
---- 実行中の操作が変わったときに呼ばれる。
+--- Called whenever the set of in-flight operations changes.
 ---@param listener fun()
 function M.subscribe(listener)
   table.insert(listeners, listener)
@@ -29,10 +29,10 @@ local function notify_changed()
   end
 end
 
---- 操作の開始を申し出る。既に同じ操作が実行中なら受け付けない。
+--- Requests the start of an operation. Rejected when the same operation is already in flight.
 ---@param target_id string
 ---@param operation string
----@return boolean accepted 受け付けたか
+---@return boolean accepted whether the request was accepted
 function M.begin(target_id, operation)
   local per_target = running[target_id]
   if per_target and per_target[operation] then
@@ -47,7 +47,7 @@ function M.begin(target_id, operation)
   return true
 end
 
---- 操作の完了を記録する。
+--- Records the completion of an operation.
 ---@param target_id string
 ---@param operation string
 function M.finish(target_id, operation)
@@ -70,7 +70,7 @@ function M.is_running(target_id, operation)
   return (per_target ~= nil and per_target[operation] == true)
 end
 
---- 対象に実行中の操作が 1 つでもあるか (一覧の実行中表示に使う)。
+--- Whether the target has at least one operation in flight (used for the list's running display).
 ---@param target_id string
 ---@return boolean
 function M.has_any(target_id)

@@ -15,11 +15,11 @@ describe("docker.notify", function()
 
   after_each(function()
     vim.notify = original_notify
-    -- デバッグ状態はモジュールに残るため、テスト間に漏らさない。
+    -- The debug flag stays in the module, so it must not leak between tests.
     notify.set_debug(false)
   end)
 
-  it("info_で通知するとINFOレベルとプラグイン名のタイトルが付く", function()
+  it("attaches the INFO level and the plugin name as the title when notifying via info", function()
     notify.info("nginx を起動しました")
 
     assert.are.same({
@@ -27,7 +27,7 @@ describe("docker.notify", function()
     }, calls)
   end)
 
-  it("warn_で通知するとWARNレベルとプラグイン名のタイトルが付く", function()
+  it("attaches the WARN level and the plugin name as the title when notifying via warn", function()
     notify.warn("実行中ではないため kill できません")
 
     assert.are.same({
@@ -39,7 +39,7 @@ describe("docker.notify", function()
     }, calls)
   end)
 
-  it("error_で通知するとERRORレベルとプラグイン名のタイトルが付く", function()
+  it("attaches the ERROR level and the plugin name as the title when notifying via error", function()
     notify.error("Error response from daemon: conflict")
 
     assert.are.same({
@@ -51,13 +51,13 @@ describe("docker.notify", function()
     }, calls)
   end)
 
-  it("デバッグ出力は既定では発行されない", function()
+  it("emits no debug output by default", function()
     notify.debug("docker ps -a (exit 0)")
 
     assert.are.same({}, calls)
   end)
 
-  it("デバッグを有効にするとDEBUGレベルで発行される", function()
+  it("emits at the DEBUG level once debug output is enabled", function()
     notify.set_debug(true)
 
     notify.debug("docker ps -a (exit 0)")
@@ -67,7 +67,7 @@ describe("docker.notify", function()
     }, calls)
   end)
 
-  it("デバッグを再び無効にすると発行されなくなる", function()
+  it("stops emitting once debug output is disabled again", function()
     notify.set_debug(true)
     notify.set_debug(false)
 
@@ -76,7 +76,7 @@ describe("docker.notify", function()
     assert.are.same({}, calls)
   end)
 
-  it("複数回通知すると呼び出した順にすべて発行される", function()
+  it("emits every notification in call order when notifying several times", function()
     notify.info("1 件目")
     notify.error("2 件目")
 

@@ -1,13 +1,13 @@
--- テスト用の最小 init。plenary.nvim と本プラグイン自体を runtimepath に載せる。
--- plenary の場所は PLENARY_PATH で上書きできる (CI では clone 先を指す)。
+-- Minimal init for the tests. Puts plenary.nvim and this plugin itself on the runtimepath.
+-- The location of plenary can be overridden with PLENARY_PATH (CI points it at the clone).
 local plenary_path = vim.env.PLENARY_PATH
 if plenary_path == nil or plenary_path == "" then
   plenary_path = vim.fn.stdpath("data") .. "/lazy/plenary.nvim"
 end
 
---- テストを実行できない状態を「失敗」として即座に伝える。
---- ここで終了させないと PlenaryBusted* が未定義コマンドのままヘッドレス nvim が
---- 終了せずハングし、CI からは失敗ではなく無応答に見える。
+--- Report a state where the tests cannot run as a "failure" right away.
+--- Without quitting here, PlenaryBusted* stays an undefined command, the headless nvim
+--- hangs instead of exiting, and CI sees no response rather than a failure.
 ---@param reason string
 local function abort(reason)
   io.stderr:write("minimal_init: " .. reason .. "\n")
@@ -26,9 +26,9 @@ vim.opt.swapfile = false
 
 vim.cmd([[runtime plugin/plenary.vim]])
 
--- ディレクトリが在るだけでは不十分 (部分 clone・パスの階層違いなど、
--- 「存在するが plenary ではない」ディレクトリを指していてもここまで到達する)。
--- 実際にコマンドが定義されたことまで確認する。
+-- The directory merely existing is not enough (a partial clone, a path at the wrong depth,
+-- and other "exists but is not plenary" directories all reach this point too).
+-- Confirm that the commands were really defined.
 if vim.fn.exists(":PlenaryBustedDirectory") ~= 2 then
   abort("plenary commands not available (is " .. plenary_path .. " really a plenary.nvim checkout?)")
 end

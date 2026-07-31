@@ -2,14 +2,14 @@ local highlight = require("docker.ui.highlight")
 
 describe("docker.ui.highlight", function()
   after_each(function()
-    -- テストで直に定義した色を持ち越さない。
+    -- Do not carry over colors that were defined directly in a test.
     for _, group in ipairs({ "DockerHeader", "DockerStatusRunning" }) do
       vim.api.nvim_set_hl(0, group, {})
     end
   end)
 
   describe("group_for", function()
-    it("状態ごとに対応するハイライトグループを返す", function()
+    it("returns the highlight group that corresponds to each state", function()
       local actual = {}
       for _, state in ipairs({ "running", "exited", "paused", "created", "restarting", "dead", "none" }) do
         actual[state] = highlight.group_for(state)
@@ -26,21 +26,21 @@ describe("docker.ui.highlight", function()
       }, actual)
     end)
 
-    it("未知の状態は既定のグループになる", function()
+    it("falls back to the default group for an unknown state", function()
       assert.are.equal("DockerStatusUnknown", highlight.group_for("something-new"))
     end)
 
-    it("状態が無いときも既定のグループになる", function()
+    it("falls back to the default group when there is no state", function()
       assert.are.equal("DockerStatusUnknown", highlight.group_for(nil))
     end)
 
-    it("大文字小文字の違いを吸収する", function()
+    it("absorbs differences in letter case", function()
       assert.are.equal("DockerStatusRunning", highlight.group_for("Running"))
     end)
   end)
 
   describe("setup", function()
-    it("状態ごとのハイライトグループを定義する", function()
+    it("defines a highlight group for each state", function()
       highlight.setup()
 
       for _, group in ipairs({
@@ -53,12 +53,12 @@ describe("docker.ui.highlight", function()
         "DockerStatusNone",
         "DockerStatusUnknown",
       }) do
-        assert.is_truthy(vim.fn.hlexists(group) == 1, group .. " が定義されていること")
+        assert.is_truthy(vim.fn.hlexists(group) == 1, group .. " must be defined")
       end
     end)
 
-    it("見出しの色を定義する", function()
-      -- 状態のグループと違い、見出しは denops-docker.vim の配色をそのまま使う。
+    it("defines the color of the header", function()
+      -- Unlike the state groups, the header uses the colors of denops-docker.vim as they are.
       highlight.setup()
 
       assert.are.same(
@@ -67,8 +67,8 @@ describe("docker.ui.highlight", function()
       )
     end)
 
-    it("利用者が先に定義した色を上書きしない", function()
-      -- 見出しは色を直接指定し、状態はリンクで定義するので両方を確かめる。
+    it("does not overwrite colors the user has defined beforehand", function()
+      -- The header specifies its color directly while the states are defined by link, so both are checked.
       vim.api.nvim_set_hl(0, "DockerHeader", { fg = "#123456" })
       vim.api.nvim_set_hl(0, "DockerStatusRunning", { fg = "#654321" })
 
@@ -102,7 +102,7 @@ describe("docker.ui.highlight", function()
       return vim.api.nvim_buf_get_extmarks(bufnr, highlight.namespace(), 0, -1, { details = true })
     end
 
-    it("指定した行と範囲にハイライトを付ける", function()
+    it("applies the highlight to the given line and range", function()
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "web       running" })
 
       highlight.apply(bufnr, 0, 10, 17, "DockerStatusRunning")
@@ -116,7 +116,7 @@ describe("docker.ui.highlight", function()
       assert.are.equal("DockerStatusRunning", details.hl_group)
     end)
 
-    it("clearを呼ぶと付けたハイライトが消える", function()
+    it("removes the applied highlight when clear is called", function()
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "web       running" })
       highlight.apply(bufnr, 0, 10, 17, "DockerStatusRunning")
 
@@ -125,8 +125,8 @@ describe("docker.ui.highlight", function()
       assert.are.same({}, marks())
     end)
 
-    it("範囲が空のときはハイライトを付けない", function()
-      -- 値が空の列に長さ 0 の extmark を置いても意味が無い。
+    it("applies no highlight when the range is empty", function()
+      -- Placing a zero-length extmark on a column with an empty value carries no meaning.
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "web" })
 
       highlight.apply(bufnr, 0, 3, 3, "DockerStatusRunning")

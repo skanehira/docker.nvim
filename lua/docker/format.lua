@@ -1,24 +1,24 @@
---- docker の出力テンプレートの組み立てと、NDJSON の解析。
+--- Building docker's output template, and parsing NDJSON.
 ---
---- 一覧取得ではフィールドごとに `{{json ...}}` を並べたテンプレートを使う。
---- 値にカンマ・改行・引用符・バックスラッシュが含まれても 1 レコード 1 行が保たれる。
---- `Labels` フィールドを分割してラベルを取り出してはならない (ラベル値自体がカンマを
---- 含むうえ、値に偽のラベルを仕込まれると誤った値を掴む)。ラベルは `.Label` による
---- キー名指しで取得する。
+--- Listing uses a template that lines up a `{{json ...}}` per field. One record stays on one
+--- line even when a value contains a comma, a newline, a quote or a backslash.
+--- The `Labels` field must never be split to extract labels (label values themselves contain
+--- commas, and a forged label planted in a value would make us pick up the wrong one). Labels
+--- are fetched by naming the key with `.Label`.
 local M = {}
 
 ---@class docker.FieldSpec
----@field key string   出力 JSON のキー名
----@field expr string  Go テンプレートの式 (例: ".ID")
+---@field key string   Key name in the output JSON
+---@field expr string  Go template expression (e.g. ".ID")
 
---- ラベルをキー名指しで取り出す Go テンプレート式を作る。
----@param name string ラベル名 (例: "com.docker.compose.project")
+--- Build a Go template expression that extracts a label by naming its key.
+---@param name string Label name (e.g. "com.docker.compose.project")
 ---@return string
 function M.label_expr(name)
   return string.format('(.Label "%s")', name)
 end
 
---- フィールド定義から `--format` に渡すテンプレート文字列を作る。
+--- Build the template string passed to `--format` from the field definitions.
 ---@param fields docker.FieldSpec[]
 ---@return string
 function M.template(fields)
@@ -29,12 +29,13 @@ function M.template(fields)
   return "{" .. table.concat(parts, ",") .. "}"
 end
 
---- NDJSON を 1 行ずつ解析する。
---- 空行と空白のみの行は読み飛ばし件数に数えない (docker が末尾に改行を付けるため)。
---- 解析できない行は読み飛ばし、その件数を返す。
+--- Parse NDJSON one line at a time.
+--- Empty lines and whitespace-only lines are not counted as skipped (docker appends a
+--- trailing newline).
+--- Lines that cannot be parsed are skipped, and their count is returned.
 ---@param text string
 ---@return table[] items
----@return integer skipped 解析できずに読み飛ばした行数
+---@return integer skipped Number of lines skipped because they could not be parsed
 function M.parse_ndjson(text)
   local items = {}
   local skipped = 0

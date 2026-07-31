@@ -1,10 +1,11 @@
---- 一覧取得の生データから表示に使う値を取り出すヘルパ。
+--- Helpers that pull the values used for display out of the raw list data.
 ---
---- compose 由来かの判定はここに集約する。ラベルは `.Label` によるキー名指しで
---- 採取済みなので、値に偽のラベルが仕込まれていても空文字列のまま扱える。
+--- Deciding whether an item came from compose is concentrated here. Labels are collected by
+--- naming the key through `.Label`, so even if a fake label is planted in a value it stays an
+--- empty string.
 local M = {}
 
---- `docker compose run` が作る単発コンテナに付く値。
+--- The value attached to the one-off containers `docker compose run` creates.
 local ONEOFF_TRUE = "True"
 
 ---@param item table
@@ -15,23 +16,24 @@ local function str(item, key)
   return type(value) == "string" and value or ""
 end
 
---- compose が作ったコンテナか。
---- プロジェクト名とサービス名が揃っていることを条件にする (DESIGN_DETAIL_APP.md 4.1)。
+--- Whether the container was created by compose.
+--- The condition is that both the project name and the service name are present
+--- (DESIGN_DETAIL_APP.md section 4.1).
 ---@param item table
 ---@return boolean
 function M.is_compose(item)
   return str(item, "compose_project") ~= "" and str(item, "compose_service") ~= ""
 end
 
---- `docker compose run` が作る単発コンテナか (BR-006)。
+--- Whether it is a one-off container created by `docker compose run` (BR-006).
 ---@param item table
 ---@return boolean
 function M.is_oneoff(item)
   return str(item, "compose_oneoff") == ONEOFF_TRUE
 end
 
---- サービスの実体としてのコンテナなら、その所属を返す。
---- 単発コンテナはサービスに紐付けない (BR-006)。
+--- If the container is the running instance of a service, return which service it belongs to.
+--- One-off containers are not tied to a service (BR-006).
 ---@param item table
 ---@return { project: string, service: string }|nil
 function M.service_of(item)
@@ -41,14 +43,14 @@ function M.service_of(item)
   return { project = str(item, "compose_project"), service = str(item, "compose_service") }
 end
 
---- 公開ポートの表示文字列。
+--- The display string for the published ports.
 ---@param item table
 ---@return string
 function M.ports(item)
   return str(item, "ports")
 end
 
---- 状態 (running / exited / paused など)。
+--- The state (running / exited / paused and so on).
 ---@param item table
 ---@return string
 function M.state(item)

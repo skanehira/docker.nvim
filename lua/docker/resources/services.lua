@@ -1,8 +1,9 @@
---- compose サービス一覧の組み立て。
+--- Assembly of the compose service list.
 ---
---- 表示はコンテナの実体から作るが、compose.yaml に定義されていて起動していない
---- サービスも一覧に出す (BR-005)。突き合わせはコンテナのラベルで行い、
---- `docker compose run` が作る単発コンテナはサービスの実体として扱わない (BR-006)。
+--- The display is built from the container instances, but services that are defined in
+--- compose.yaml and not started are listed too (BR-005). The matching is done with the container
+--- labels, and one-off containers created by `docker compose run` are not treated as the instance
+--- of a service (BR-006).
 local fields = require("docker.resources.fields")
 
 local M = {}
@@ -10,28 +11,28 @@ local M = {}
 ---@class docker.Service
 ---@field project string
 ---@field name string
----@field container string      紐付くコンテナ名 (無ければ空文字列)
----@field container_id string   紐付くコンテナ ID (無ければ空文字列)
----@field status string         コンテナの状態。紐付くコンテナが無ければ "none"
----@field working_dir string    compose ファイルのある場所 (分からなければ空文字列)
+---@field container string      the name of the container it is tied to (empty string if there is none)
+---@field container_id string   the ID of the container it is tied to (empty string if there is none)
+---@field status string         the state of the container. "none" if there is no container tied to it
+---@field working_dir string    the location of the compose file (empty string if it is unknown)
 
---- 起動していないサービスの状態。
+--- The state of a service that has not been started.
 local NONE = "none"
 
---- compose の定義とコンテナ一覧から、サービスの一覧を組み立てる。
---- 並びは呼び出し側が渡した service_names の順 (サービス名の昇順) をそのまま保つ。
+--- Assembles the service list from the compose definitions and the container list.
+--- The order is kept exactly as the service_names passed by the caller (ascending by service name).
 ---@param project docker.ComposeProject
 ---@param containers table[]
 ---@return docker.Service[]
 function M.assemble(project, containers)
-  --- サービス名 -> 紐付くコンテナ
+  --- service name -> the container tied to it
   local by_service = {}
   for _, item in ipairs(containers) do
     local owner = fields.service_of(item)
     if owner and owner.project == project.name then
       local current = by_service[owner.service]
-      -- 同じサービスに複数のコンテナがある場合 (scale) は稼働中のものを代表にする。
-      -- 先頭固定だと、レプリカが動いているのに停止として見えることがある。
+      -- When one service has several containers (scale), a running one represents it.
+      -- Always taking the first one can make a service look stopped while a replica is running.
       if not current or (fields.state(current) ~= "running" and fields.state(item) == "running") then
         by_service[owner.service] = item
       end
@@ -53,12 +54,13 @@ function M.assemble(project, containers)
   return items
 end
 
---- コンテナのラベルからサービス名を逆算する。
---- compose ファイルを読めないプロジェクトでは定義を引けないため、実体のあるサービスだけを
---- 一覧に出す。定義されているが起動していないサービス (BR-005) はこの経路では分からない。
+--- Derives the service names from the container labels.
+--- For a project whose compose file cannot be read the definitions cannot be looked up, so only
+--- the services that have an instance are listed. Services that are defined but not started
+--- (BR-005) cannot be known through this path.
 ---@param project_name string
 ---@param containers table[]
----@return string[] 常に同じ順序
+---@return string[] always in the same order
 function M.derive_service_names(project_name, containers)
   local seen, names = {}, {}
   for _, item in ipairs(containers) do
@@ -72,8 +74,9 @@ function M.derive_service_names(project_name, containers)
   return names
 end
 
---- 複数プロジェクトのサービスを 1 つの一覧にまとめる。
---- プロジェクトの取得順は実行のたびに変わりうるので、名前順に並べて行の並びを安定させる。
+--- Merges the services of several projects into a single list.
+--- The order in which the projects are obtained can change from run to run, so they are sorted by
+--- name to keep the row order stable.
 ---@param projects docker.ComposeProject[]
 ---@param containers table[]
 ---@return docker.Service[]

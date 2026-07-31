@@ -1,9 +1,10 @@
---- リソースストア。種別ごとに一覧を保持し、変化を購読者へ伝える。
+--- The resource store. Holds a list per kind and tells subscribers about changes.
 ---
---- ストアはビューを知らない (Observer)。描画は購読側が状態から投影する。
+--- The store does not know about the views (Observer). The subscriber side projects the drawing
+--- from the state.
 local M = {}
 
---- 種別 -> 要素の配列 (取得順を保つ)
+--- kind -> the array of items (keeps the order they were fetched in)
 ---@type table<string, table[]>
 local items_by_kind = {}
 
@@ -11,7 +12,7 @@ local items_by_kind = {}
 local listeners = {}
 local next_listener_id = 1
 
---- テスト用。ストアと購読者を初期状態に戻す。
+--- For tests. Returns the store and the subscribers to their initial state.
 function M._reset()
   items_by_kind = {}
   listeners = {}
@@ -20,7 +21,8 @@ end
 
 ---@param kind string
 local function notify_listeners(kind)
-  -- 通知中に購読解除されても走査が壊れないよう、呼ぶ前に控えを取る。
+  -- Take a copy before calling so that the traversal does not break if a subscriber unsubscribes
+  -- during the notification.
   local current = {}
   for id, listener in pairs(listeners) do
     current[id] = listener
@@ -53,7 +55,7 @@ local function index_of(list, id)
   return nil
 end
 
---- 一覧取得の結果で種別の内容を全置換する。
+--- Replaces the whole content of a kind with the result of a list fetch.
 ---@param kind string
 ---@param items table[]
 function M.replace_all(kind, items)
@@ -61,7 +63,7 @@ function M.replace_all(kind, items)
   notify_listeners(kind)
 end
 
---- 1 件を追加または更新する。同一種別に同一 ID を重複させない (INV-1)。
+--- Adds or updates one item. The same ID never appears twice within one kind (INV-1).
 ---@param kind string
 ---@param item table
 function M.upsert(kind, item)
@@ -75,7 +77,7 @@ function M.upsert(kind, item)
   notify_listeners(kind)
 end
 
---- 1 件を取り除く。存在しない場合は何もせず通知もしない。
+--- Removes one item. Does nothing and does not notify if it does not exist.
 ---@param kind string
 ---@param id string
 function M.remove(kind, id)
@@ -88,16 +90,16 @@ function M.remove(kind, id)
   notify_listeners(kind)
 end
 
---- 種別の一覧を返す。返した配列を変更してもストアには影響しない。
+--- Returns the list of a kind. Modifying the returned array does not affect the store.
 ---@param kind string
 ---@return table[]
 function M.list(kind)
   return vim.deepcopy(items_by_kind[kind] or {})
 end
 
---- 状態変化を購読する。
+--- Subscribes to state changes.
 ---@param listener fun(kind: string)
----@return fun() 購読解除
+---@return fun() unsubscribe
 function M.subscribe(listener)
   local id = next_listener_id
   next_listener_id = next_listener_id + 1

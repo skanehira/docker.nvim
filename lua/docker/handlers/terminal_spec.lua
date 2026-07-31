@@ -11,8 +11,8 @@ describe("docker.handlers.terminal", function()
     jobs._set_stopper(function() end)
     started = {}
     next_job_id = 100
-    -- 差し替えるのはジョブ起動だけ。ウィンドウとバッファの用意は本番経路を通す
-    -- (ここを丸ごと差し替えると、実際に一覧を壊す不具合がテストに掛からない)。
+    -- Only the job start is replaced; setting up the window and buffer goes through the production path
+    -- (replacing all of it would let a defect that actually breaks the list slip past the tests).
     terminal._set_job_starter(function(cmd)
       table.insert(started, cmd)
       next_job_id = next_job_id + 1
@@ -23,7 +23,7 @@ describe("docker.handlers.terminal", function()
   after_each(function()
     terminal._set_job_starter(nil)
     jobs._reset()
-    -- テストで開いたターミナル用のウィンドウを片付ける
+    -- Clean up the windows opened for terminals during the test
     for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
       if #vim.api.nvim_tabpage_list_wins(0) > 1 then
         pcall(vim.api.nvim_win_close, winid, true)
@@ -31,60 +31,60 @@ describe("docker.handlers.terminal", function()
     end
   end)
 
-  describe("発行する docker 引数", function()
-    it("ログ追従はfオプション付きのdocker logsになる", function()
+  describe("docker arguments issued", function()
+    it("following logs becomes docker logs with the -f option", function()
       terminal.open_logs("abc123", "web")
 
       assert.are.same({ "docker", "logs", "-f", "abc123" }, started[1])
     end)
 
-    it("シェル起動はbashがあればbashを使いなければshにする", function()
-      -- BR-019: コンテナ内に bash があるとは限らない。
+    it("opening a shell uses bash when it exists and falls back to sh otherwise", function()
+      -- BR-019: a container does not necessarily have bash.
       terminal.open_shell("abc123", "web")
 
       local cmd = started[1]
       assert.are.same({ "docker", "exec", "-it", "abc123", "sh", "-c" }, { unpack(cmd, 1, 6) })
       local snippet = cmd[7]
-      assert.is_truthy(snippet:find("exec bash", 1, true), "bash を試すこと: " .. snippet)
-      assert.is_truthy(snippet:find("exec sh", 1, true), "bash が無ければ sh に落ちること: " .. snippet)
+      assert.is_truthy(snippet:find("exec bash", 1, true), "must try bash: " .. snippet)
+      assert.is_truthy(snippet:find("exec sh", 1, true), "must fall back to sh when bash is absent: " .. snippet)
     end)
 
-    it("コマンド実行は指定したコマンドをそのまま渡す", function()
+    it("command execution passes the given command through unchanged", function()
       terminal.open_exec("abc123", "web", "ls -la /etc")
 
       assert.are.same({ "docker", "exec", "-it", "abc123", "ls", "-la", "/etc" }, started[1])
     end)
 
-    it("引用符で囲んだ引数は1語として渡す", function()
-      -- `sh -c 'echo hello world'` が 3 語に割れると意図と違うコマンドになる。
+    it("passes a quoted argument as a single word", function()
+      -- If `sh -c 'echo hello world'` were split into 3 words, a different command than intended would run.
       terminal.open_exec("abc123", "web", "sh -c 'echo hello world'")
 
       assert.are.same({ "docker", "exec", "-it", "abc123", "sh", "-c", "echo hello world" }, started[1])
     end)
 
-    it("前後の空白は取り除く", function()
+    it("strips the surrounding whitespace", function()
       terminal.open_exec("abc123", "web", "  env   -i  ")
 
       assert.are.same({ "docker", "exec", "-it", "abc123", "env", "-i" }, started[1])
     end)
   end)
 
-  describe("ウィンドウの扱い", function()
-    it("フォーカスのあるフロートのバッファを奪わない", function()
-      -- フロートにフォーカスがある状態で `enew` すると、bufhidden=wipe の
-      -- 一覧バッファが破棄され、一覧が二度と開けなくなる。
-      -- 一覧そのものを閉じるのは lifecycle の役目で、ここでは扱わない。
+  describe("window handling", function()
+    it("does not steal the buffer of the focused float", function()
+      -- Running `enew` while the float has focus wipes out the list buffer, which is
+      -- bufhidden=wipe, and the list can never be opened again.
+      -- Closing the list itself is lifecycle's job and is not handled here.
       local float = window.open({ title = "Containers" })
       window.set_lines(float, { "web  alpine" })
 
       terminal.open_logs("abc123", "web")
 
-      assert.is_true(vim.api.nvim_buf_is_valid(float.bufnr), "一覧のバッファが生きていること")
+      assert.is_true(vim.api.nvim_buf_is_valid(float.bufnr), "the list buffer must stay alive")
       assert.are.same({ "web  alpine" }, vim.api.nvim_buf_get_lines(float.bufnr, 0, -1, false))
       window.close(float)
     end)
 
-    it("一覧のフロートとは別のウィンドウに開く", function()
+    it("opens in a window separate from the list float", function()
       local float = window.open({ title = "Containers" })
 
       local handle = terminal.open_logs("abc123", "web")
@@ -94,24 +94,24 @@ describe("docker.handlers.terminal", function()
     end)
   end)
 
-  describe("ジョブ台帳", function()
-    it("起動したターミナルのジョブを台帳に載せる", function()
+  describe("job ledger", function()
+    it("puts the job of a started terminal on the ledger", function()
       terminal.open_logs("abc123", "web")
 
       assert.are.same({ 101 }, jobs.list())
     end)
 
-    it("同じコンテナで2つ目のターミナルを開いても両方が台帳に載る", function()
-      -- バッファ名が衝突すると E95 で例外になり、起動済みのジョブが
-      -- 台帳から漏れる (:qa の後に子プロセスが残る)。
+    it("puts both on the ledger when a second terminal is opened for the same container", function()
+      -- A buffer name collision raises E95, which drops an already started job from the
+      -- ledger (a child process is left behind after :qa).
       terminal.open_logs("abc123", "web")
       terminal.open_logs("abc123", "web")
 
       assert.are.same({ 101, 102 }, jobs.list())
     end)
 
-    it("バッファを破棄すると台帳から消える", function()
-      -- G4: テスト専用の入口ではなく、実際の autocmd を通して確認する。
+    it("disappears from the ledger when the buffer is wiped out", function()
+      -- G4: verified through the real autocmd rather than a test-only entry point.
       local handle = terminal.open_logs("abc123", "web")
 
       vim.api.nvim_buf_delete(handle.bufnr, { force = true })
@@ -119,7 +119,7 @@ describe("docker.handlers.terminal", function()
       assert.are.same({}, jobs.list())
     end)
 
-    it("バッファ破棄で消えるのは対応するジョブだけになる", function()
+    it("removes only the corresponding job when a buffer is wiped out", function()
       local first = terminal.open_logs("abc123", "web")
       terminal.open_shell("def456", "db")
 
@@ -128,7 +128,7 @@ describe("docker.handlers.terminal", function()
       assert.are.same({ 102 }, jobs.list())
     end)
 
-    it("ジョブの起動に失敗したら台帳に載せない", function()
+    it("does not put it on the ledger when the job fails to start", function()
       terminal._set_job_starter(function()
         return 0
       end)
@@ -139,8 +139,8 @@ describe("docker.handlers.terminal", function()
     end)
   end)
 
-  describe("戻り値", function()
-    it("バッファ番号とジョブIDを返す", function()
+  describe("return value", function()
+    it("returns the buffer number and the job ID", function()
       local handle = terminal.open_logs("abc123", "web")
 
       assert.are.equal(101, handle.job_id)

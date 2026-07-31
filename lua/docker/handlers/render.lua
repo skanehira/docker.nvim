@@ -1,12 +1,12 @@
---- 描画要求の集約とデバウンス。
+--- Coalescing and debouncing of render requests.
 ---
---- `docker events` にはデーモン全体のイベントが流れる (他プロセスの操作も混入する)。
---- まとめずに描画すると、`docker compose up` のような一斉変更のたびに空回りする。
+--- `docker events` carries events for the whole daemon (operations from other processes get mixed in).
+--- Rendering without coalescing spins uselessly on every bulk change such as `docker compose up`.
 local M = {}
 
---- 待ち時間。フェーズ4 の実測で確定した値。
---- 目標はイベント受信から反映まで 1 秒 (G9)。内訳は
---- 「デバウンス 100ms + 対象の再取得 20〜60ms + 描画 2ms」で約 850ms の余裕が残る。
+--- Wait time. The value was settled by the measurements taken in phase 4.
+--- The goal is 1 second from receiving an event to reflecting it (G9). The breakdown is
+--- "debounce 100ms + refetching the target 20-60ms + rendering 2ms", which leaves about 850ms of headroom.
 M.DELAY_MS = 100
 
 ---@class docker.RenderTimer
@@ -15,17 +15,17 @@ M.DELAY_MS = 100
 ---@type (fun(delay: integer, callback: fun()): docker.RenderTimer)|nil
 local timer_factory = nil
 
---- キー -> 待機中のタイマー
+--- key -> pending timer
 ---@type table<string, docker.RenderTimer>
 local pending = {}
 
---- テスト用の差し替え口。nil を渡すと実際のタイマーに戻る。
+--- Injection point for tests. Passing nil restores the real timer.
 ---@param factory (fun(delay: integer, callback: fun()): docker.RenderTimer)|nil
 function M._set_timer_factory(factory)
   timer_factory = factory
 end
 
---- テスト用。待機中の要求を捨てる。
+--- For tests. Discards the pending requests.
 function M._reset()
   for key, timer in pairs(pending) do
     timer.stop()
@@ -38,9 +38,9 @@ end
 ---@param callback fun()
 ---@return docker.RenderTimer
 local function default_timer(delay, callback)
-  -- `vim.defer_fn` のコールバックはメインループ上で走る。
-  -- 取り消しはタイマーを止めるのではなくフラグで行う (待機中のタイマーが 1 つ
-  -- 空振りするだけで、待ち時間は 100ms と短く実害が無い)。
+  -- The callback of `vim.defer_fn` runs on the main loop.
+  -- Cancellation is done with a flag rather than by stopping the timer (one pending timer
+  -- just fires uselessly, and with a wait as short as 100ms there is no real harm).
   local cancelled = false
   vim.defer_fn(function()
     if not cancelled then
@@ -54,8 +54,8 @@ local function default_timer(delay, callback)
   }
 end
 
---- 描画を要求する。同じキーの連続した要求は 1 回にまとめる。
---- まとめられた場合、最後に渡した描画が実行される (最新の状態を描くため)。
+--- Requests a render. Consecutive requests with the same key are coalesced into one.
+--- When coalesced, the draw passed last is the one executed (so that the newest state is drawn).
 ---@param key string
 ---@param draw fun()
 function M.request(key, draw)
@@ -68,7 +68,7 @@ function M.request(key, draw)
   end)
 end
 
---- 待機中の描画要求を取り消す。
+--- Cancels the pending render request.
 ---@param key string
 function M.cancel(key)
   local timer = pending[key]

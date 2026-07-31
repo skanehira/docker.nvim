@@ -1,7 +1,7 @@
---- ジョブ台帳。
+--- Job ledger.
 ---
---- 起動したジョブを 1 箇所で追跡し、Neovim 終了時に一括で止める。
---- 台帳から漏れると `:qa` の後に docker の子プロセスが残る (G13)。
+--- Tracks every started job in one place and stops them all when Neovim exits.
+--- A job missing from the ledger leaves a docker child process behind after `:qa` (G13).
 local M = {}
 
 ---@type integer[]
@@ -10,13 +10,13 @@ local registered = {}
 ---@type fun(job_id: integer)|nil
 local stopper = nil
 
---- テスト用の差し替え口。nil を渡すと `jobstop` に戻る。
+--- Injection point for tests. Passing nil restores `jobstop`.
 ---@param fn fun(job_id: integer)|nil
 function M._set_stopper(fn)
   stopper = fn
 end
 
---- テスト用。台帳を空に戻す。
+--- For tests. Empties the ledger.
 function M._reset()
   registered = {}
 end
@@ -32,7 +32,7 @@ local function index_of(job_id)
   return nil
 end
 
---- 起動したジョブを台帳に載せる。
+--- Puts a started job on the ledger.
 ---@param job_id integer
 function M.register(job_id)
   if index_of(job_id) then
@@ -41,7 +41,7 @@ function M.register(job_id)
   table.insert(registered, job_id)
 end
 
---- ジョブを台帳から外す (自然終了・バッファ破棄など)。
+--- Removes a job from the ledger (natural exit, buffer wipeout, and so on).
 ---@param job_id integer
 function M.unregister(job_id)
   local index = index_of(job_id)
@@ -50,13 +50,13 @@ function M.unregister(job_id)
   end
 end
 
---- 登録順のジョブ一覧。
+--- The registered jobs in registration order.
 ---@return integer[]
 function M.list()
   return vim.deepcopy(registered)
 end
 
---- 登録された全ジョブを停止して台帳を空にする。
+--- Stops every registered job and empties the ledger.
 function M.stop_all()
   local stop = stopper or vim.fn.jobstop
   for _, job_id in ipairs(registered) do

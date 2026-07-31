@@ -1,12 +1,12 @@
 local events = require("docker.adapters.docker.events")
 local jobs = require("docker.handlers.jobs")
 
-describe("イベント購読の切断と回復", function()
+describe("disconnect and recovery of the event subscription", function()
   local started
   local waits
   local next_job_id
 
-  --- 待機を偽の時計にする。実時間を待たずに再試行の挙動を検査する。
+  --- Turns waiting into a fake clock. Inspects the retry behavior without waiting real time.
   local function fire_pending_waits()
     local pending = waits
     waits = {}
@@ -41,7 +41,7 @@ describe("イベント購読の切断と回復", function()
     return events.subscribe(vim.tbl_extend("force", { on_event = function() end }, opts or {}))
   end
 
-  it("予期しない切断を検知して通知する", function()
+  it("detects an unexpected disconnect and notifies it", function()
     local disconnects = 0
     subscribe({
       on_disconnect = function(intentional)
@@ -56,17 +56,17 @@ describe("イベント購読の切断と回復", function()
     assert.are.equal(1, disconnects)
   end)
 
-  it("切断すると待機してから再購読する", function()
+  it("waits and then resubscribes after a disconnect", function()
     subscribe({})
     assert.are.equal(1, #started)
 
     started[1].handlers.on_exit(1)
     fire_pending_waits()
 
-    assert.are.equal(2, #started, "再購読が発行されること")
+    assert.are.equal(2, #started, "a resubscription must be issued")
   end)
 
-  it("再購読では直前に受信したイベントの時刻から再開する", function()
+  it("resumes from the time of the last received event when it resubscribes", function()
     subscribe({})
     started[1].handlers.on_stdout(vim.json.encode({
       Type = "container",
@@ -81,7 +81,7 @@ describe("イベント購読の切断と回復", function()
     assert.are.same({ "docker", "events", "--format", "{{json .}}", "--since", "1785000123" }, started[2].cmd)
   end)
 
-  it("待機時間を延ばしながら最大5回まで再試行する", function()
+  it("retries up to 5 times with a growing wait time", function()
     subscribe({})
 
     local delays = {}
@@ -92,10 +92,10 @@ describe("イベント購読の切断と回復", function()
     end
 
     assert.are.same({ 1000, 2000, 4000, 8000, 16000 }, delays)
-    assert.are.equal(6, #started, "初回 + 再試行 5 回")
+    assert.are.equal(6, #started, "the first attempt + 5 retries")
   end)
 
-  it("5回失敗すると諦めて手動更新を促す", function()
+  it("gives up and prompts for a manual refresh after 5 failures", function()
     local gave_up = 0
     subscribe({
       on_giveup = function()
@@ -109,11 +109,11 @@ describe("イベント購読の切断と回復", function()
     end
 
     assert.are.equal(1, gave_up)
-    assert.are.equal(6, #started, "6 回目の失敗では再購読しない")
+    assert.are.equal(6, #started, "it must not resubscribe on the 6th failure")
   end)
 
-  it("再購読に成功すると全件再取得を要求する", function()
-    -- 待機中のイベントは取りこぼすため、購読の再開だけでは整合しない。
+  it("requests a full refetch once resubscription succeeds", function()
+    -- Events during the wait are missed, so resuming the subscription alone does not reconcile it.
     local resyncs = 0
     subscribe({
       on_reconnect = function()
@@ -127,15 +127,15 @@ describe("イベント購読の切断と回復", function()
     assert.are.equal(1, resyncs)
   end)
 
-  it("再購読に成功すると再試行の回数が戻る", function()
+  it("resets the retry count once resubscription succeeds", function()
     subscribe({})
 
-    -- 4 回失敗した後に成功し、また切断されたら 1 秒待機からやり直す
+    -- It succeeds after 4 failures, and when it is disconnected again it starts over from a 1 second wait
     for attempt = 1, 4 do
       started[attempt].handlers.on_exit(1)
       fire_pending_waits()
     end
-    -- イベントが 1 件届けば復旧とみなす (ジョブが起動できただけでは復旧ではない)
+    -- One arriving event counts as recovery (the job merely having started is not recovery)
     started[5].handlers.on_stdout(vim.json.encode({
       Type = "container",
       Action = "start",
@@ -147,7 +147,7 @@ describe("イベント購読の切断と回復", function()
     assert.are.equal(1000, waits[1].delay)
   end)
 
-  it("意図的に停止したときは再購読しない", function()
+  it("does not resubscribe after an intentional stop", function()
     local subscription = subscribe({})
 
     subscription.stop()
@@ -157,7 +157,7 @@ describe("イベント購読の切断と回復", function()
     assert.are.equal(1, #started)
   end)
 
-  it("停止した後に届いたチャンクはイベントとして配送しない", function()
+  it("does not deliver a chunk that arrives after the stop as an event", function()
     local received = 0
     local subscription = subscribe({
       on_event = function()
@@ -176,8 +176,8 @@ describe("イベント購読の切断と回復", function()
     assert.are.equal(0, received)
   end)
 
-  it("ジョブの起動に失敗したときも切断として通知する", function()
-    -- 失敗を黙って捨てると、購読していないのに購読中のように見える。
+  it("notifies a disconnect also when the job fails to start", function()
+    -- Silently dropping the failure would make it look subscribed while it is not.
     events._set_starter(function()
       return 0
     end)
@@ -192,7 +192,7 @@ describe("イベント購読の切断と回復", function()
     assert.are.equal(1, disconnects)
   end)
 
-  it("再購読で開始したジョブも台帳に載る", function()
+  it("registers a job started by resubscription in the ledger as well", function()
     subscribe({})
     assert.are.same({ 901 }, jobs.list())
 

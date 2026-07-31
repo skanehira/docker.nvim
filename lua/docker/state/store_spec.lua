@@ -6,14 +6,14 @@ describe("docker.state.store", function()
   end)
 
   describe("replace_all", function()
-    it("一覧取得の結果で種別ごとの内容を丸ごと置き換える", function()
+    it("replaces the whole content of a kind with the result of a list fetch", function()
       store.replace_all("container", { { id = "a" }, { id = "b" } })
       store.replace_all("container", { { id = "c" } })
 
       assert.are.same({ { id = "c" } }, store.list("container"))
     end)
 
-    it("別の種別の内容には影響しない", function()
+    it("does not affect the content of another kind", function()
       store.replace_all("container", { { id = "a" } })
       store.replace_all("image", { { id = "img" } })
 
@@ -23,7 +23,7 @@ describe("docker.state.store", function()
       assert.are.same({ { id = "img" } }, store.list("image"))
     end)
 
-    it("取得順を保って並べる", function()
+    it("keeps the order the items were fetched in", function()
       store.replace_all("container", { { id = "c" }, { id = "a" }, { id = "b" } })
 
       local ids = {}
@@ -35,7 +35,7 @@ describe("docker.state.store", function()
   end)
 
   describe("upsert", function()
-    it("未登録のIDなら末尾に追加する", function()
+    it("appends at the end when the ID is not registered yet", function()
       store.replace_all("container", { { id = "a" } })
 
       store.upsert("container", { id = "b", state = "running" })
@@ -43,7 +43,7 @@ describe("docker.state.store", function()
       assert.are.same({ { id = "a" }, { id = "b", state = "running" } }, store.list("container"))
     end)
 
-    it("登録済みのIDなら位置を保ったまま内容を置き換える", function()
+    it("replaces the content in place when the ID is already registered", function()
       store.replace_all("container", { { id = "a" }, { id = "b" }, { id = "c" } })
 
       store.upsert("container", { id = "b", state = "exited" })
@@ -51,8 +51,8 @@ describe("docker.state.store", function()
       assert.are.same({ { id = "a" }, { id = "b", state = "exited" }, { id = "c" } }, store.list("container"))
     end)
 
-    it("同じIDを繰り返し追加しても重複しない", function()
-      -- INV-1: 同一種別に同一 ID は 1 件しか存在しない。
+    it("does not duplicate an item when the same ID is added repeatedly", function()
+      -- INV-1: only one item with the same ID exists within one kind.
       store.upsert("container", { id = "a", state = "created" })
       store.upsert("container", { id = "a", state = "running" })
       store.upsert("container", { id = "a", state = "exited" })
@@ -62,7 +62,7 @@ describe("docker.state.store", function()
   end)
 
   describe("remove", function()
-    it("指定したIDの要素だけを取り除く", function()
+    it("removes only the item with the given ID", function()
       store.replace_all("container", { { id = "a" }, { id = "b" }, { id = "c" } })
 
       store.remove("container", "b")
@@ -70,7 +70,7 @@ describe("docker.state.store", function()
       assert.are.same({ { id = "a" }, { id = "c" } }, store.list("container"))
     end)
 
-    it("存在しないIDを指定しても内容は変わらない", function()
+    it("leaves the content unchanged when a nonexistent ID is given", function()
       store.replace_all("container", { { id = "a" } })
 
       store.remove("container", "missing")
@@ -80,11 +80,11 @@ describe("docker.state.store", function()
   end)
 
   describe("list", function()
-    it("一度も登録されていない種別は空のテーブルを返す", function()
+    it("returns an empty table for a kind that has never been registered", function()
       assert.are.same({}, store.list("volume"))
     end)
 
-    it("返したテーブルを呼び出し側が変更してもストアの内容は変わらない", function()
+    it("keeps the store content unchanged when the caller modifies the returned table", function()
       store.replace_all("container", { { id = "a" } })
 
       local listed = store.list("container")
@@ -95,7 +95,7 @@ describe("docker.state.store", function()
   end)
 
   describe("subscribe", function()
-    it("内容が変わると購読者に変化した種別が通知される", function()
+    it("notifies subscribers of the kind that changed when the content changes", function()
       local notified = {}
       store.subscribe(function(kind)
         table.insert(notified, kind)
@@ -108,7 +108,7 @@ describe("docker.state.store", function()
       assert.are.same({ "container", "image", "container" }, notified)
     end)
 
-    it("購読者が複数いるとそれぞれに通知される", function()
+    it("notifies each of them when there are several subscribers", function()
       local first, second = {}, {}
       store.subscribe(function(kind)
         table.insert(first, kind)
@@ -123,7 +123,7 @@ describe("docker.state.store", function()
       assert.are.same({ "container" }, second)
     end)
 
-    it("購読を解除するとそれ以降は通知されない", function()
+    it("stops notifying from then on once the subscription is cancelled", function()
       local notified = {}
       local unsubscribe = store.subscribe(function(kind)
         table.insert(notified, kind)
@@ -136,7 +136,7 @@ describe("docker.state.store", function()
       assert.are.same({ "container" }, notified)
     end)
 
-    it("解除しても他の購読者には通知が続く", function()
+    it("keeps notifying the other subscribers after one cancels", function()
       local kept = {}
       local unsubscribe = store.subscribe(function() end)
       store.subscribe(function(kind)
@@ -149,8 +149,8 @@ describe("docker.state.store", function()
       assert.are.same({ "image" }, kept)
     end)
 
-    it("存在しないIDの削除では通知しない", function()
-      -- 変化していないのに再描画を要求すると、イベントの多いデーモンで描画が空回りする。
+    it("does not notify when removing a nonexistent ID", function()
+      -- Asking for a redraw when nothing changed makes the drawing spin idly on a daemon with many events.
       store.replace_all("container", { { id = "a" } })
       local notified = {}
       store.subscribe(function(kind)
