@@ -1,8 +1,6 @@
 # docker.nvim
 
-Neovim から Docker を操作するプラグイン。コンテナ・イメージ・ボリューム・ネットワークに加えて、**docker compose のサービスを全プロジェクトまとめて一覧・操作できる**。どのディレクトリで Neovim を開いていても、そのマシンにある compose プロジェクト（`shop` と `blog` を別々に起動していればその両方）が 1 つの一覧に並ぶ。
-
-一覧は `docker events` を購読して自動で更新される。別のターミナルでコンテナを起動・停止しても、Neovim 側の一覧が 1 秒以内に追従する。
+A Neovim plugin to operate Docker. On top of containers, images, volumes and networks, it **lists and operates the services of every docker compose project at once**. Whichever directory Neovim is opened in, all the compose projects on the machine (both `shop` and `blog` when you started them separately) appear in a single list.
 
 ```
 NAME                     IMAGE            STATUS         PORTS                   PROJECT  SERVICE
@@ -11,16 +9,16 @@ shop-db-1                postgres:16      Up 5 days                             
 my-standalone-container  alpine:3.20      Exited (0) 3h
 ```
 
-## 前提
+## Requirements
 
-- Neovim 0.10 以上（`vim.system` を使う）
-- `docker` コマンドが PATH 上にあること
-- `:Docker services` には `docker compose` サブコマンドが必要（無い場合は一覧を開かずに通知する。他の 4 つの一覧はそのまま動く）
-- 対応プラットフォームは macOS と Linux
+- Neovim 0.10 or later (uses `vim.system`)
+- The `docker` command on PATH
+- `:Docker services` needs the `docker compose` subcommand
+- Supported platforms are macOS and Linux
 
-ランタイムのプラグイン依存はない。テスト実行にのみ [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) を使う。
+There are no runtime plugin dependencies. [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) is used only to run the tests.
 
-## インストール
+## Installation
 
 [lazy.nvim](https://github.com/folke/lazy.nvim):
 
@@ -32,131 +30,61 @@ my-standalone-container  alpine:3.20      Exited (0) 3h
 }
 ```
 
-`opts` を渡すと `require("docker").setup(opts)` が呼ばれる。設定を変えないなら `opts = {}` でよい。
+Passing `opts` calls `require("docker").setup(opts)`. `opts = {}` is enough when you keep the defaults. For replacing keymaps and highlights, see `:help docker-configuration`.
 
-## 使い方
+## Features
 
-| コマンド             | 内容                                                  |
-| -------------------- | ----------------------------------------------------- |
-| `:Docker containers` | コンテナ一覧                                          |
-| `:Docker images`     | イメージ一覧                                          |
-| `:Docker volumes`    | ボリューム一覧                                        |
-| `:Docker networks`   | ネットワーク一覧                                      |
-| `:Docker services`   | compose サービス一覧（全 compose プロジェクトを統合） |
+| Command              | Description                                  |
+| -------------------- | -------------------------------------------- |
+| `:Docker containers` | container list                               |
+| `:Docker images`     | image list                                   |
+| `:Docker volumes`    | volume list                                  |
+| `:Docker networks`   | network list                                 |
+| `:Docker services`   | compose service list (all projects combined) |
 
-`<Plug>(docker-containers)` のようなマッピングも公開しているので、好きなキーに割り当てられる。
+Lists open in a float window, and keys are set only in that buffer. What each view can do:
+
+- **Containers**: start / stop / restart / kill / pause / delete, follow logs, open a shell, run a command, edit a file inside the container, copy files to and from the host, open a published port in the browser
+- **Images**: shell in a throwaway container / delete / go to the containers using the image
+- **Volumes and networks**: delete
+- **compose services**: start / stop / restart / logs per service, start / remove per project, go to the containers of the service
+- **Every view**: show the details (`docker inspect`), filter with `<C-f>`, switch views with `<Tab>`, list the keys with `?`, delete a Visual mode selection at once (except the compose service list)
+
+Lists subscribe to `docker events` and refresh themselves. When you start or stop a container from another terminal, the list in Neovim catches up within a second.
+
+Mappings such as `<Plug>(docker-containers)` are exposed as well, so you can bind them to any key.
 
 ```lua
 vim.keymap.set("n", "<leader>dc", "<Plug>(docker-containers)")
 ```
 
-## キーマップ
+## Documentation
 
-一覧はフロートウィンドウで開き、キーはそのバッファにだけ設定される。他のバッファの操作を奪わない。
+The full keymap list, the configuration options and the behavior this plugin promises (deletion never passes `-f`, how the target of a compose operation is decided, and so on) live in the Neovim help.
 
-**全一覧ビュー共通**
-
-| キー    | 操作                                                   |
-| ------- | ------------------------------------------------------ |
-| `<CR>`  | 詳細（`docker inspect`）を表示                         |
-| `R`     | 一覧を取り直す（切れていたイベント購読も再開する）     |
-| `<Tab>` | 別のリソースの一覧へ切り替える                         |
-| `<C-f>` | 表示中の値で絞り込む（`/` は Neovim 本来の検索のまま） |
-| `?`     | そのビューで有効なキーの一覧                           |
-| `q`     | 閉じる                                                 |
-
-**コンテナ一覧**
-
-| キー      | 操作                     | キー    | 操作                       |
-| --------- | ------------------------ | ------- | -------------------------- |
-| `u`       | 起動                     | `t`     | ログを追う                 |
-| `d`       | 停止                     | `a`     | シェルを開く               |
-| `r`       | 再起動                   | `e`     | コマンドを実行             |
-| `<C-k>`   | 強制終了                 | `E`     | コンテナ内のファイルを編集 |
-| `p` / `P` | 一時停止 / 解除          | `ct`    | ホストからコンテナへコピー |
-| `D`       | 削除（確認あり）         | `cf`    | コンテナからホストへコピー |
-| `gd`      | このコンテナのイメージへ | `<C-o>` | 公開ポートをブラウザで開く |
-
-**イメージ一覧**: `r` 使い捨てコンテナでシェル / `D` 削除 / `gd` このイメージを使うコンテナへ
-
-**ボリューム・ネットワーク一覧**: `D` 削除
-
-**compose サービス一覧**
-
-| キー            | 操作                                   |
-| --------------- | -------------------------------------- |
-| `u` / `d` / `r` | サービスの起動 / 停止 / 再起動         |
-| `t`             | サービスのログを追う                   |
-| `U`             | 行のプロジェクト全体を起動             |
-| `D`             | 行のプロジェクト全体を破棄（確認あり） |
-| `gd`            | このサービスのコンテナへ               |
-
-一覧は PROJECT / SERVICE / STATUS / CONTAINER の 4 列で、プロジェクト名の昇順に並ぶ。操作の対象はカーソル行のプロジェクトなので、`shop` のディレクトリで Neovim を開いたまま `blog` のサービスを停止できる。同名のサービス（`shop/web` と `blog/web`）はプロジェクトが違えば別の行として扱われる。**確認を挟むのは `D`（プロジェクトの破棄）だけで、`u` / `d` / `r` / `U` は押した時点で実行される。複数プロジェクトが並ぶので、PROJECT 列を見てから押すこと。**
-
-一度も起動していないプロジェクトはコンテナが無いため他の経路では見つからず、そのうち一覧を開いた時点のカレントディレクトリにあるものだけが合流する。目当てのプロジェクトが出てこないときは、そのディレクトリで開き直すか、一度起動すれば以後は場所に関係なく並ぶ。
-
-compose ファイルの場所が分からないプロジェクト（コンテナのラベルにも `docker compose ls` にも場所が出てこないもの）は、コンテナが実在するサービスだけが並び、`u` と `U` は docker を呼ばずに警告する。停止・再起動・破棄・ログはプロジェクト名だけで実行できるので、その場合でも使える。どの行がそれに当たるかは一覧の 4 列には出ないので、`u` を押したときの警告で分かる。
-
-compose プロジェクトが 1 つも無いときは `compose プロジェクトがありません` の 1 行を出す。
-
-コンテナ・イメージ・ボリューム・ネットワークの一覧では、Visual モードで範囲を選んでから `D` を押すとまとめて削除できる（compose サービス一覧の `D` はプロジェクトの破棄なので対象外）。
-
-一覧では `<C-d>` / `<C-u>` / `<C-b>` が Neovim 本来のスクロールとして使える（`<C-f>` だけは絞り込みに割り当てている）。
-
-`<C-f>` の絞り込みは、表示中の全カラムの値に対する部分一致（大文字小文字は区別しない）で、どれか 1 つに一致した行が残る。コンテナ一覧なら NAME / IMAGE / STATUS / PORTS / PROJECT / SERVICE のどれかに含まれていればよい。一致が 0 件のときは `コンテナがありません` のような種別ごとの 0 件表示になるので、絞り込み中かどうかは入力した文字列で判断する。プロンプト（`絞り込み (空で解除): `）を空のまま確定すると解除される。
-
-一覧は折り返さない。値が長くてウィンドウに収まらないときは右端で切れるので、`zl` や `l` で右へスクロールして読む。見出しもスクロールに合わせて動くので、どの列を見ているかは常に分かる。
-
-フロート以外のウィンドウへフォーカスが移ると一覧は自動で閉じる。`t` でログを開いたとき、`a` でシェルに入ったとき、`E` でコンテナ内のファイルを開いたときに、一覧がその裏へ残り続けない。移動先がフロートなら閉じないので、詳細（`<CR>`）・ヘルプ（`?`）・別の一覧（`gd` / `<Tab>`）はもちろん、他のプラグインのフロートや `vim.ui.input` をフロートで実装している環境の入力欄へ移ったときもそのまま残る。
-
-## 設定
-
-```lua
-require("docker").setup({
-  -- デバッグ出力（実行した docker コマンドと終了コード）
-  debug = false,
-
-  -- キーはビュー種別ごとに差し替えられる。false を渡すとその割り当てを外す。
-  keymaps = {
-    common = { close = "<Esc>" },
-    container_list = {
-      start = "s",
-      delete = false,
-    },
-  },
-})
+```vim
+:help docker.nvim
 ```
 
-ビュー種別は `common` / `container_list` / `image_list` / `volume_list` / `network_list` / `service_list`。同じキーをビューごとに別の操作へ割り当てられる（コンテナ一覧の `r` は再起動、イメージ一覧の `r` は使い捨て実行）。
+| Section                      | Contents                                         |
+| ---------------------------- | ------------------------------------------------ |
+| `:help docker-commands`      | commands, Lua API and `<Plug>` mappings          |
+| `:help docker-keymaps`       | keymaps per view                                 |
+| `:help docker-configuration` | `setup()` options and highlights                 |
+| `:help docker-behavior`      | promised behavior (deletion, exclusion, compose) |
 
-未知のビュー種別やアクション名を書いた場合は、その項目だけ無視して警告する。
+Note that the messages the plugin shows are in Japanese.
 
-### 配色
-
-列見出しは `DockerHeader`、STATUS 列は状態ごとに `DockerStatusRunning` / `DockerStatusExited` / `DockerStatusPaused` / `DockerStatusCreated` / `DockerStatusRestarting` / `DockerStatusDead` / `DockerStatusNone` で描く。これらのどれにも当てはまらない状態は `DockerStatusUnknown`（既定は `Normal` へリンク）になるので、配色を全部差し替えるならこれも含める。いずれも `default` 指定なので、先に定義しておけばそちらが優先される。
-
-```lua
-vim.api.nvim_set_hl(0, "DockerHeader", { fg = "#7aa2f7", bold = true })
-```
-
-## 設計上の約束
-
-- 削除に `-f` は付けない。実行中コンテナの削除は docker に拒否させ、そのエラーをそのまま見せる
-- 前提を満たさない操作（停止中のコンテナへの `<C-k>` など）は docker を呼ばずに警告する
-- 同じ対象への同じ操作は同時に 1 つまで。実行中の行には `(実行中)` が付く
-- 起動した子プロセスは台帳で追跡し、`:qa` で必ず止める
-- カレントディレクトリの compose ファイルが壊れていても一覧は開く。docker のエラーを 1 回だけ警告し、イベントで取り直すたびに繰り返さない
-
-## 開発
+## Development
 
 ```bash
 make check     # lint / format-check / typecheck / plugin-check / spec-layout-check / test
-make test      # 単体・結合テスト
-make test-e2e  # 実 docker に対する通しシナリオ（docker が必要）
+make test      # unit and integration tests
+make test-e2e  # end-to-end scenarios against a real docker (docker required)
 ```
 
-`make test-file FILE=path/to/foo_spec.lua` で 1 ファイルだけ実行できる。
+`make test-file FILE=path/to/foo_spec.lua` runs a single file.
 
-## ライセンス
+## License
 
 MIT
