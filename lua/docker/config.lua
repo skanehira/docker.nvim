@@ -122,11 +122,15 @@ local function merge(opts)
     end
   end
 
-  if type(opts.column_max_widths) == "table" then
+  if opts.column_max_widths ~= nil and type(opts.column_max_widths) ~= "table" then
+    notify.warn("column_max_widths must be a table of view kinds")
+  elseif type(opts.column_max_widths) == "table" then
     for view, limits in pairs(opts.column_max_widths) do
       if merged.column_max_widths[view] == nil then
         notify.warn(("Unknown view kind in the configuration: %s"):format(tostring(view)))
-      elseif type(limits) == "table" then
+      elseif type(limits) ~= "table" then
+        notify.warn(("The column widths of %s must be a table of column names"):format(tostring(view)))
+      else
         for column, width in pairs(limits) do
           if merged.column_max_widths[view][column] == nil then
             notify.warn(("Unknown column name in the configuration: %s.%s"):format(tostring(view), tostring(column)))

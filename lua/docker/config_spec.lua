@@ -223,6 +223,24 @@ describe("docker.config", function()
       assert.are.equal(30, config.get().column_max_widths.container_list.image)
       assert.are.equal(1, #warnings)
     end)
+
+    it("keeps the defaults and warns when a view is not given a table of widths", function()
+      -- Forgetting one level of nesting is the typical mistake, and it has to be told apart
+      -- from a setting that simply had no effect.
+      config.setup({ column_max_widths = { container_list = 30 } })
+
+      assert.are.equal(30, config.get().column_max_widths.container_list.image)
+      assert.are.equal(1, #warnings)
+      assert.is_truthy(warnings[1].msg:find("container_list", 1, true))
+    end)
+
+    it("keeps the defaults and warns when the column widths are not given as a table", function()
+      config.setup({ column_max_widths = 30 })
+
+      assert.are.equal(30, config.get().column_max_widths.container_list.image)
+      assert.are.equal(1, #warnings)
+      assert.is_truthy(warnings[1].msg:find("column_max_widths", 1, true))
+    end)
   end)
 
   describe("before setup is called", function()
