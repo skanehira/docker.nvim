@@ -1,3 +1,4 @@
+local config = require("docker.config")
 local list = require("docker.views.list")
 local registry = require("docker.resources.registry")
 local tbl = require("docker.ui.table")
@@ -26,7 +27,12 @@ describe("docker.views.list", function()
   local def
 
   before_each(function()
+    config._reset()
     def = assert(registry.get("container"))
+  end)
+
+  after_each(function()
+    config._reset()
   end)
 
   describe("build", function()
@@ -100,16 +106,6 @@ describe("docker.views.list", function()
     end)
 
     describe("the column width limit", function()
-      local config = require("docker.config")
-
-      before_each(function()
-        config._reset()
-      end)
-
-      after_each(function()
-        config._reset()
-      end)
-
       it("cuts an image name wider than the limit down to the limit", function()
         local built = list.build(def, { container({ name = "web", image = string.rep("a", 40), status = "Up" }) })
 
@@ -134,6 +130,7 @@ describe("docker.views.list", function()
 
         assert.are.equal(string.rep("a", 9) .. "…", built.rows[1][2])
         assert.are.equal(10, built.widths[2])
+        assert.are.equal("web   " .. string.rep("a", 9) .. "…  Up", built.lines[1])
       end)
 
       it("shows the whole image name when the limit is removed", function()

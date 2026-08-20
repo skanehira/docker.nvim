@@ -140,13 +140,13 @@ describe("docker.config", function()
     it("replaces a column width limit that was specified", function()
       config.setup({ column_max_widths = { container_list = { image = 50 } } })
 
-      assert.are.equal(50, config.get().column_max_widths.container_list.image)
+      assert.are.same({ image = 50 }, config.get().column_max_widths.container_list)
     end)
 
     it("removes the limit when false is specified as the width", function()
       config.setup({ column_max_widths = { container_list = { image = false } } })
 
-      assert.is_nil(config.get().column_max_widths.container_list.image)
+      assert.are.same({}, config.get().column_max_widths.container_list)
     end)
 
     it("leaves the keymaps at their defaults when only the column widths are specified", function()
@@ -196,32 +196,45 @@ describe("docker.config", function()
       config.setup({ column_max_widths = { nonexistent_view = { image = 20 } } })
 
       assert.is_nil(config.get().column_max_widths.nonexistent_view)
-      assert.are.equal(1, #warnings)
-      assert.is_truthy(warnings[1].msg:find("nonexistent_view", 1, true))
-      assert.are.equal(vim.log.levels.WARN, warnings[1].level)
+      assert.are.same({
+        { msg = "Unknown view kind in the configuration: nonexistent_view", level = vim.log.levels.WARN },
+      }, warnings)
     end)
 
     it("ignores an unknown column name and warns about it", function()
       config.setup({ column_max_widths = { container_list = { ports = 20 } } })
 
       assert.is_nil(config.get().column_max_widths.container_list.ports)
-      assert.are.equal(1, #warnings)
-      assert.is_truthy(warnings[1].msg:find("ports", 1, true))
+      assert.are.same({
+        { msg = "Unknown column name in the configuration: container_list.ports", level = vim.log.levels.WARN },
+      }, warnings)
     end)
 
-    it("keeps the default width and warns when the width is not a positive integer", function()
+    it("keeps the default width and warns when the width is zero", function()
       config.setup({ column_max_widths = { container_list = { image = 0 } } })
 
-      assert.are.equal(30, config.get().column_max_widths.container_list.image)
-      assert.are.equal(1, #warnings)
-      assert.is_truthy(warnings[1].msg:find("image", 1, true))
+      assert.are.same({ image = 30 }, config.get().column_max_widths.container_list)
+      assert.are.same({
+        { msg = "The column width must be a positive integer: container_list.image", level = vim.log.levels.WARN },
+      }, warnings)
+    end)
+
+    it("keeps the default width and warns when the width has a fraction", function()
+      config.setup({ column_max_widths = { container_list = { image = 2.5 } } })
+
+      assert.are.same({ image = 30 }, config.get().column_max_widths.container_list)
+      assert.are.same({
+        { msg = "The column width must be a positive integer: container_list.image", level = vim.log.levels.WARN },
+      }, warnings)
     end)
 
     it("keeps the default width and warns when the width is not a number", function()
       config.setup({ column_max_widths = { container_list = { image = "wide" } } })
 
-      assert.are.equal(30, config.get().column_max_widths.container_list.image)
-      assert.are.equal(1, #warnings)
+      assert.are.same({ image = 30 }, config.get().column_max_widths.container_list)
+      assert.are.same({
+        { msg = "The column width must be a positive integer: container_list.image", level = vim.log.levels.WARN },
+      }, warnings)
     end)
 
     it("keeps the defaults and warns when a view is not given a table of widths", function()
@@ -229,17 +242,19 @@ describe("docker.config", function()
       -- from a setting that simply had no effect.
       config.setup({ column_max_widths = { container_list = 30 } })
 
-      assert.are.equal(30, config.get().column_max_widths.container_list.image)
-      assert.are.equal(1, #warnings)
-      assert.is_truthy(warnings[1].msg:find("container_list", 1, true))
+      assert.are.same({ image = 30 }, config.get().column_max_widths.container_list)
+      assert.are.same({
+        { msg = "The column widths of container_list must be a table of column names", level = vim.log.levels.WARN },
+      }, warnings)
     end)
 
     it("keeps the defaults and warns when the column widths are not given as a table", function()
       config.setup({ column_max_widths = 30 })
 
-      assert.are.equal(30, config.get().column_max_widths.container_list.image)
-      assert.are.equal(1, #warnings)
-      assert.is_truthy(warnings[1].msg:find("column_max_widths", 1, true))
+      assert.are.same({ image = 30 }, config.get().column_max_widths.container_list)
+      assert.are.same({
+        { msg = "column_max_widths must be a table of view kinds", level = vim.log.levels.WARN },
+      }, warnings)
     end)
   end)
 

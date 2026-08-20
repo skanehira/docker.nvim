@@ -105,6 +105,51 @@ describe("filtering the list", function()
     assert.is_truthy(shown[1]:find("web-server", 1, true), shown[1])
   end)
 
+  it("matches a part of the image name that the column bound keeps off screen", function()
+    -- The IMAGE column is bounded (see docker-opt-column-max-widths), so the tail of a long
+    -- image name is never drawn. The filter looks at the value instead of the drawn text.
+    cli._set_executor(function(cmd, _, on_exit)
+      if cmd[2] == "version" then
+        on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+        return
+      end
+      local rows = {}
+      for _, spec in ipairs({
+        { id = "1", name = "web-server", image = "registry.example.com/team/backend-api:v1" },
+        { id = "2", name = "database", image = "postgres" },
+      }) do
+        table.insert(
+          rows,
+          vim.json.encode({
+            id = spec.id,
+            name = spec.name,
+            image = spec.image,
+            state = "running",
+            status = "Up",
+            ports = "",
+            command = "x",
+            created_at = "now",
+            compose_project = "",
+            compose_service = "",
+            compose_oneoff = "",
+          })
+        )
+      end
+      on_exit({ code = 0, stdout = table.concat(rows, "\n"), stderr = "" })
+    end)
+
+    local handle = open_view()
+    -- The name is cut after 29 columns, so "backend-api" is not part of what is drawn.
+    assert.is_truthy(lines(handle)[1]:find("registry.example.com/team/bac…", 1, true), lines(handle)[1])
+
+    answer_filter("backend-api")
+    lifecycle.dispatch_for_test(handle, "filter")
+
+    local shown = lines(handle)
+    assert.are.equal(1, #shown)
+    assert.is_truthy(shown[1]:find("web-server", 1, true), shown[1])
+  end)
+
   it("matches columns other than the name as well", function()
     local handle = open_view()
     answer_filter("postgres")

@@ -29,6 +29,11 @@ describe("docker.ui.table", function()
       assert.are.equal(5, vim.fn.strdisplaywidth(cut))
     end)
 
+    it("leaves nothing but the ellipsis when the limit is the width of the ellipsis", function()
+      -- A width of 1 is accepted by the configuration, so this bound is reachable.
+      assert.are.equal("…", tbl.truncate("abcdef", 1))
+    end)
+
     it("keeps an empty value empty", function()
       assert.are.equal("", tbl.truncate("", 30))
     end)
