@@ -1,6 +1,39 @@
 local tbl = require("docker.ui.table")
 
 describe("docker.ui.table", function()
+  describe("truncate", function()
+    it("keeps a value that fits within the limit as is", function()
+      assert.are.equal("alpine:3.20", tbl.truncate("alpine:3.20", 30))
+    end)
+
+    it("keeps a value whose display width is exactly the limit as is", function()
+      local value = string.rep("a", 30)
+
+      assert.are.equal(value, tbl.truncate(value, 30))
+    end)
+
+    it("cuts a value wider than the limit and marks it with an ellipsis", function()
+      local cut = tbl.truncate(string.rep("a", 31), 30)
+
+      -- The ellipsis is counted in, so the result stays within the limit.
+      assert.are.equal(string.rep("a", 29) .. "…", cut)
+      assert.are.equal(30, vim.fn.strdisplaywidth(cut))
+    end)
+
+    it("cuts at a character boundary for full-width characters", function()
+      -- "日本語x" has a display width of 7. With the ellipsis taking 1, 5 columns are left,
+      -- and "日本語" (6) no longer fits, so it stops at "日本" (4).
+      local cut = tbl.truncate("日本語x", 6)
+
+      assert.are.equal("日本…", cut)
+      assert.are.equal(5, vim.fn.strdisplaywidth(cut))
+    end)
+
+    it("keeps an empty value empty", function()
+      assert.are.equal("", tbl.truncate("", 30))
+    end)
+  end)
+
   describe("compute_widths", function()
     it("aligns each column to its widest value", function()
       local widths = tbl.compute_widths({ "NAME", "IMAGE" }, {
