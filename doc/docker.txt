@@ -188,6 +188,9 @@ input field of an environment that implements vim.ui.input as a float.
           delete = false,
         },
       },
+      column_max_widths = {
+        container_list = { image = 30 },
+      },
     })
 <
                                                             *docker-opt-debug*
@@ -215,6 +218,28 @@ keymaps ~
     in the image list).
 
     An unknown view kind or action name is ignored per entry, with a warning.
+
+                                                *docker-opt-column-max-widths*
+column_max_widths ~
+    Default: `{ container_list = { image = 30 } }`
+
+    The upper bound on the display width of a column, given per view kind as
+    "column name -> width". A value wider than the bound is cut and marked
+    with a trailing `…`; the `…` is counted in, so the whole cell stays within
+    the bound.
+
+    Only the columns listed in the default can be given a bound. Every other
+    column is shown in full and widens to its longest value.
+
+        container_list.image  the IMAGE column of the container list
+
+    Passing `false` as the width removes that bound and shows the value in
+    full. An unknown view kind or column name, and a width that is not a
+    positive integer, are ignored per entry with a warning.
+
+    Cutting only affects what is drawn. The filter (<C-f>) still matches
+    against the whole value, so an image name can be searched for by a part
+    that is not on screen.
 
                                                            *docker-highlights*
 Highlights~
