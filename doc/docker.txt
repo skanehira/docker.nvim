@@ -89,7 +89,7 @@ Common to every list view~
     <CR>        show the details (docker inspect)
     R           reload the list (also resumes a dropped event subscription)
     <Tab>       switch to the list of another resource
-    <C-f>       filter by the displayed values (`/` stays Neovim's search)
+    <C-f>       filter by the row values (`/` stays Neovim's search)
     ?           show the keys available in that view
     q           close
 
@@ -97,16 +97,22 @@ In a list, <C-d> / <C-u> / <C-b> work as Neovim's own scrolling (only <C-f>
 is bound to filtering).
 
 The <C-f> filter is a case-insensitive substring match against the values of
-all displayed columns, and a row is kept when any one of them matches. In the
-container list it is kept when the text is contained in NAME / IMAGE /
-STATUS / PORTS / PROJECT / SERVICE. Confirming the prompt
-(`Filter (empty to clear): `) while it is empty clears the filter. When
-nothing matches, the view falls back to the empty text of that kind, such as
-`No containers`, so tell whether a filter is active by the text you typed.
+all columns, and a row is kept when any one of them matches. In the container
+list it is kept when the text is contained in NAME / IMAGE / STATUS / PORTS /
+PROJECT / SERVICE. It matches the value itself rather than the text drawn on
+screen, so a part cut off by a column bound (|docker-opt-column-max-widths|)
+still matches, while the `…` standing in for it does not. Neovim's own `/`
+searches the drawn text instead. Confirming the prompt (`Filter (empty to
+clear): `) while it is empty clears the filter. When nothing matches, the
+view falls back to the empty text of that kind, such as `No containers`, so
+tell whether a filter is active by the text you typed.
 
 Lists do not wrap. A value too long for the window is cut off at the right
 edge, so scroll right with zl or l to read it. The header scrolls with the
-rows, so you can always tell which column you are looking at.
+rows, so you can always tell which column you are looking at. A value cut by
+a column bound (|docker-opt-column-max-widths|) is a different matter: it
+ends in `…` and scrolling does not bring the rest back, so read it with <CR>
+or raise the bound.
 
 Container list~
                                                     *docker-keymaps-container*
@@ -189,7 +195,7 @@ input field of an environment that implements vim.ui.input as a float.
         },
       },
       column_max_widths = {
-        container_list = { image = 30 },
+        container_list = { image = 20 },
       },
     })
 <
@@ -223,23 +229,30 @@ keymaps ~
 column_max_widths ~
     Default: `{ container_list = { image = 30 } }`
 
-    The upper bound on the display width of a column, given per view kind as
-    "column name -> width". A value wider than the bound is cut and marked
-    with a trailing `…`; the `…` is counted in, so the whole cell stays within
-    the bound.
+    An upper bound on the display width of the values in a column, given per
+    view kind as "column name -> width". A value wider than the bound is cut
+    and marked with a trailing `…`, which is counted in, so the cell stays
+    within the bound. The column never becomes narrower than its header,
+    and anything not given keeps its default.
 
-    Only the columns listed in the default can be given a bound. Every other
-    column is shown in full and widens to its longest value.
+    Only the column below can be given a bound, so `container_list` is the
+    only view kind accepted here and the other view kinds of
+    |docker-opt-keymaps| are reported as unknown. Every other column is shown
+    in full and widens to its longest value.
 
-        container_list.image  the IMAGE column of the container list
+        container_list.image  the IMAGE column of the container list,
+                              written as `container_list = { image = 30 }`
 
     Passing `false` as the width removes that bound and shows the value in
-    full. An unknown view kind or column name, and a width that is not a
-    positive integer, are ignored per entry with a warning.
+    full again (`container_list = { image = false }`).
+
+    An unknown view kind or column name, and a width that is not a positive
+    integer, are ignored per entry, with a warning. So is a view kind given
+    something other than a table of widths.
 
     Cutting only affects what is drawn. The filter (<C-f>) still matches
     against the whole value, so an image name can be searched for by a part
-    that is not on screen.
+    that is not on screen, and <CR> shows the full name in the details.
 
                                                            *docker-highlights*
 Highlights~
