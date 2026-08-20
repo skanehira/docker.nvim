@@ -96,6 +96,12 @@ describe("docker.config", function()
 
       assert.is_false(config.get().debug)
     end)
+
+    it("limits the image column of the container list by default", function()
+      config.setup()
+
+      assert.are.same({ image = 30 }, config.get().column_max_widths.container_list)
+    end)
   end)
 
   describe("merging the user's settings", function()
@@ -129,6 +135,24 @@ describe("docker.config", function()
       config.setup({ debug = true })
 
       assert.is_true(notify.is_debug())
+    end)
+
+    it("replaces a column width limit that was specified", function()
+      config.setup({ column_max_widths = { container_list = { image = 50 } } })
+
+      assert.are.equal(50, config.get().column_max_widths.container_list.image)
+    end)
+
+    it("removes the limit when false is specified as the width", function()
+      config.setup({ column_max_widths = { container_list = { image = false } } })
+
+      assert.is_nil(config.get().column_max_widths.container_list.image)
+    end)
+
+    it("leaves the keymaps at their defaults when only the column widths are specified", function()
+      config.setup({ column_max_widths = { container_list = { image = 50 } } })
+
+      assert.are.equal("u", config.get().keymaps.container_list.start)
     end)
   end)
 
@@ -166,6 +190,38 @@ describe("docker.config", function()
       config.setup({ keymaps = { container_list = { start = "s" } }, debug = true })
 
       assert.are.same({}, warnings)
+    end)
+
+    it("ignores an unknown view type in the column widths and warns about it", function()
+      config.setup({ column_max_widths = { nonexistent_view = { image = 20 } } })
+
+      assert.is_nil(config.get().column_max_widths.nonexistent_view)
+      assert.are.equal(1, #warnings)
+      assert.is_truthy(warnings[1].msg:find("nonexistent_view", 1, true))
+      assert.are.equal(vim.log.levels.WARN, warnings[1].level)
+    end)
+
+    it("ignores an unknown column name and warns about it", function()
+      config.setup({ column_max_widths = { container_list = { ports = 20 } } })
+
+      assert.is_nil(config.get().column_max_widths.container_list.ports)
+      assert.are.equal(1, #warnings)
+      assert.is_truthy(warnings[1].msg:find("ports", 1, true))
+    end)
+
+    it("keeps the default width and warns when the width is not a positive integer", function()
+      config.setup({ column_max_widths = { container_list = { image = 0 } } })
+
+      assert.are.equal(30, config.get().column_max_widths.container_list.image)
+      assert.are.equal(1, #warnings)
+      assert.is_truthy(warnings[1].msg:find("image", 1, true))
+    end)
+
+    it("keeps the default width and warns when the width is not a number", function()
+      config.setup({ column_max_widths = { container_list = { image = "wide" } } })
+
+      assert.are.equal(30, config.get().column_max_widths.container_list.image)
+      assert.are.equal(1, #warnings)
     end)
   end)
 
