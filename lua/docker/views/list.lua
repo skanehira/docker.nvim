@@ -50,6 +50,13 @@ function M.build(def, items, opts)
   local headers = headers_of(def)
   local busy = opts and opts.busy
 
+  -- Looked up once per column rather than once per row, since the setting does not change
+  -- while a single list is being built.
+  local max_widths = {}
+  for index, column in ipairs(def.columns) do
+    max_widths[index] = column.max_width and column.max_width() or nil
+  end
+
   local rows = {}
   for _, item in ipairs(items) do
     local values = {}
@@ -57,6 +64,11 @@ function M.build(def, items, opts)
       local value = single_line(column.value(item))
       if busy and index == def.status_column and busy(item) then
         value = value .. BUSY_SUFFIX
+      end
+      -- Cut before the values go into rows. The widths and the highlight byte ranges are
+      -- computed from rows, so cutting afterwards would shift them apart.
+      if max_widths[index] then
+        value = tbl.truncate(value, max_widths[index])
       end
       table.insert(values, value)
     end

@@ -11,6 +11,7 @@ local M = {}
 ---@class docker.ColumnDef
 ---@field header string
 ---@field value fun(item: table): string
+---@field max_width? fun(): integer|nil the upper bound on the display width, looked up at build time
 
 ---@class docker.ResourceDefinition
 ---@field kind string                    "container" | "image" | "volume" | "network" | "service"
@@ -110,7 +111,16 @@ definitions = {
     id = plain("id"),
     columns = {
       { header = "NAME", value = plain("name") },
-      { header = "IMAGE", value = plain("image") },
+      -- An image name reaches the length of a registry path, so it is cut for display.
+      -- The setting is read through a function because this table is built at require time,
+      -- before `setup` has run. The filter still matches against the whole value.
+      {
+        header = "IMAGE",
+        value = plain("image"),
+        max_width = function()
+          return require("docker.config").get().column_max_widths.container_list.image
+        end,
+      },
       { header = "STATUS", value = plain("status") },
       { header = "PORTS", value = fields.ports },
       { header = "PROJECT", value = plain("compose_project") },
