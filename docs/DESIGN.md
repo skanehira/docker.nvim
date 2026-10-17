@@ -71,7 +71,7 @@ compose ファイルの場所が分からないプロジェクトでは起動（
 
 ### 1.3 ゴール
 
-- G1: `:Docker containers` を実行すると、停止中を含む全コンテナが PROJECT / SERVICE / NAME / IMAGE / STATUS / PORTS のカラムで表示され、compose 由来のコンテナには PROJECT / SERVICE の値が入る
+- G1: `:Docker containers` を実行すると、停止中を含む全コンテナが NAME / PROJECT / SERVICE / IMAGE / STATUS / PORTS のカラムで表示され、compose 由来のコンテナには PROJECT / SERVICE の値が入る
 - G2: コンテナ一覧で `u` / `d` / `r` / `<C-k>` を押すと対象コンテナの状態が変化し、一覧の STATUS 列に反映される（`p` / `P` による一時停止・再開は Could 扱いの US-030 のため、このゴールには含めない）
 - G3: `D` を押すと確認プロンプトが出て、`y` のときのみ削除される。`y` 以外では docker に削除要求が送られない
 - G4: `t` / `a` / `e` でターミナルバッファが開き、そのバッファを閉じると対応する docker の子プロセスが 0 件になる

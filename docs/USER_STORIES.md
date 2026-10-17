@@ -43,7 +43,7 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 
 **受け入れ基準**:
 
-- [ ] Given docker が起動している When `:Docker containers` を実行する Then 全コンテナ（停止中含む）が PROJECT / SERVICE / NAME / IMAGE / STATUS / PORTS のカラムで一覧表示される
+- [ ] Given docker が起動している When `:Docker containers` を実行する Then 全コンテナ（停止中含む）が NAME / PROJECT / SERVICE / IMAGE / STATUS / PORTS のカラムで一覧表示される
 - [ ] Given コンテナが compose 由来である When 一覧を表示する Then PROJECT 列に `com.docker.compose.project`、SERVICE 列に `com.docker.compose.service` の値が表示される
 - [ ] Given compose 由来でないコンテナがある When 一覧を表示する Then PROJECT / SERVICE 列は空欄で表示され、行自体は省略されない
 - [ ] Given コンテナが 1 つも存在しない When 一覧を表示する Then 空である旨のメッセージが表示され、エラーにはならない
