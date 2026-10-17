@@ -46,7 +46,7 @@ end
 local function open(cmd, title, cwd)
   -- The list is a float window, and running `enew` while it has focus wipes out the
   -- list buffer, which is bufhidden=wipe. Always open a new window.
-  vim.cmd("botright new")
+  vim.cmd("tabnew")
   local bufnr = vim.api.nvim_get_current_buf()
 
   local start = job_starter or default_job_starter

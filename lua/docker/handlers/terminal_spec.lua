@@ -5,8 +5,10 @@ local window = require("docker.ui.window")
 describe("docker.handlers.terminal", function()
   local started
   local next_job_id
+  local original_tabpage
 
   before_each(function()
+    original_tabpage = vim.api.nvim_get_current_tabpage()
     jobs._reset()
     jobs._set_stopper(function() end)
     started = {}
@@ -23,6 +25,12 @@ describe("docker.handlers.terminal", function()
   after_each(function()
     terminal._set_job_starter(nil)
     jobs._reset()
+    for _, tabpage in ipairs(vim.api.nvim_list_tabpages()) do
+      if tabpage ~= original_tabpage then
+        vim.cmd("tabclose! " .. vim.api.nvim_tabpage_get_number(tabpage))
+      end
+    end
+    vim.api.nvim_set_current_tabpage(original_tabpage)
     -- Clean up the windows opened for terminals during the test
     for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
       if #vim.api.nvim_tabpage_list_wins(0) > 1 then
@@ -84,14 +92,53 @@ describe("docker.handlers.terminal", function()
       window.close(float)
     end)
 
-    it("opens in a window separate from the list float", function()
-      local float = window.open({ title = "Containers" })
+    for _, case in ipairs({
+      {
+        name = "container logs",
+        open = function()
+          return terminal.open_logs("abc123", "web")
+        end,
+      },
+      {
+        name = "service logs",
+        open = function()
+          return terminal.open_compose_logs("shop", "web", "shop/web")
+        end,
+      },
+      {
+        name = "shell",
+        open = function()
+          return terminal.open_shell("abc123", "web")
+        end,
+      },
+      {
+        name = "exec",
+        open = function()
+          return terminal.open_exec("abc123", "web", "ls")
+        end,
+      },
+      {
+        name = "quickrun",
+        open = function()
+          return terminal.open_quickrun("alpine", "alpine")
+        end,
+      },
+    }) do
+      it("opens " .. case.name .. " in a new tab while preserving the original windows", function()
+        local float = window.open({ title = "Containers" })
+        local original_windows = vim.api.nvim_tabpage_list_wins(original_tabpage)
+        local tab_count = #vim.api.nvim_list_tabpages()
 
-      local handle = terminal.open_logs("abc123", "web")
+        local handle = case.open()
 
-      assert.is_true(handle.bufnr ~= float.bufnr)
-      window.close(float)
-    end)
+        assert.are.equal(tab_count + 1, #vim.api.nvim_list_tabpages())
+        assert.is_true(vim.api.nvim_get_current_tabpage() ~= original_tabpage)
+        assert.are.same(original_windows, vim.api.nvim_tabpage_list_wins(original_tabpage))
+        assert.are.same({ vim.api.nvim_get_current_win() }, vim.api.nvim_tabpage_list_wins(0))
+        assert.are.equal(handle.bufnr, vim.api.nvim_get_current_buf())
+        window.close(float)
+      end)
+    end
   end)
 
   describe("job ledger", function()
