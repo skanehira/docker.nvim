@@ -114,6 +114,9 @@ a column bound (|docker-opt-column-max-widths|) is a different matter: it
 ends in `…` and scrolling does not bring the rest back, so read it with <CR>
 or raise the bound.
 
+Terminal actions (logs, shells, command execution and quickrun) open in a new
+tab and switch to it.
+
 Container list~
                                                     *docker-keymaps-container*
     u           start
@@ -124,7 +127,7 @@ Container list~
     P           unpause
     a           open a shell in the container
     e           run a command in the container
-    t           follow the logs
+    t           follow the logs in a new tab
     D           delete (with confirmation)
     ct          copy from the host into the container
     cf          copy from the container to the host
@@ -147,7 +150,7 @@ compose service list~
     u           start the service
     d           stop the service
     r           restart the service
-    t           follow the logs of the service
+    t           follow the logs of the service in a new tab
     U           start the whole project of the row
     D           remove the whole project of the row (with confirmation)
     gd          go to the containers of this service
