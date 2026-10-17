@@ -110,8 +110,6 @@ definitions = {
     end,
     id = plain("id"),
     columns = {
-      { header = "PROJECT", value = plain("compose_project") },
-      { header = "SERVICE", value = plain("compose_service") },
       {
         header = "NAME",
         value = plain("name"),
@@ -119,6 +117,8 @@ definitions = {
           return 30
         end,
       },
+      { header = "PROJECT", value = plain("compose_project") },
+      { header = "SERVICE", value = plain("compose_service") },
       -- An image name reaches the length of a registry path, so it is cut for display.
       -- The setting is read through a function because this table is built at require time,
       -- before `setup` has run. The filter still matches against the whole value.

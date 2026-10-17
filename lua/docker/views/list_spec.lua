@@ -69,13 +69,13 @@ describe("docker.views.list", function()
         }),
       })
 
-      assert.are.equal("projalpha  svcbeta  ctr   img    Up", built.lines[1])
+      assert.are.equal("ctr   projalpha  svcbeta  img    Up", built.lines[1])
     end)
 
     it("leaves PROJECT and SERVICE blank for a container not managed by compose", function()
       local built = list.build(def, { container({ name = "plain" }) })
 
-      assert.are.equal(string.rep(" ", 18) .. "plain  alpine:3.20  Up 5 days", built.lines[1])
+      assert.are.equal("plain  " .. string.rep(" ", 18) .. "alpine:3.20  Up 5 days", built.lines[1])
     end)
 
     it("emits a single line stating that there are no items when the list is empty", function()
@@ -110,7 +110,7 @@ describe("docker.views.list", function()
         -- are computed against what is actually displayed.
         assert.are.equal(string.rep("a", 29) .. "…", built.rows[1][4])
         assert.are.equal(30, built.widths[4])
-        assert.are.equal(string.rep(" ", 18) .. "web   " .. string.rep("a", 29) .. "…  Up", built.lines[1])
+        assert.are.equal("web   " .. string.rep(" ", 18) .. string.rep("a", 29) .. "…  Up", built.lines[1])
       end)
 
       it("leaves an image name that fits within the limit untouched", function()
@@ -127,7 +127,7 @@ describe("docker.views.list", function()
 
         assert.are.equal(string.rep("a", 9) .. "…", built.rows[1][4])
         assert.are.equal(10, built.widths[4])
-        assert.are.equal(string.rep(" ", 18) .. "web   " .. string.rep("a", 9) .. "…  Up", built.lines[1])
+        assert.are.equal("web   " .. string.rep(" ", 18) .. string.rep("a", 9) .. "…  Up", built.lines[1])
       end)
 
       it("shows the whole image name when the limit is removed", function()
