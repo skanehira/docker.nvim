@@ -189,11 +189,16 @@ function M.close(handle)
   end
 end
 
---- Close every open float.
-function M.close_all()
+--- Close the open floats, optionally limited to one tab.
+---@param tabpage integer|nil
+function M.close_all(tabpage)
   local handles = {}
   for _, handle in pairs(open_windows) do
-    table.insert(handles, handle)
+    if
+      not tabpage or (vim.api.nvim_win_is_valid(handle.winid) and vim.api.nvim_win_get_tabpage(handle.winid) == tabpage)
+    then
+      table.insert(handles, handle)
+    end
   end
   for _, handle in ipairs(handles) do
     M.close(handle)

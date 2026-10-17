@@ -476,8 +476,7 @@ local function unwatch_focus()
   vim.api.nvim_clear_autocmds({ group = focus_group })
 end
 
---- Close the float once focus moves outside the list.
---- Keeps the list from lingering behind after a log or shell terminal is opened.
+--- Close the floats when focus moves to a plain window in their tab.
 local function watch_focus()
   if focus_watching then
     return
@@ -495,7 +494,16 @@ local function watch_focus()
       if vim.api.nvim_win_get_config(winid).relative ~= "" then
         return
       end
-      M.close_all()
+      local tabpage = vim.api.nvim_get_current_tabpage()
+      for kind, handle in pairs(views) do
+        if
+          vim.api.nvim_win_is_valid(handle.window.winid)
+          and vim.api.nvim_win_get_tabpage(handle.window.winid) == tabpage
+        then
+          M.close(kind)
+        end
+      end
+      window.close_all(tabpage)
     end,
   })
 end
@@ -567,6 +575,18 @@ function M.open(kind, on_open)
         state = view.new(kind),
       }
       views[kind] = handle
+      vim.api.nvim_create_autocmd("WinClosed", {
+        pattern = tostring(handle.window.winid),
+        once = true,
+        desc = "docker.nvim: release the list when its window closes",
+        callback = function()
+          vim.schedule(function()
+            if views[kind] == handle then
+              M.close(kind)
+            end
+          end)
+        end,
+      })
       bind_keys(handle)
       watch_focus()
       store.replace_all(kind, loaded.data)

@@ -259,7 +259,7 @@ describe("docker.handlers.lifecycle", function()
   end)
 
   describe("when focus leaves the list", function()
-    --- Create a plain window below (the same shape as when a terminal is opened) and move into it.
+    --- Create a plain window below and move into it.
     ---@return integer
     local function enter_plain_window()
       vim.cmd("botright new")
@@ -275,8 +275,87 @@ describe("docker.handlers.lifecycle", function()
       end
     end)
 
+    describe("switching tabs", function()
+      local terminal = require("docker.handlers.terminal")
+      local original_tabpage
+
+      before_each(function()
+        original_tabpage = vim.api.nvim_get_current_tabpage()
+        terminal._set_job_starter(function()
+          return 101
+        end)
+      end)
+
+      after_each(function()
+        lifecycle.close_all()
+        terminal._set_job_starter(nil)
+        require("docker.handlers.jobs")._reset()
+        for _, tabpage in ipairs(vim.api.nvim_list_tabpages()) do
+          if tabpage ~= original_tabpage then
+            vim.cmd("tabclose! " .. vim.api.nvim_tabpage_get_number(tabpage))
+          end
+        end
+        vim.api.nvim_set_current_tabpage(original_tabpage)
+      end)
+
+      it("keeps the container list and subscription when opening logs in another tab and returning", function()
+        local handle = assert(open_view("container"))
+        local subscription = assert(handle.subscription)
+        local lines = vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false)
+        vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 3 })
+
+        lifecycle.dispatch_for_test(handle, "logs")
+
+        assert.is_true(vim.api.nvim_get_current_tabpage() ~= original_tabpage)
+        assert.are.equal(handle, lifecycle.get("container"))
+        assert.is_true(vim.api.nvim_win_is_valid(handle.window.winid))
+        assert.is_true(subscription.is_alive())
+        vim.cmd("tabclose!")
+        assert.are.equal(handle.window.winid, vim.api.nvim_get_current_win())
+        assert.are.same(lines, vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false))
+        assert.are.same({ 1, 3 }, vim.api.nvim_win_get_cursor(handle.window.winid))
+      end)
+
+      it("releases the list and subscription when its tab is closed from another tab", function()
+        vim.cmd("tabnew")
+        local source_tabpage = vim.api.nvim_get_current_tabpage()
+        local handle = assert(open_view("container"))
+        local subscription = assert(handle.subscription)
+        vim.api.nvim_set_current_tabpage(original_tabpage)
+        assert.are.equal(handle, lifecycle.get("container"))
+        assert.is_true(subscription.is_alive())
+
+        vim.cmd("tabclose! " .. vim.api.nvim_tabpage_get_number(source_tabpage))
+
+        assert(vim.wait(1000, function()
+          return lifecycle.get("container") == nil
+        end))
+        assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid))
+        assert.is_false(subscription.is_alive())
+      end)
+
+      it("closes only the lists and help in the current tab when entering a plain window", function()
+        local containers = assert(open_view("container"))
+        lifecycle.dispatch_for_test(containers, "help")
+        local original_help = vim.api.nvim_get_current_win()
+        vim.cmd("tabnew")
+        local images = assert(open_view("image"))
+        lifecycle.dispatch_for_test(images, "help")
+        local current_help = vim.api.nvim_get_current_win()
+
+        enter_plain_window()
+
+        assert.are.equal(containers, lifecycle.get("container"))
+        assert.is_true(vim.api.nvim_win_is_valid(containers.window.winid))
+        assert.is_true(assert(containers.subscription).is_alive())
+        assert.is_true(vim.api.nvim_win_is_valid(original_help))
+        assert.is_nil(lifecycle.get("image"))
+        assert.is_false(vim.api.nvim_win_is_valid(images.window.winid))
+        assert.is_false(vim.api.nvim_win_is_valid(current_help))
+      end)
+    end)
+
     it("closes the list when moving to a window outside it", function()
-      -- Opening logs or a shell would otherwise leave the float lingering behind the list.
       local handle = assert(open_view("container"))
 
       enter_plain_window()
