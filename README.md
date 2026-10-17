@@ -3,10 +3,10 @@
 A Neovim plugin to operate Docker. On top of containers, images, volumes and networks, it **lists and operates the services of every docker compose project at once**. Whichever directory Neovim is opened in, all the compose projects on the machine (both `shop` and `blog` when you started them separately) appear in a single list.
 
 ```
-NAME                     IMAGE            STATUS         PORTS                   PROJECT  SERVICE
-shop-web-1               nginx:alpine     Up 5 days      0.0.0.0:8080->80/tcp    shop     web
-shop-db-1                postgres:16      Up 5 days                              shop     db
-my-standalone-container  alpine:3.20      Exited (0) 3h
+PROJECT  SERVICE  NAME                     IMAGE         STATUS         PORTS
+shop     web      shop-web-1               nginx:alpine  Up 5 days      0.0.0.0:8080->80/tcp
+shop     db       shop-db-1                postgres:16   Up 5 days
+                  my-standalone-container  alpine:3.20   Exited (0) 3h
 ```
 
 ## Requirements

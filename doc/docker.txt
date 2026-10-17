@@ -98,8 +98,8 @@ is bound to filtering).
 
 The <C-f> filter is a case-insensitive substring match against the values of
 all columns, and a row is kept when any one of them matches. In the container
-list it is kept when the text is contained in NAME / IMAGE / STATUS / PORTS /
-PROJECT / SERVICE. It matches the value itself rather than the text drawn on
+list it is kept when the text is contained in PROJECT / SERVICE / NAME / IMAGE /
+STATUS / PORTS. It matches the value itself rather than the text drawn on
 screen, so a part cut off by a column bound (|docker-opt-column-max-widths|)
 still matches, while the `…` standing in for it does not. Neovim's own `/`
 searches the drawn text instead. Confirming the prompt (`Filter (empty to
