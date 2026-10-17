@@ -177,12 +177,13 @@ compose service list removes a project, so it is out of scope).
 
 When a list closes~
                                                            *docker-auto-close*
-Besides q, a list also closes when the focus moves to a window that is not a
-float. This keeps the list from lingering behind the log opened with t, the
-shell entered with a, or the file inside a container opened with E. It stays
-when the destination is a float, so it survives the details (<CR>), the help
-(?) and another list (gd / <Tab>), as well as floats of other plugins and the
-input field of an environment that implements vim.ui.input as a float.
+Besides q, a list also closes when the focus moves to a non-floating window
+in the same tab, such as a file inside a container opened with E. Lists and
+their event subscriptions stay active when switching to another tab, so you
+can return to the list after using a terminal. Only the lists, details and
+help in the current tab close on focus loss. The list also stays when the
+destination is a float, including details (<CR>), help (?), another list
+(gd / <Tab>), other plugins and a floating vim.ui.input prompt.
 
 ==============================================================================
 5. Configuration                                        *docker-configuration*
