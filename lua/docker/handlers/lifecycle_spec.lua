@@ -213,7 +213,7 @@ describe("docker.handlers.lifecycle", function()
     it("moves the header together with the content when scrolling horizontally", function()
       local handle = assert(open_view("container"))
       local before = rendered_winbar(handle)
-      assert.are.equal("NAME", before:sub(1, 4), before)
+      assert.are.equal("PROJECT", before:sub(1, 7), before)
 
       vim.api.nvim_win_call(handle.window.winid, function()
         vim.fn.winrestview({ leftcol = 6 })
@@ -573,7 +573,7 @@ describe("docker.handlers.lifecycle", function()
       -- Compare the whole row, not just the absence of the marker: an implementation that
       -- never redraws would also satisfy "the marker is gone" if the marker never appeared.
       local line = vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, 1, false)[1]
-      assert.are.equal("web   alpine  Up 5 days", line)
+      assert.are.equal(string.rep(" ", 18) .. "web   alpine  Up 5 days", line)
       assert.is_nil(line:find("(busy)", 1, true))
     end)
   end)

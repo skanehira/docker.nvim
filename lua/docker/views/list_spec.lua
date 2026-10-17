@@ -69,16 +69,13 @@ describe("docker.views.list", function()
         }),
       })
 
-      -- The column widths are determined by the length of the headers (NAME/IMAGE/STATUS/PORTS/PROJECT/SERVICE).
-      -- PORTS is empty, so the gap between STATUS and PROJECT spans that width.
-      assert.are.equal("ctr   img    Up             projalpha  svcbeta", built.lines[1])
+      assert.are.equal("projalpha  svcbeta  ctr   img    Up", built.lines[1])
     end)
 
     it("leaves PROJECT and SERVICE blank for a container not managed by compose", function()
       local built = list.build(def, { container({ name = "plain" }) })
 
-      -- No trailing padding is left, so when the compose columns are empty the row ends before SERVICE.
-      assert.are.equal("plain  alpine:3.20  Up 5 days", built.lines[1])
+      assert.are.equal(string.rep(" ", 18) .. "plain  alpine:3.20  Up 5 days", built.lines[1])
     end)
 
     it("emits a single line stating that there are no items when the list is empty", function()
@@ -111,16 +108,16 @@ describe("docker.views.list", function()
 
         -- The value held in rows is cut as well, so the widths and the highlight byte ranges
         -- are computed against what is actually displayed.
-        assert.are.equal(string.rep("a", 29) .. "…", built.rows[1][2])
-        assert.are.equal(30, built.widths[2])
-        assert.are.equal("web   " .. string.rep("a", 29) .. "…  Up", built.lines[1])
+        assert.are.equal(string.rep("a", 29) .. "…", built.rows[1][4])
+        assert.are.equal(30, built.widths[4])
+        assert.are.equal(string.rep(" ", 18) .. "web   " .. string.rep("a", 29) .. "…  Up", built.lines[1])
       end)
 
       it("leaves an image name that fits within the limit untouched", function()
         local built = list.build(def, { container({ name = "web", image = "alpine:3.20", status = "Up" }) })
 
-        assert.are.equal("alpine:3.20", built.rows[1][2])
-        assert.are.equal(11, built.widths[2])
+        assert.are.equal("alpine:3.20", built.rows[1][4])
+        assert.are.equal(11, built.widths[4])
       end)
 
       it("follows the limit configured by the user", function()
@@ -128,9 +125,9 @@ describe("docker.views.list", function()
 
         local built = list.build(def, { container({ name = "web", image = string.rep("a", 40), status = "Up" }) })
 
-        assert.are.equal(string.rep("a", 9) .. "…", built.rows[1][2])
-        assert.are.equal(10, built.widths[2])
-        assert.are.equal("web   " .. string.rep("a", 9) .. "…  Up", built.lines[1])
+        assert.are.equal(string.rep("a", 9) .. "…", built.rows[1][4])
+        assert.are.equal(10, built.widths[4])
+        assert.are.equal(string.rep(" ", 18) .. "web   " .. string.rep("a", 9) .. "…  Up", built.lines[1])
       end)
 
       it("shows the whole image name when the limit is removed", function()
@@ -138,8 +135,8 @@ describe("docker.views.list", function()
 
         local built = list.build(def, { container({ name = "web", image = string.rep("a", 40), status = "Up" }) })
 
-        assert.are.equal(string.rep("a", 40), built.rows[1][2])
-        assert.are.equal(40, built.widths[2])
+        assert.are.equal(string.rep("a", 40), built.rows[1][4])
+        assert.are.equal(40, built.widths[4])
       end)
     end)
   end)
@@ -180,7 +177,7 @@ describe("docker.views.list", function()
       handle = window.open({ title = "Containers", wrap = false })
 
       local built = list.render(handle, def, {
-        container({ id = "1", name = "web", ports = string.rep("0.0.0.0:5001->5000/tcp, ", 8) }),
+        container({ id = "1", name = "web", compose_project = string.rep("p", 100) }),
       })
 
       -- The header shown on screen must match the head of the header laid out at the same width as the rows.

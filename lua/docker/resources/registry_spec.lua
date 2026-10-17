@@ -88,13 +88,13 @@ describe("docker.resources.registry", function()
       assert.are.equal("abc123def456", def.id(container()))
     end)
 
-    it("orders the columns as NAME_IMAGE_STATUS_PORTS_PROJECT_SERVICE", function()
+    it("orders the columns as PROJECT_SERVICE_NAME_IMAGE_STATUS_PORTS", function()
       local headers = {}
       for _, column in ipairs(def.columns) do
         table.insert(headers, column.header)
       end
 
-      assert.are.same({ "NAME", "IMAGE", "STATUS", "PORTS", "PROJECT", "SERVICE" }, headers)
+      assert.are.same({ "PROJECT", "SERVICE", "NAME", "IMAGE", "STATUS", "PORTS" }, headers)
     end)
 
     it("fills PROJECT and SERVICE for a compose-managed container", function()
@@ -134,7 +134,7 @@ describe("docker.resources.registry", function()
     end)
 
     it("points the state column position at STATUS", function()
-      assert.are.equal(3, def.status_column)
+      assert.are.equal(5, def.status_column)
       assert.are.equal("STATUS", def.columns[def.status_column].header)
     end)
 
