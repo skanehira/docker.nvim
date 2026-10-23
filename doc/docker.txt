@@ -87,6 +87,8 @@ other buffers.
 Common to every list view~
                                                        *docker-keymaps-common*
     <CR>        show the details (docker inspect)
+                On a project header row of the container list, fold or expand
+                the group instead.
     R           reload the list (also resumes a dropped event subscription)
     <Tab>       switch to the list of another resource
     <C-f>       filter by the row values (`/` stays Neovim's search)
@@ -108,7 +110,8 @@ view falls back to the empty text of that kind, such as `No containers`, so
 tell whether a filter is active by the text you typed.
 
 Lists do not wrap. A value too long for the window is cut off at the right
-edge, so scroll right with zl or l to read it. The header scrolls with the
+edge, so scroll right with zl (or l in lists other than the container list,
+where l expands a project group) to read it. The header scrolls with the
 rows, so you can always tell which column you are looking at. A value cut by
 a column bound (|docker-opt-column-max-widths|) is a different matter: it
 ends in `…` and scrolling does not bring the rest back, so read it with <CR>
@@ -120,9 +123,11 @@ tab and switch to it.
 Container list~
                                                     *docker-keymaps-container*
     u           start
-    d           stop
+    s           stop
     r           restart
     <C-k>       kill
+    l           expand the project group under the cursor
+    h           collapse the project group under the cursor
     p           pause
     P           unpause
     a           open a shell in the container
@@ -134,6 +139,41 @@ Container list~
     E           edit a file inside the container
     <C-o>       open a published port in the browser
     gd          go to the image of this container
+
+Containers that carry a compose project label are grouped under a header named
+after the project. The header starts with `▾` while expanded and `▸` while
+folded. `<CR>` on the header folds or expands the group. Containers under the
+header are indented one level to the right. Containers without a project
+follow the grouped rows, and the groups are sorted by project name. One-off
+containers created by `docker compose run` are grouped under their project
+too.
+
+On a project header row, the following keys operate on every container in the
+project instead of a single container:
+
+    u           start the project's containers (docker start)
+    s           stop the project's containers (docker stop)
+    r           restart the project's containers (docker restart)
+    <C-k>       kill the running containers of the project (docker kill)
+    D           remove the project's containers (docker rm, with confirmation)
+
+`l` expands and `h` collapses the project group of the row under the cursor.
+On a container row, `h` folds its project and moves the cursor to the header.
+`<CR>` on the header toggles the group. These keys can be changed through
+|docker-opt-keymaps|: `container_list.stop`, `container_list.expand_group`
+and `container_list.collapse_group`.
+
+The group is defined by the `com.docker.compose.project` label, not by the
+compose file. These keys therefore work even for a project `docker compose`
+does not recognize, such as containers created by another tool with only the
+project label. `<C-k>` only passes the containers that are running or
+restarting; when none are, it warns without calling docker. Deletion never
+passes `-f`; stop the containers first when they are running.
+
+While a filter is active, groups are expanded so that a matching container
+inside a folded group is still shown; clearing the filter restores the folded
+state. `h` and `l` update the fold state but do not change what is drawn while
+the filter is active; the result shows after the filter is cleared.
 
 Image list~
                                                         *docker-keymaps-image*
@@ -148,7 +188,7 @@ Volume and network lists~
 compose service list~
                                                       *docker-keymaps-service*
     u           start the service
-    d           stop the service
+    s           stop the service
     r           restart the service
     t           follow the logs of the service in a new tab
     U           start the whole project of the row
@@ -162,7 +202,7 @@ of shop. Services with the same name (shop/web and blog/web) are separate rows
 as long as the projects differ.
 
 D (removing the project) is the only operation that asks for confirmation.
-u / d / r / U run at the moment you press them, so check the PROJECT column
+u / s / r / U run at the moment you press them, so check the PROJECT column
 first when several projects are listed.
 
 When there is no compose project at all, the list shows the single line
@@ -194,7 +234,10 @@ destination is a float, including details (<CR>), help (?), another list
       keymaps = {
         common = { close = "<Esc>" },
         container_list = {
-          start = "s",
+          start = "n",
+          stop = "x",
+          expand_group = "L",
+          collapse_group = "H",
           delete = false,
         },
       },
@@ -226,6 +269,11 @@ keymaps ~
     that binding. The same key can be bound to a different action per view
     kind (`r` restarts in the container list and runs a throwaway container
     in the image list).
+
+    The container list uses `s` for stop, `l` for expanding a project group
+    and `h` for collapsing it by default. These can be changed with the
+    action names `stop`, `expand_group` and `collapse_group`. `<CR>`
+    (`inspect`) still toggles a project group.
 
     An unknown view kind or action name is ignored per entry, with a warning.
 
@@ -264,6 +312,7 @@ Highlights~
     the following groups depending on the state.
 
         DockerHeader            column header
+        DockerGroup             project header row in the container list
         DockerStatusRunning     running
         DockerStatusExited      exited
         DockerStatusPaused      paused
@@ -312,6 +361,24 @@ When the event subscription drops~
     Resubscription is retried up to five times with a growing wait. On
     recovery the list is reloaded to make it consistent again. After five
     failures it asks you to refresh manually with `R`.
+
+Grouping the container list~
+                                                   *docker-behavior-grouping*
+    Containers that carry a compose project label are folded under a header
+    named after the project, and the groups are sorted by project name. The
+    containers of a group are indented one level to the right. Containers
+    without a project follow the grouped rows. `<CR>` on the header folds or
+    expands the group, l expands it and h collapses it, and u / s / r /
+    <C-k> / D on the header operate on every container that carries the label
+    with docker start / stop / restart / kill / rm. `<C-k>` only targets
+    containers that are running or restarting, so an already stopped container
+    is not passed to docker kill. Because the group is defined by the label
+    rather than the compose file, the keys also work for a project `docker
+    compose` does not recognize, such as containers created by another tool
+    with only the project label. Deletion never passes `-f`. The keys can be
+    changed through |docker-opt-keymaps|. While a filter is active the groups
+    are expanded so that a matching container inside a folded group is still
+    shown. Clearing the filter restores the folded state.
 
 What compose operations target~
                                                      *docker-behavior-compose*

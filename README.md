@@ -4,8 +4,10 @@ A Neovim plugin to operate Docker. On top of containers, images, volumes and net
 
 ```
 NAME                     PROJECT  SERVICE  IMAGE         STATUS         PORTS
-shop-web-1               shop     web      nginx:alpine  Up 5 days      0.0.0.0:8080->80/tcp
-shop-db-1                shop     db       postgres:16   Up 5 days
+▾ shop
+  shop-web-1             shop     web      nginx:alpine  Up 5 days      0.0.0.0:8080->80/tcp
+  shop-db-1              shop     db       postgres:16   Up 5 days
+▸ blog
 my-standalone-container                    alpine:3.20   Exited (0) 3h
 ```
 
@@ -44,7 +46,7 @@ Passing `opts` calls `require("docker").setup(opts)`. `opts = {}` is enough when
 
 Lists open in a float window, and keys are set only in that buffer. What each view can do:
 
-- **Containers**: start / stop / restart / kill / pause / delete, follow logs, open a shell, run a command, edit a file inside the container, copy files to and from the host, open a published port in the browser
+- **Containers**: start / stop / restart / kill / pause / delete, follow logs, open a shell, run a command, edit a file inside the container, copy files to and from the host, open a published port in the browser. Containers that belong to a compose project are grouped under a project header; press `<CR>` on the header to toggle the group, `l` to expand it and `h` to collapse it, and run start / stop / restart / kill / delete on the whole project from that row. Stop is `s`.
 - **Images**: shell in a throwaway container / delete / go to the containers using the image
 - **Volumes and networks**: delete
 - **compose services**: start / stop / restart / logs per service, start / remove per project, go to the containers of the service

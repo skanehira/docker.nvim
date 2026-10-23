@@ -46,6 +46,15 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 - [ ] Given docker が起動している When `:Docker containers` を実行する Then 全コンテナ（停止中含む）が NAME / PROJECT / SERVICE / IMAGE / STATUS / PORTS のカラムで一覧表示される
 - [ ] Given コンテナが compose 由来である When 一覧を表示する Then PROJECT 列に `com.docker.compose.project`、SERVICE 列に `com.docker.compose.service` の値が表示される
 - [ ] Given compose 由来でないコンテナがある When 一覧を表示する Then PROJECT / SERVICE 列は空欄で表示され、行自体は省略されない
+- [ ] Given compose 由来のコンテナがある When 一覧を表示する Then プロジェクト名のヘッダー行の下にまとまり、コンテナ行はヘッダー行より 1 段右にインデントされ、ヘッダー行の `<CR>` で折りたたみ・展開できる
+- [ ] Given 折りたたまれているプロジェクトのヘッダー行にカーソルがある When `l` を押す Then そのプロジェクトが展開される
+- [ ] Given 展開されているプロジェクトのヘッダー行にカーソルがある When `h` を押す Then そのプロジェクトが折りたたまれる
+- [ ] Given 展開されているプロジェクトのコンテナ行にカーソルがある When `h` を押す Then 所属プロジェクトが折りたたまれ、カーソルがヘッダー行へ移動する
+- [ ] Given `setup()` で `keymaps.container_list.stop` / `expand_group` / `collapse_group` を変更している When 変更後のキーを押す Then それぞれ停止・展開・折りたたみが実行される
+- [ ] Given プロジェクトのヘッダー行にカーソルがある When `u` / `s` / `r` を押す Then そのプロジェクトに属する全コンテナが `docker start` / `stop` / `restart` で起動・停止・再起動される
+- [ ] Given プロジェクトのヘッダー行にカーソルがある When `<C-k>` を押す Then そのプロジェクトの running / restarting コンテナが `docker kill` で強制終了される（停止済みのコンテナは対象外）
+- [ ] Given プロジェクトのヘッダー行にカーソルがある When `D` を押して確認に `y` と答える Then そのプロジェクトに属する全コンテナが `docker rm` で削除される（強制削除は行わない）
+- [ ] Given compose サービスラベルを持たずプロジェクトラベルだけを持つコンテナ（Supabase CLI など）がある When そのプロジェクトのヘッダー行で `s` を押す Then グループ内の全コンテナが停止する
 - [ ] Given コンテナが 1 つも存在しない When 一覧を表示する Then 空である旨のメッセージが表示され、エラーにはならない
 - [ ] Given 一覧ビューを開いている When 一覧バッファで文字を入力する Then バッファは編集されない（`buftype=nofile` かつ `nomodifiable`）
 
@@ -62,7 +71,7 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 **受け入れ基準**:
 
 - [ ] Given 停止中のコンテナにカーソルがある When `u` を押す Then そのコンテナが起動し、一覧の STATUS が running に更新される
-- [ ] Given 実行中のコンテナにカーソルがある When `d` を押す Then そのコンテナが停止し、一覧の STATUS が exited に更新される
+- [ ] Given 実行中のコンテナにカーソルがある When `s` を押す Then そのコンテナが停止し、一覧の STATUS が exited に更新される
 - [ ] Given 実行中のコンテナにカーソルがある When `r` を押す Then そのコンテナが再起動し、STATUS が running のまま稼働時間表示（`Up X seconds`）がリセットされる
 - [ ] Given 停止中のコンテナにカーソルがある When `<C-k>`（kill）を押す Then 実行中でない旨のエラーメッセージが表示され、操作は実行されない
 - [ ] Given docker 側で失敗する状況にある（例: ホスト側ポートが他プロセスに占有されている） When `u` で start を実行する Then docker のエラーメッセージが通知され、一覧の STATUS は変更されない
@@ -183,13 +192,13 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 **受け入れ基準**:
 
 - [ ] Given 状態が none のサービスにカーソルがある When `u` を押す Then 行のプロジェクトの compose ファイルの場所で `docker compose -p <project> up -d <service>` が実行され、状態が running に更新される
-- [ ] Given running のサービスにカーソルがある When `d` を押す Then `docker compose -p <project> stop <service>` でそのサービスが停止し、状態が exited に更新される
+- [ ] Given running のサービスにカーソルがある When `s` を押す Then `docker compose -p <project> stop <service>` でそのサービスが停止し、状態が exited に更新される
 - [ ] Given running のサービスにカーソルがある When `r` を押す Then `docker compose -p <project> restart <service>` でコンテナが再起動し、状態が running のまま稼働時間表示がリセットされる
 - [ ] Given running のサービスにカーソルがある When `t` を押す Then `docker compose -p <project> logs -f <service>` のログが follow モードで開く
 - [ ] Given 状態が none のサービスにカーソルがある When `t` を押す Then コンテナが無い旨のメッセージが表示され、ターミナルは開かない
-- [ ] Given カレントディレクトリ外のプロジェクトのサービスにカーソルがある When `u` / `d` / `r` / `t` を押す Then カレントディレクトリに関係なく行のプロジェクトが操作される
+- [ ] Given カレントディレクトリ外のプロジェクトのサービスにカーソルがある When `u` / `s` / `r` / `t` を押す Then カレントディレクトリに関係なく行のプロジェクトが操作される
 - [ ] Given compose ファイルの場所が分からないプロジェクトのサービスにカーソルがある When `u` を押す Then `<サービス名> は compose ファイルの場所が分からないため起動できません` と警告され、docker は実行されない
-- [ ] Given compose ファイルの場所が分からないプロジェクトのサービスにカーソルがある When `d` / `r` / `t` を押す Then プロジェクト名の名指しだけで実行でき、操作は成功する
+- [ ] Given compose ファイルの場所が分からないプロジェクトのサービスにカーソルがある When `s` / `r` / `t` を押す Then プロジェクト名の名指しだけで実行でき、操作は成功する
 
 **エピック**: EP-3
 
@@ -289,7 +298,7 @@ Neovim から離れずに Docker のコンテナ・イメージ・ボリュー�
 
 - [ ] Given 任意の一覧ビューを開いている When `?` を押す Then そのビューで有効な「キー」と「アクション名」（`u` → `start` など）が 2 列でキー順に並んだヘルプビューが表示される
 - [ ] Given `setup()` を呼んでいない When プラグインを使う Then デフォルトキーマップで全操作が利用できる
-- [ ] Given 一覧ビュー以外の通常バッファにいる When `d` や `u` を押す Then Neovim 本来の挙動になり、プラグインの操作は実行されない（キーマップがバッファローカルである）
+- [ ] Given 一覧ビュー以外の通常バッファにいる When `s` や `u` を押す Then Neovim 本来の挙動になり、プラグインの操作は実行されない（キーマップがバッファローカルである）
 
 **エピック**: EP-5
 

@@ -385,10 +385,10 @@ M.assemble_all(projects, containers)
 
 | 操作 | 対応キー | 実行するコマンド | 実行場所 | 原子性 | 補足 |
 | --- | --- | --- | --- | --- | --- |
-| コンテナの起動・停止・再起動・強制終了・一時停止・再開 | `u` / `d` / `r` / `<C-k>` / `p` / `P` | `docker start\|stop\|restart\|kill\|pause\|unpause <id>` | — | 単一コマンド | 前提状態の検査を事前に行う（BR-007） |
+| コンテナの起動・停止・再起動・強制終了・一時停止・再開 | `u` / `s` / `r` / `<C-k>` / `p` / `P` | `docker start\|stop\|restart\|kill\|pause\|unpause <id>` | — | 単一コマンド | 前提状態の検査を事前に行う（BR-007） |
 | コンテナ・イメージ・ボリューム・ネットワークの削除 | `D` | `docker rm\|rmi\|volume rm\|network rm <id>` | — | 単一コマンド | 強制削除オプションは付けない（BR-002） |
 | 複数選択の一括削除 | Visual + `D` | 対象ごとに削除コマンド | — | 対象ごとに独立 | 一部失敗しても他は実行し、失敗分をまとめて通知する（全体の原子性は保証しない） |
-| サービスの停止・再起動 | `d` / `r` | `docker compose -p <project> stop\|restart <service>` | — | 単一コマンド | プロジェクト名の名指しだけで足りるため、compose ファイルが読めなくても実行できる |
+| サービスの停止・再起動 | `s` / `r` | `docker compose -p <project> stop\|restart <service>` | — | 単一コマンド | プロジェクト名の名指しだけで足りるため、compose ファイルが読めなくても実行できる |
 | サービスの起動 | `u` | `docker compose -p <project> up -d <service>` | 行の `working_dir` | 単一コマンド | デタッチで実行する（BR-023）。`working_dir` が空なら docker を呼ばずに警告する（BR-024） |
 | プロジェクトの破棄 | `D` | `docker compose -p <project> down` | — | 単一コマンド | 確認プロンプトを経る。途中で失敗すると一部のサービスだけが残り得る。一覧は実際の状態を反映する |
 | プロジェクトの起動 | `U` | `docker compose -p <project> up -d` | 行の `working_dir` | 単一コマンド | 途中で失敗すると一部のサービスのみ起動した状態になり得る。`working_dir` が空なら docker を呼ばずに警告する（BR-024） |
@@ -533,9 +533,11 @@ docker compose -p <project> config --format json
 | キー | アクション | 説明 |
 | --- | --- | --- |
 | `u` | `start` | 起動する |
-| `d` | `stop` | 停止する |
+| `s` | `stop` | 停止する |
 | `r` | `restart` | 再起動する |
 | `<C-k>` | `kill` | 強制終了する |
+| `l` | `expand_group` | カーソル行のプロジェクトグループを展開する |
+| `h` | `collapse_group` | カーソル行のプロジェクトグループを折りたたむ |
 | `p` | `pause` | 一時停止する |
 | `P` | `unpause` | 一時停止を解除する |
 | `a` | `shell` | コンテナ内でシェルを開く |
@@ -547,6 +549,8 @@ docker compose -p <project> config --format json
 | `E` | `edit_file` | コンテナ内のファイルを編集する |
 | `<C-o>` | `open_browser` | 公開ポートをブラウザで開く |
 | `gd` | `drilldown` | このコンテナのイメージへ移動する |
+
+`com.docker.compose.project` ラベルを持つコンテナは、プロジェクト名のヘッダー行の下にまとめて表示する。ヘッダー行は展開中に `▾`、折りたたみ中に `▸` で始まり、`<CR>` で折りたたみ・展開する（コンテナ行の `<CR>` は従来どおり詳細表示）。`l` は展開、`h` は折りたたみを行い、コンテナ行で `h` を押すと所属プロジェクトを折りたたんでカーソルをヘッダー行へ移す。グループ内のコンテナ行はヘッダー行から 1 段（2 文字）右にインデントして表示する（NAME 列の先頭に付けるため、他の列はヘッダー行と揃えたまま）。グループはプロジェクト名の昇順で並べ、プロジェクトに属さないコンテナはその後ろに元の取得順で並べる。`docker compose run` の単発コンテナもプロジェクトに含める。ヘッダー行にカーソルがあるときの `u` / `s` / `r` / `<C-k>` / `D` は、そのグループに含まれるコンテナに対する `docker start` / `stop` / `restart` / `kill` / `rm` になる（`D` は確認あり、`-f` は付けない）。`<C-k>` は running / restarting のコンテナだけを対象にし、停止済みのコンテナを `docker kill` に渡さない。グループは compose ファイルではなく `com.docker.compose.project` ラベルで定義するため、`docker compose` が認識しないプロジェクト（Supabase CLI のようにプロジェクトラベルだけを付けたコンテナなど）でも操作できる。絞り込み中は一致するコンテナを見せるためグループを展開し、絞り込みを解除すると折りたたみ状態に戻る。`stop` / `expand_group` / `collapse_group` のキーは `setup()` の `keymaps.container_list` で変更できる（6.2 のキーマップ設定を参照）。
 
 **イメージ一覧（`image_list`）**
 
@@ -567,7 +571,7 @@ docker compose -p <project> config --format json
 | キー | アクション | 説明 |
 | --- | --- | --- |
 | `u` | `up` | サービスを起動する |
-| `d` | `stop` | サービスを停止する |
+| `s` | `stop` | サービスを停止する |
 | `r` | `restart` | サービスを再起動する |
 | `t` | `logs` | サービスのログを追従する |
 | `U` | `project_up` | 行のプロジェクト全体を起動する |
