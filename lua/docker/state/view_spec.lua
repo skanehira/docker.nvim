@@ -3,7 +3,10 @@ local view = require("docker.state.view")
 describe("docker.state.view", function()
   describe("new", function()
     it("creates a state that has the kind, no items and the cursor at the top", function()
-      assert.are.same({ kind = "container", items = {}, cursor = 1, filter = "" }, view.new("container"))
+      assert.are.same(
+        { kind = "container", items = {}, cursor = 1, filter = "", collapsed = {} },
+        view.new("container")
+      )
     end)
   end)
 
@@ -13,7 +16,7 @@ describe("docker.state.view", function()
 
       local after = view.with_items(before, { { id = "a" } })
 
-      assert.are.same({ kind = "container", items = { { id = "a" } }, cursor = 1, filter = "" }, after)
+      assert.are.same({ kind = "container", items = { { id = "a" } }, cursor = 1, filter = "", collapsed = {} }, after)
     end)
 
     it("does not rewrite the original state", function()
@@ -22,7 +25,7 @@ describe("docker.state.view", function()
 
       view.with_items(before, { { id = "a" } })
 
-      assert.are.same({ kind = "container", items = {}, cursor = 1, filter = "" }, before)
+      assert.are.same({ kind = "container", items = {}, cursor = 1, filter = "", collapsed = {} }, before)
     end)
 
     it("keeps the items of the state unchanged when the passed array is modified afterwards", function()
@@ -94,6 +97,54 @@ describe("docker.state.view", function()
 
     it("returns nil when there are 0 items", function()
       assert.is_nil(view.selected(view.new("container")))
+    end)
+  end)
+
+  describe("collapsed groups", function()
+    it("starts with every group expanded", function()
+      local state = view.new("container")
+
+      assert.are.same({}, state.collapsed)
+      assert.is_false(view.is_collapsed(state, "shop"))
+    end)
+
+    it("toggles a group without changing the other state", function()
+      local before = view.with_items(view.new("container"), { { id = "a" } })
+
+      local after = view.toggle_collapsed(before, "shop")
+
+      assert.is_true(view.is_collapsed(after, "shop"))
+      assert.are.same({ shop = true }, after.collapsed)
+      assert.are.same({}, before.collapsed)
+      assert.are.same(before.items, after.items)
+    end)
+
+    it("expands a group again when toggled twice", function()
+      local state = view.toggle_collapsed(view.toggle_collapsed(view.new("container"), "shop"), "shop")
+
+      assert.is_false(view.is_collapsed(state, "shop"))
+      assert.are.same({}, state.collapsed)
+    end)
+
+    it("keeps the folded groups when the items are swapped", function()
+      local state = view.toggle_collapsed(view.new("container"), "shop")
+
+      assert.is_true(view.is_collapsed(view.with_items(state, { { id = "a" } }), "shop"))
+    end)
+
+    it("keeps the folded groups when the filter changes", function()
+      local state = view.toggle_collapsed(view.new("container"), "shop")
+
+      assert.is_true(view.is_collapsed(view.with_filter(state, "web"), "shop"))
+    end)
+
+    it("does not share the folded table with the state passed in", function()
+      local collapsed = { shop = true }
+      local state = view.with_collapsed(view.new("container"), collapsed)
+
+      collapsed.blog = true
+
+      assert.are.same({ shop = true }, state.collapsed)
     end)
   end)
 

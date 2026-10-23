@@ -50,9 +50,9 @@ describe("docker", function()
 
   describe("setup", function()
     it("takes in the user's settings", function()
-      docker.setup({ keymaps = { container_list = { start = "s" } } })
+      docker.setup({ keymaps = { container_list = { start = "n" } } })
 
-      assert.are.equal("s", config.get().keymaps.container_list.start)
+      assert.are.equal("n", config.get().keymaps.container_list.start)
     end)
 
     it("works even when no settings are passed", function()

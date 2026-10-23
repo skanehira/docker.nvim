@@ -120,6 +120,9 @@ describe("docker.handlers.lifecycle", function()
         mapped[m.lhs] = true
       end
       assert.is_true(mapped["u"], "the key for start should be mapped")
+      assert.is_true(mapped["s"], "the key for stop should be mapped")
+      assert.is_true(mapped["l"], "the key for expanding a project should be mapped")
+      assert.is_true(mapped["h"], "the key for collapsing a project should be mapped")
       assert.is_true(mapped["q"], "the key for close should be mapped")
     end)
 
@@ -697,7 +700,7 @@ describe("docker.handlers.lifecycle", function()
       end
 
       local leaked = {}
-      for _, key in ipairs({ "u", "d", "r", "t", "a", "e", "E", "q", "R", "?" }) do
+      for _, key in ipairs({ "u", "s", "r", "l", "h", "t", "a", "e", "E", "q", "R", "?" }) do
         if global[key] then
           table.insert(leaked, key)
         end
@@ -1031,6 +1034,393 @@ describe("docker.handlers.lifecycle", function()
       local last = notified[#notified]
       assert.are.equal(vim.log.levels.ERROR, last.level)
       assert.is_truthy(last.msg:find("id1", 1, true) or last.msg:find("c1", 1, true), last.msg)
+    end)
+  end)
+
+  describe("container list grouping", function()
+    local events = require("docker.adapters.docker.events")
+    local jobs = require("docker.handlers.jobs")
+
+    ---@param overrides table
+    ---@return string
+    local function container_json(overrides)
+      return vim.json.encode(vim.tbl_extend("force", {
+        id = "c1",
+        name = "web",
+        image = "alpine",
+        state = "running",
+        status = "Up",
+        ports = "",
+        command = "x",
+        created_at = "now",
+        compose_project = "",
+        compose_service = "",
+        compose_oneoff = "False",
+        compose_working_dir = "",
+      }, overrides))
+    end
+
+    ---@param rows string[]
+    ---@param runs table[]|nil
+    local function stub_containers(rows, runs)
+      cli._set_executor(function(cmd, opts, on_exit)
+        if runs then
+          table.insert(runs, { cmd = cmd, opts = opts })
+        end
+        if cmd[2] == "version" then
+          on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+          return
+        end
+        if cmd[2] == "ps" then
+          on_exit({ code = 0, stdout = table.concat(rows, "\n") .. "\n", stderr = "" })
+          return
+        end
+        on_exit({ code = 0, stdout = "", stderr = "" })
+      end)
+    end
+
+    before_each(function()
+      jobs._reset()
+      events._set_starter(function()
+        return 999
+      end)
+      events._set_waiter(function() end)
+    end)
+
+    after_each(function()
+      events._set_starter(nil)
+      events._set_waiter(nil)
+      jobs._reset()
+    end)
+
+    ---@param handle docker.ViewHandle
+    ---@return string[]
+    local function lines(handle)
+      return vim.api.nvim_buf_get_lines(handle.window.bufnr, 0, -1, false)
+    end
+
+    it("folds and expands the project on <CR>", function()
+      stub_containers({
+        container_json({ id = "c1", name = "shop-web-1", compose_project = "shop", compose_service = "web" }),
+        container_json({ id = "c2", name = "shop-db-1", compose_project = "shop", compose_service = "db" }),
+        container_json({ id = "c3", name = "plain" }),
+      })
+      local handle = assert(open_view("container"))
+
+      assert.are.equal(4, #lines(handle), "the project header, its 2 containers and the plain container")
+      assert.is_truthy(lines(handle)[1]:find("▾ shop", 1, true), lines(handle)[1])
+
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+      lifecycle.dispatch_for_test(handle, "inspect")
+
+      assert.are.equal(2, #lines(handle), "the shop containers should be folded")
+      assert.is_truthy(lines(handle)[1]:find("▸ shop", 1, true), lines(handle)[1])
+
+      lifecycle.dispatch_for_test(handle, "inspect")
+
+      assert.are.equal(4, #lines(handle), "the shop containers should be expanded again")
+      assert.is_truthy(lines(handle)[1]:find("▾ shop", 1, true), lines(handle)[1])
+    end)
+
+    it("expands the project with l and collapses it with h", function()
+      stub_containers({
+        container_json({ id = "c1", name = "shop-web-1", compose_project = "shop", compose_service = "web" }),
+        container_json({ id = "c2", name = "shop-db-1", compose_project = "shop", compose_service = "db" }),
+      })
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "collapse_group")
+      assert.are.equal(1, #lines(handle))
+      assert.is_truthy(lines(handle)[1]:find("▸ shop", 1, true), lines(handle)[1])
+
+      lifecycle.dispatch_for_test(handle, "expand_group")
+      assert.are.equal(3, #lines(handle))
+      assert.is_truthy(lines(handle)[1]:find("▾ shop", 1, true), lines(handle)[1])
+    end)
+
+    it("collapses the parent project from a child row and moves the cursor to the header", function()
+      stub_containers({
+        container_json({ id = "c1", name = "shop-web-1", compose_project = "shop", compose_service = "web" }),
+        container_json({ id = "c2", name = "shop-db-1", compose_project = "shop", compose_service = "db" }),
+      })
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 2, 0 })
+
+      lifecycle.dispatch_for_test(handle, "collapse_group")
+
+      assert.are.equal(1, #lines(handle))
+      assert.are.equal(1, vim.api.nvim_win_get_cursor(handle.window.winid)[1], "the cursor should move to the header")
+    end)
+
+    it("does nothing when l is pressed on an already expanded project", function()
+      stub_containers({
+        container_json({ id = "c1", name = "shop-web-1", compose_project = "shop", compose_service = "web" }),
+      })
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "expand_group")
+
+      assert.are.equal(2, #lines(handle))
+    end)
+
+    it("warns when the group keys are pressed on a row that has no project", function()
+      stub_containers({ container_json({ id = "c1", name = "plain" }) })
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "expand_group")
+
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+      assert.is_truthy(notified[#notified].msg:find("project row", 1, true), notified[#notified].msg)
+    end)
+
+    it("still inspects the container on <CR> when the cursor is on a container row", function()
+      local inspected = {}
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "version" then
+          on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+          return
+        end
+        if cmd[2] == "inspect" then
+          table.insert(inspected, cmd[3])
+          on_exit({ code = 0, stdout = "[]", stderr = "" })
+          return
+        end
+        on_exit({
+          code = 0,
+          stdout = container_json({ id = "c1", name = "shop-web-1", compose_project = "shop", compose_service = "web" })
+            .. "\n",
+          stderr = "",
+        })
+      end)
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 2, 0 })
+
+      lifecycle.dispatch_for_test(handle, "inspect")
+
+      assert(vim.wait(3000, function()
+        return #inspected > 0
+      end))
+      assert.are.same({ "c1" }, inspected)
+    end)
+
+    it("starts the whole project when start is pressed on the project row", function()
+      local runs = {}
+      stub_containers({
+        container_json({
+          id = "c1",
+          name = "shop-web-1",
+          compose_project = "shop",
+          compose_service = "web",
+        }),
+      }, runs)
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "start")
+
+      assert.are.same({ "docker", "start", "c1" }, runs[#runs].cmd)
+    end)
+
+    it("stops and restarts every container of a label-only project", function()
+      -- `gather-clone` is created by the Supabase CLI: its containers carry the compose project
+      -- label but no compose service label, and `docker compose -p gather-clone stop` does nothing.
+      -- The project row must still stop the containers it groups.
+      local runs = {}
+      stub_containers({
+        container_json({ id = "c1", name = "supabase_studio_gather-clone", compose_project = "gather-clone" }),
+        container_json({ id = "c2", name = "supabase_db_gather-clone", compose_project = "gather-clone" }),
+      }, runs)
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "stop")
+      assert.are.same({ "docker", "stop", "c1", "c2" }, runs[#runs].cmd)
+
+      lifecycle.dispatch_for_test(handle, "restart")
+      assert.are.same({ "docker", "restart", "c1", "c2" }, runs[#runs].cmd)
+    end)
+
+    it("kills the running containers of a label-only project", function()
+      local runs = {}
+      stub_containers({
+        container_json({
+          id = "c1",
+          name = "supabase_studio_gather-clone",
+          compose_project = "gather-clone",
+          state = "running",
+        }),
+        container_json({
+          id = "c2",
+          name = "supabase_db_gather-clone",
+          compose_project = "gather-clone",
+          state = "exited",
+        }),
+      }, runs)
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "kill")
+
+      -- Only the running container is passed; `docker kill` would fail on the exited one.
+      assert.are.same({ "docker", "kill", "c1" }, runs[#runs].cmd)
+    end)
+
+    it("removes the whole project when delete is pressed on the project row", function()
+      local runs = {}
+      stub_containers({
+        container_json({ id = "c1", name = "supabase_studio_gather-clone", compose_project = "gather-clone" }),
+        container_json({ id = "c2", name = "supabase_db_gather-clone", compose_project = "gather-clone" }),
+      }, runs)
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+      local original_input = vim.ui.input
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("y")
+      end
+
+      lifecycle.dispatch_for_test(handle, "delete")
+      vim.ui.input = original_input
+
+      assert.are.same({ "docker", "rm", "c1", "c2" }, runs[#runs].cmd)
+    end)
+
+    it("warns for a container-only operation on the project row", function()
+      stub_containers({
+        container_json({ id = "c1", name = "shop-web-1", compose_project = "shop", compose_service = "web" }),
+      })
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+
+      lifecycle.dispatch_for_test(handle, "logs")
+
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+      assert.is_truthy(notified[#notified].msg:find("project row", 1, true), notified[#notified].msg)
+    end)
+
+    it("shows a matching container inside a folded project while a filter is active", function()
+      stub_containers({
+        container_json({ id = "c1", name = "shop-web-1", compose_project = "shop", compose_service = "web" }),
+        container_json({ id = "c2", name = "shop-db-1", compose_project = "shop", compose_service = "db" }),
+      })
+      local handle = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+      lifecycle.dispatch_for_test(handle, "inspect")
+      assert.are.equal(1, #lines(handle))
+
+      local original_input = vim.ui.input
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("web")
+      end
+      lifecycle.dispatch_for_test(handle, "filter")
+      vim.ui.input = original_input
+
+      assert.are.equal(2, #lines(handle), "the matching container should be visible even inside a folded group")
+      assert.is_truthy(lines(handle)[2]:find("shop-web-1", 1, true), lines(handle)[2])
+
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("")
+      end
+      lifecycle.dispatch_for_test(handle, "filter")
+      vim.ui.input = original_input
+
+      assert.are.equal(1, #lines(handle), "the group should be folded again once the filter is cleared")
+    end)
+
+    it("stops every container of the project even when a filter hides some of them", function()
+      local runs = {}
+      stub_containers({
+        container_json({ id = "c1", name = "shop-web-1", compose_project = "shop", compose_service = "web" }),
+        container_json({ id = "c2", name = "shop-db-1", compose_project = "shop", compose_service = "db" }),
+      }, runs)
+      local handle = assert(open_view("container"))
+      local original_input = vim.ui.input
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("web")
+      end
+      lifecycle.dispatch_for_test(handle, "filter")
+      vim.ui.input = original_input
+      assert.are.equal(2, #lines(handle), "only the matching container should be visible")
+
+      vim.api.nvim_win_set_cursor(handle.window.winid, { 1, 0 })
+      lifecycle.dispatch_for_test(handle, "stop")
+
+      assert.are.same({ "docker", "stop", "c1", "c2" }, runs[#runs].cmd)
+    end)
+
+    it("expands a folded project when drilling down into one of its containers", function()
+      cli._set_executor(function(cmd, _, on_exit)
+        if cmd[2] == "version" then
+          on_exit({ code = 0, stdout = "29.4.0\n", stderr = "" })
+          return
+        end
+        if cmd[2] == "ps" then
+          on_exit({
+            code = 0,
+            stdout = container_json({
+              id = "c1",
+              name = "shop-web-1",
+              image = "alpine:latest",
+              compose_project = "shop",
+              compose_service = "web",
+            }) .. "\n",
+            stderr = "",
+          })
+          return
+        end
+        if cmd[2] == "image" then
+          on_exit({
+            code = 0,
+            stdout = vim.json.encode({
+              id = "i1",
+              repository = "alpine",
+              tag = "latest",
+              size = "5MB",
+              created_since = "now",
+            }) .. "\n",
+            stderr = "",
+          })
+          return
+        end
+        on_exit({ code = 0, stdout = "", stderr = "" })
+      end)
+      local containers = assert(open_view("container"))
+      vim.api.nvim_win_set_cursor(containers.window.winid, { 1, 0 })
+      lifecycle.dispatch_for_test(containers, "inspect")
+      assert.are.equal(1, #lines(containers), "the project should be folded first")
+
+      local images = assert(open_view("image"))
+      vim.api.nvim_win_set_cursor(images.window.winid, { 1, 0 })
+      lifecycle.dispatch_for_test(images, "drilldown")
+
+      assert(
+        vim.wait(3000, function()
+          return #lines(containers) == 2
+        end),
+        "the folded project should be expanded to reveal the target"
+      )
+      assert.are.equal(2, vim.api.nvim_win_get_cursor(containers.window.winid)[1])
+    end)
+
+    it("shows the busy marker on the project header while a project operation runs", function()
+      stub_containers({
+        container_json({ id = "c1", name = "shop-web-1", compose_project = "shop", compose_service = "web" }),
+      })
+      local handle = assert(open_view("container"))
+
+      operations.begin("shop", "project_stop")
+
+      assert.is_truthy(lines(handle)[1]:find("(busy)", 1, true), lines(handle)[1])
+
+      operations.finish("shop", "project_stop")
+
+      assert.is_nil(lines(handle)[1]:find("(busy)", 1, true), lines(handle)[1])
     end)
   end)
 

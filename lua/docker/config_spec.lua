@@ -28,9 +28,11 @@ describe("docker.config", function()
 
       assert.are.same({
         start = "u",
-        stop = "d",
+        stop = "s",
         restart = "r",
         kill = "<C-k>",
+        expand_group = "l",
+        collapse_group = "h",
         pause = "p",
         unpause = "P",
         shell = "a",
@@ -82,7 +84,7 @@ describe("docker.config", function()
 
       assert.are.same({
         up = "u",
-        stop = "d",
+        stop = "s",
         restart = "r",
         logs = "t",
         project_up = "U",
@@ -106,15 +108,28 @@ describe("docker.config", function()
 
   describe("merging the user's settings", function()
     it("replaces only the keys that were specified", function()
-      config.setup({ keymaps = { container_list = { start = "s" } } })
+      config.setup({ keymaps = { container_list = { start = "n" } } })
 
       local container_list = config.get().keymaps.container_list
-      assert.are.equal("s", container_list.start)
-      assert.are.equal("d", container_list.stop, "keys that were not specified stay at their defaults")
+      assert.are.equal("n", container_list.start)
+      assert.are.equal("s", container_list.stop, "keys that were not specified stay at their defaults")
+    end)
+
+    it("can change the stop and group folding keys", function()
+      config.setup({
+        keymaps = {
+          container_list = { stop = "x", expand_group = "L", collapse_group = "H" },
+        },
+      })
+
+      local keys = config.get().keymaps.container_list
+      assert.are.equal("x", keys.stop)
+      assert.are.equal("L", keys.expand_group)
+      assert.are.equal("H", keys.collapse_group)
     end)
 
     it("leaves the other views at their defaults when only some views are specified", function()
-      config.setup({ keymaps = { container_list = { start = "s" } } })
+      config.setup({ keymaps = { container_list = { start = "n" } } })
 
       assert.are.equal("r", config.get().keymaps.image_list.quickrun)
     end)
@@ -177,17 +192,17 @@ describe("docker.config", function()
     it("keeps only the valid settings and warns once per invalid entry", function()
       config.setup({
         keymaps = {
-          container_list = { start = "s", fly_to_the_moon = "x" },
+          container_list = { start = "n", fly_to_the_moon = "x" },
           nonexistent_view = { start = "y" },
         },
       })
 
-      assert.are.equal("s", config.get().keymaps.container_list.start)
+      assert.are.equal("n", config.get().keymaps.container_list.start)
       assert.are.equal(2, #warnings)
     end)
 
     it("does not warn when every setting is valid", function()
-      config.setup({ keymaps = { container_list = { start = "s" } }, debug = true })
+      config.setup({ keymaps = { container_list = { start = "n" } }, debug = true })
 
       assert.are.same({}, warnings)
     end)

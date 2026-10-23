@@ -13,12 +13,19 @@ local M = {}
 ---@field value fun(item: table): string
 ---@field max_width? fun(): integer|nil the upper bound on the display width, looked up at build time
 
+---@class docker.GroupDefinition
+---@field key fun(item: table): string|nil  nil when the item is not grouped
+---@field label fun(key: string, collapsed: boolean): string  text shown in the first column of the group header
+---@field child_prefix? string                prefix added to the first column of the rows under the group
+---@field project? boolean                   whether the group header can be operated on as a compose project
+
 ---@class docker.ResourceDefinition
 ---@field kind string                    "container" | "image" | "volume" | "network" | "service"
 ---@field subcommand string              the argument passed to `:Docker` (for example "containers")
 ---@field view_type string               the view type used to look up keymaps (for example "container_list")
 ---@field display_name string
 ---@field empty_text string              the single line shown in the list when there are 0 items
+---@field group? docker.GroupDefinition   groups items under a collapsible header (the container list uses it)
 ---@field list_args? fun(): string[]     docker arguments to list items (omitted for kinds that have load)
 ---@field delete_args? fun(item: table): string[] docker arguments to delete (never force delete)
 ---@field item_args? fun(id: string): string[]    docker arguments to fetch just one item again
@@ -95,6 +102,23 @@ definitions = {
     view_type = "container_list",
     display_name = "Containers",
     empty_text = "No containers",
+    -- Containers that carry a compose project label are folded under a header named after the
+    -- project. One-off containers (`docker compose run`) carry the label too, so they are grouped
+    -- as well. The project-level operations act on every container carrying the label, so they
+    -- also work for projects that `docker compose` does not recognize.
+    group = {
+      key = function(item)
+        local project = fields.project(item)
+        return project ~= "" and project or nil
+      end,
+      label = function(key, collapsed)
+        return (collapsed and "▸ " or "▾ ") .. key
+      end,
+      -- One level to the right of the header. The marker of the header takes the same width, so
+      -- the container name lines up under the project name.
+      child_prefix = "  ",
+      project = true,
+    },
     -- `-a` is there so that stopped containers are included in the list too (BR-022).
     -- Without `--no-trunc` the ID is truncated to 12 characters and Command to 20.
     list_args = function()

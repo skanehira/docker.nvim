@@ -15,6 +15,8 @@ local M = {}
 ---@class docker.ActionContext
 ---@field def docker.ResourceDefinition
 ---@field item table|nil
+---@field project string|nil     set when the target is a compose project (a project row in the container list)
+---@field items table[]|nil      the containers of the project row
 
 --- Container operations that change state.
 --- When called in a state that does not satisfy `requires`, warns without invoking docker.
@@ -126,6 +128,8 @@ local SERVICE_ACTIONS = {
 --- Per-project compose operations.
 local PROJECT_ACTIONS = {
   project_up = { args = { "up", "-d" }, success = "Started %s", needs_config = true },
+  project_stop = { args = { "stop" }, success = "Stopped %s" },
+  project_restart = { args = { "restart" }, success = "Restarted %s" },
   project_down = {
     args = { "down" },
     confirm = "Remove %s? (y/N): ",
@@ -154,6 +158,114 @@ local function run_compose_exclusive(target_id, label, operation, args, cwd, suc
       notify.error(result.error or "Failed to run docker compose")
     end
   end)
+end
+
+--- Runs a project-level compose operation. The project is named explicitly with `-p`, so stop,
+--- restart and down work even when the compose file location is unknown. Only starting (`up`)
+--- needs the compose file itself.
+---@param name string "project_up" | "project_stop" | "project_restart" | "project_down"
+---@param project_name string
+---@param working_dir string
+local function execute_project(name, project_name, working_dir)
+  local spec = PROJECT_ACTIONS[name]
+  if not spec then
+    notify.warn(("Unsupported operation: %s"):format(tostring(name)))
+    return
+  end
+
+  local args = { "-p", project_name }
+  vim.list_extend(args, spec.args)
+
+  local function run()
+    if spec.needs_config and working_dir == "" then
+      notify.warn(("%s cannot be started because the location of its compose file is unknown"):format(project_name))
+      return
+    end
+    local cwd = spec.needs_config and working_dir or nil
+    run_compose_exclusive(project_name, project_name, name, args, cwd, spec.success)
+  end
+
+  if spec.confirm then
+    vim.ui.input({ prompt = spec.confirm:format(project_name) }, function(answer)
+      if answer == "y" or answer == "Y" then
+        run()
+      end
+    end)
+    return
+  end
+
+  run()
+end
+
+--- Project-row operations in the container list. The group is defined by the
+--- `com.docker.compose.project` label, not by the compose file, so these act on every container
+--- that carries the label with the ordinary docker commands. That also covers projects
+--- `docker compose` does not recognize, such as containers created by another tool with only the
+--- project label (for example a Supabase CLI project).
+local PROJECT_CONTAINER_ACTIONS = {
+  project_up = { args = "start", success = "Started %s" },
+  project_stop = { args = "stop", success = "Stopped %s" },
+  project_restart = { args = "restart", success = "Restarted %s" },
+  project_kill = {
+    args = "kill",
+    success = "Killed %s",
+    -- `docker kill` fails for a container that is already stopped, so only the containers that
+    -- can be killed are passed.
+    requires = { running = true, restarting = true },
+  },
+  project_down = { args = "rm", confirm = "Remove %s? (y/N): ", success = "Removed %s" },
+}
+
+--- Runs an operation against every container of a project row.
+---@param name string "project_up" | "project_stop" | "project_restart" | "project_kill" | "project_down"
+---@param project_name string
+---@param items table[] the containers grouped under the project
+local function execute_project_containers(name, project_name, items)
+  local spec = PROJECT_CONTAINER_ACTIONS[name]
+  if not spec then
+    notify.warn(("Unsupported operation: %s"):format(tostring(name)))
+    return
+  end
+
+  local targets = items or {}
+  if spec.requires then
+    targets = {}
+    for _, item in ipairs(items or {}) do
+      if spec.requires[tostring(item.state or "")] then
+        table.insert(targets, item)
+      end
+    end
+    if #targets == 0 then
+      notify.warn(("%s has no running containers"):format(project_name))
+      return
+    end
+  end
+
+  local ids = {}
+  for _, item in ipairs(targets) do
+    table.insert(ids, tostring(item.id))
+  end
+  if #ids == 0 then
+    notify.warn(("%s has no containers"):format(project_name))
+    return
+  end
+
+  local function run()
+    local args = { spec.args }
+    vim.list_extend(args, ids)
+    run_exclusive(project_name, project_name, name, args, spec.success)
+  end
+
+  if spec.confirm then
+    vim.ui.input({ prompt = spec.confirm:format(project_name) }, function(answer)
+      if answer == "y" or answer == "Y" then
+        run()
+      end
+    end)
+    return
+  end
+
+  run()
 end
 
 --- Operations that open a terminal. A container that is not running cannot be entered.
@@ -248,6 +360,12 @@ end
 ---@param name string
 ---@param ctx docker.ActionContext
 function M.execute(name, ctx)
+  -- A project row in the container list has no resource item, only the project it stands for.
+  if ctx.project then
+    execute_project_containers(name, ctx.project, ctx.items or {})
+    return
+  end
+
   local spec = CONTAINER_ACTIONS[name]
   local terminal_spec = TERMINAL_ACTIONS[name]
   local EXTRA = { quickrun = true, open_browser = true, copy_to = true, copy_from = true, edit_file = true }
@@ -293,19 +411,8 @@ function M.execute(name, ctx)
       return args
     end
 
-    local project_spec = PROJECT_ACTIONS[name]
-    if project_spec then
-      local args = compose_args(project_spec)
-      if project_spec.confirm then
-        vim.ui.input({ prompt = project_spec.confirm:format(project_name) }, function(answer)
-          if answer ~= "y" and answer ~= "Y" then
-            return
-          end
-          dispatch(project_spec, project_name, project_name, args)
-        end)
-        return
-      end
-      dispatch(project_spec, project_name, project_name, args)
+    if PROJECT_ACTIONS[name] then
+      execute_project(name, project_name, working_dir)
       return
     end
 

@@ -18,6 +18,23 @@ describe("docker.views.keymaps", function()
       assert.are.equal("start", resolved["u"])
     end)
 
+    it("binds s to stop and l/h to expanding and collapsing a project", function()
+      local resolved = keymaps.resolve("container_list")
+
+      assert.are.equal("stop", resolved["s"])
+      assert.are.equal("expand_group", resolved["l"])
+      assert.are.equal("collapse_group", resolved["h"])
+      assert.is_nil(resolved["d"], "d is no longer the stop key")
+    end)
+
+    it("reflects keys the user has changed for the group folding", function()
+      config.setup({ keymaps = { container_list = { expand_group = "L", collapse_group = "H" } } })
+
+      local resolved = keymaps.resolve("container_list")
+      assert.are.equal("expand_group", resolved["L"])
+      assert.are.equal("collapse_group", resolved["H"])
+    end)
+
     it("does not resolve an action the view does not have", function()
       -- The container list has no quickrun (it is an action of the image list).
       local resolved = keymaps.resolve("container_list")
@@ -41,11 +58,12 @@ describe("docker.views.keymaps", function()
     end)
 
     it("reflects a key the user has changed", function()
-      config.setup({ keymaps = { container_list = { start = "s" } } })
+      config.setup({ keymaps = { container_list = { start = "n" } } })
 
       local resolved = keymaps.resolve("container_list")
-      assert.are.equal("start", resolved["s"])
+      assert.are.equal("start", resolved["n"])
       assert.is_nil(resolved["u"])
+      assert.are.equal("stop", resolved["s"])
     end)
 
     it("does not resolve an action that has been disabled", function()
@@ -59,6 +77,7 @@ describe("docker.views.keymaps", function()
 
       assert.are.equal("inspect", resolved["<CR>"])
       assert.is_nil(resolved["u"])
+      assert.is_nil(resolved["s"])
     end)
   end)
 

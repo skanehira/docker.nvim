@@ -159,6 +159,21 @@ describe("compose service operations and project operations", function()
   end)
 
   describe("per-project operations", function()
+    it("project_stop stops the whole project", function()
+      actions.execute("project_stop", ctx(service()))
+
+      assert.are.same({ "docker", "compose", "-p", "shop", "stop" }, runs[1].cmd)
+      -- Stopping only needs the project name, so the compose file location is not used.
+      assert.is_nil(runs[1].opts.cwd)
+    end)
+
+    it("project_restart restarts the whole project", function()
+      actions.execute("project_restart", ctx(service()))
+
+      assert.are.same({ "docker", "compose", "-p", "shop", "restart" }, runs[1].cmd)
+      assert.is_nil(runs[1].opts.cwd)
+    end)
+
     it("project_up starts the whole project detached", function()
       actions.execute("project_up", ctx(service()))
 
@@ -240,6 +255,128 @@ describe("compose service operations and project operations", function()
       actions.execute("stop", ctx(service()))
 
       assert.are.equal(2, #runs)
+    end)
+  end)
+
+  describe("project rows in the container list", function()
+    local container_def = assert(registry.get("container"))
+
+    ---@param ids string[]
+    ---@return table[]
+    local function project_items(ids)
+      local items = {}
+      for _, id in ipairs(ids) do
+        table.insert(items, { id = id })
+      end
+      return items
+    end
+
+    it("stops every container of the project", function()
+      actions.execute("project_stop", {
+        def = container_def,
+        project = "gather-clone",
+        items = project_items({ "c1", "c2" }),
+      })
+
+      assert.are.same({ "docker", "stop", "c1", "c2" }, runs[1].cmd)
+    end)
+
+    it("starts every container of the project", function()
+      actions.execute("project_up", {
+        def = container_def,
+        project = "shop",
+        items = project_items({ "c1", "c2" }),
+      })
+
+      assert.are.same({ "docker", "start", "c1", "c2" }, runs[1].cmd)
+    end)
+
+    it("restarts every container of the project", function()
+      actions.execute("project_restart", {
+        def = container_def,
+        project = "shop",
+        items = project_items({ "c1" }),
+      })
+
+      assert.are.same({ "docker", "restart", "c1" }, runs[1].cmd)
+    end)
+
+    it("kills the running containers of the project", function()
+      actions.execute("project_kill", {
+        def = container_def,
+        project = "gather-clone",
+        items = {
+          { id = "c1", state = "running" },
+          { id = "c2", state = "exited" },
+          { id = "c3", state = "restarting" },
+        },
+      })
+
+      assert.are.same({ "docker", "kill", "c1", "c3" }, runs[1].cmd)
+    end)
+
+    it("does not kill when the project has no running containers and tells why", function()
+      actions.execute("project_kill", {
+        def = container_def,
+        project = "shop",
+        items = { { id = "c1", state = "exited" } },
+      })
+
+      assert.are.equal("shop has no running containers", notified[#notified].msg)
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+      assert.are.same({}, runs)
+    end)
+
+    it("removes the project's containers only after the confirmation is answered with y", function()
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("y")
+      end
+
+      actions.execute("project_down", {
+        def = container_def,
+        project = "gather-clone",
+        items = project_items({ "c1", "c2" }),
+      })
+
+      assert.are.same({ "docker", "rm", "c1", "c2" }, runs[1].cmd)
+      -- The delete policy never passes a force option.
+      assert.is_false(vim.tbl_contains(runs[1].cmd, "-f"))
+    end)
+
+    it("does not remove the project's containers when the confirmation is declined", function()
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.ui.input = function(_, on_confirm)
+        on_confirm("n")
+      end
+
+      actions.execute("project_down", {
+        def = container_def,
+        project = "shop",
+        items = project_items({ "c1" }),
+      })
+
+      assert.are.same({}, runs)
+    end)
+
+    it("warns when the project row has no containers", function()
+      actions.execute("project_stop", { def = container_def, project = "shop", items = {} })
+
+      assert.are.equal("shop has no containers", notified[#notified].msg)
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+      assert.are.same({}, runs)
+    end)
+
+    it("warns for an unsupported operation on a project row", function()
+      actions.execute("logs", {
+        def = container_def,
+        project = "shop",
+        items = project_items({ "c1" }),
+      })
+
+      assert.are.equal("Unsupported operation: logs", notified[#notified].msg)
+      assert.are.equal(vim.log.levels.WARN, notified[#notified].level)
+      assert.are.same({}, runs)
     end)
   end)
 end)

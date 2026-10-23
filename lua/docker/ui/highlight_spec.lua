@@ -3,7 +3,7 @@ local highlight = require("docker.ui.highlight")
 describe("docker.ui.highlight", function()
   after_each(function()
     -- Do not carry over colors that were defined directly in a test.
-    for _, group in ipairs({ "DockerHeader", "DockerStatusRunning" }) do
+    for _, group in ipairs({ "DockerHeader", "DockerStatusRunning", "DockerGroup" }) do
       vim.api.nvim_set_hl(0, group, {})
     end
   end)
@@ -39,6 +39,12 @@ describe("docker.ui.highlight", function()
     end)
   end)
 
+  describe("group_row_group", function()
+    it("returns the group header highlight name", function()
+      assert.are.equal("DockerGroup", highlight.group_row_group())
+    end)
+  end)
+
   describe("setup", function()
     it("defines a highlight group for each state", function()
       highlight.setup()
@@ -52,6 +58,7 @@ describe("docker.ui.highlight", function()
         "DockerStatusDead",
         "DockerStatusNone",
         "DockerStatusUnknown",
+        "DockerGroup",
       }) do
         assert.is_truthy(vim.fn.hlexists(group) == 1, group .. " must be defined")
       end

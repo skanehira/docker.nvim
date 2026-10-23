@@ -145,6 +145,40 @@ describe("G_E2E: end-to-end scenarios of docker.nvim", function()
     )
   end)
 
+  it("US-002: a project row kills and stops a label-only project that docker compose does not recognize", function()
+    -- The Supabase CLI creates containers with com.docker.compose.project but no compose
+    -- service label. `docker compose -p <project> stop` sees no containers for it, so the
+    -- project row must operate on the containers it groups directly.
+    local handle = open_view("container")
+    wait_for_line(handle, PREFIX .. "-labeled-proj")
+    local lnum = assert(line_of(handle, PREFIX .. "-labeled-proj"))
+    vim.api.nvim_set_current_win(handle.window.winid)
+    vim.api.nvim_win_set_cursor(handle.window.winid, { lnum, 0 })
+
+    lifecycle.dispatch_for_test(handle, "kill")
+
+    assert(
+      vim.wait(20000, function()
+        local status = sh({ "docker", "inspect", "--format", "{{.State.Status}}", PREFIX .. "-labeled" })
+        return status:find("exited", 1, true) ~= nil
+      end, 100),
+      "the label-only project container was not killed"
+    )
+
+    -- Start it again and stop it through the same project row.
+    sh({ "docker", "start", PREFIX .. "-labeled" })
+    vim.api.nvim_win_set_cursor(handle.window.winid, { lnum, 0 })
+    lifecycle.dispatch_for_test(handle, "stop")
+
+    assert(
+      vim.wait(20000, function()
+        local status = sh({ "docker", "inspect", "--format", "{{.State.Status}}", PREFIX .. "-labeled" })
+        return status:find("exited", 1, true) ~= nil
+      end, 100),
+      "the label-only project container was not stopped"
+    )
+  end)
+
   it("US-004 / G4: closing the log terminal leaves no docker logs process behind", function()
     local handle = open_view("container")
     wait_for_line(handle, PREFIX .. "-standalone")
@@ -158,9 +192,10 @@ describe("G_E2E: end-to-end scenarios of docker.nvim", function()
       "the terminal job is not registered"
     )
 
-    -- Focus moves to the terminal, so the float of the list does not stay open.
-    assert.is_nil(lifecycle.get("container"), "the list must be closed")
-    assert.is_false(vim.api.nvim_win_is_valid(handle.window.winid))
+    -- The terminal opens in another tab, so the list in the original tab stays active
+    -- (docker-auto-close). Only the lists in the tab that lost focus close.
+    assert.is_truthy(lifecycle.get("container"), "the list should stay open in the other tab")
+    assert.is_true(vim.api.nvim_win_is_valid(handle.window.winid))
 
     local bufnr = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_delete(bufnr, { force = true })

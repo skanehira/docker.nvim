@@ -24,9 +24,12 @@ local DEFAULT_KEYMAPS = {
   },
   container_list = {
     start = "u",
-    stop = "d",
+    stop = "s",
     restart = "r",
     kill = "<C-k>",
+    -- Folding of the compose project groups. `<CR>` also toggles them (see `inspect`).
+    expand_group = "l",
+    collapse_group = "h",
     pause = "p",
     unpause = "P",
     shell = "a",
@@ -52,7 +55,7 @@ local DEFAULT_KEYMAPS = {
   },
   service_list = {
     up = "u",
-    stop = "d",
+    stop = "s",
     restart = "r",
     logs = "t",
     project_up = "U",

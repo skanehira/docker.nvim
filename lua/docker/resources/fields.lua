@@ -16,13 +16,20 @@ local function str(item, key)
   return type(value) == "string" and value or ""
 end
 
+--- The compose project name (empty string when the container is not managed by compose).
+---@param item table
+---@return string
+function M.project(item)
+  return str(item, "compose_project")
+end
+
 --- Whether the container was created by compose.
 --- The condition is that both the project name and the service name are present
 --- (DESIGN_DETAIL_APP.md section 4.1).
 ---@param item table
 ---@return boolean
 function M.is_compose(item)
-  return str(item, "compose_project") ~= "" and str(item, "compose_service") ~= ""
+  return M.project(item) ~= "" and str(item, "compose_service") ~= ""
 end
 
 --- Whether it is a one-off container created by `docker compose run` (BR-006).

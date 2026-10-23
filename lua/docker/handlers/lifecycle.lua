@@ -40,6 +40,26 @@ local views = {}
 ---@type table<string, boolean>
 local opening = {}
 
+--- Groups that are folded. While a filter is active the groups are expanded, so that a matching
+--- resource hidden inside a folded group is still shown.
+---@param handle docker.ViewHandle
+---@return table<string, boolean>
+local function collapsed_groups(handle)
+  if (handle.state.filter or "") ~= "" then
+    return {}
+  end
+  return handle.state.collapsed or {}
+end
+
+--- The rows currently drawn, in display order.
+---@param handle docker.ViewHandle
+---@return docker.ListEntry[]
+local function layout(handle)
+  return list.entries(handle.def, view.visible_items(handle.state, handle.def), {
+    collapsed = collapsed_groups(handle),
+  })
+end
+
 --- Redraw while keeping the cursor position.
 ---@param handle docker.ViewHandle
 local function redraw(handle)
@@ -56,6 +76,7 @@ local function redraw(handle)
     busy = function(item)
       return operations.has_any(tostring(handle.def.id(item)))
     end,
+    collapsed = collapsed_groups(handle),
   })
 
   -- Keep the redraw from sending the cursor back to the first line.
@@ -63,6 +84,53 @@ local function redraw(handle)
     local last = math.max(vim.api.nvim_buf_line_count(handle.window.bufnr), 1)
     pcall(vim.api.nvim_win_set_cursor, handle.window.winid, { math.min(cursor[1], last), cursor[2] })
   end
+end
+
+--- Set the fold state of a group and redraw.
+---@param handle docker.ViewHandle
+---@param key string
+---@param collapsed boolean
+local function set_group_collapsed(handle, key, collapsed)
+  local collapsed_set = vim.deepcopy(handle.state.collapsed or {})
+  if collapsed then
+    collapsed_set[key] = true
+  else
+    collapsed_set[key] = nil
+  end
+  handle.state = view.with_collapsed(handle.state, collapsed_set)
+  redraw(handle)
+end
+
+--- Fold or expand a group and redraw.
+---@param handle docker.ViewHandle
+---@param key string
+local function toggle_group(handle, key)
+  set_group_collapsed(handle, key, not view.is_collapsed(handle.state, key))
+end
+
+--- The group key and the header line that the cursor line belongs to. A resource row belongs to
+--- the group it is displayed under, so h on a child row can fold its parent.
+---@param handle docker.ViewHandle
+---@param entries docker.ListEntry[]
+---@param lnum integer
+---@param entry docker.ListEntry|nil
+---@return string|nil key
+---@return integer|nil header_lnum
+local function group_of_line(handle, entries, lnum, entry)
+  if entry and entry.group then
+    return entry.group, lnum
+  end
+  if entry and entry.item and handle.def.group then
+    local key = handle.def.group.key(entry.item)
+    if type(key) == "string" and key ~= "" then
+      for index, candidate in ipairs(entries) do
+        if candidate.group == key then
+          return key, index
+        end
+      end
+    end
+  end
+  return nil, nil
 end
 
 --- Redraw the view of a kind (for when the state is changed from the outside).
@@ -202,13 +270,44 @@ end
 ---@param handle docker.ViewHandle
 ---@param match fun(item: table): boolean
 local function focus_on(handle, match)
-  local visible = view.visible_items(handle.state, handle.def)
-  for index, item in ipairs(visible) do
-    if match(item) then
-      pcall(vim.api.nvim_win_set_cursor, handle.window.winid, { index, 0 })
-      handle.state = view.with_cursor(handle.state, index)
-      return
+  local entries = layout(handle)
+
+  local function find()
+    for index, entry in ipairs(entries) do
+      if entry.item and match(entry.item) then
+        return index
+      end
     end
+    return nil
+  end
+
+  local index = find()
+  if not index and handle.def.group then
+    -- The target may be hidden inside a folded group. Expand only the groups that contain it,
+    -- so the other groups keep the state the user chose.
+    local collapsed = vim.deepcopy(handle.state.collapsed or {})
+    local changed = false
+    for _, item in ipairs(view.visible_items(handle.state, handle.def)) do
+      if match(item) then
+        local key = handle.def.group.key(item)
+        if key and collapsed[key] then
+          collapsed[key] = nil
+          changed = true
+        end
+      end
+    end
+    if changed then
+      handle.state = view.with_collapsed(handle.state, collapsed)
+      -- The buffer still shows the folded rows until it is drawn again.
+      redraw(handle)
+      entries = layout(handle)
+      index = find()
+    end
+  end
+
+  if index then
+    pcall(vim.api.nvim_win_set_cursor, handle.window.winid, { index, 0 })
+    handle.state = view.with_cursor(handle.state, index)
   end
 end
 
@@ -217,7 +316,8 @@ end
 ---@return { kind: string, match: fun(item: table): boolean }|nil
 local function drilldown_target(handle)
   local lnum = vim.api.nvim_win_get_cursor(handle.window.winid)[1]
-  local item = list.item_at(view.visible_items(handle.state, handle.def), lnum)
+  local entry = list.entry_at(layout(handle), lnum)
+  local item = entry and entry.item
   if not item then
     return nil
   end
@@ -278,12 +378,13 @@ local function bulk_delete(handle)
   local first = vim.fn.line("'<")
   local last = vim.fn.line("'>")
 
-  local visible = view.visible_items(handle.state, handle.def)
+  local entries = layout(handle)
   local targets = {}
   for lnum = first, last do
-    local item = list.item_at(visible, lnum)
-    if item then
-      table.insert(targets, item)
+    local entry = list.entry_at(entries, lnum)
+    -- A group header is not a resource, so a selection that covers it deletes only the resources.
+    if entry and entry.item then
+      table.insert(targets, entry.item)
     end
   end
 
@@ -316,6 +417,30 @@ local function bulk_delete(handle)
       end)
     end
   end)
+end
+
+--- Container list actions that operate on the whole project when the cursor is on a project row.
+local PROJECT_ROW_ACTIONS = {
+  start = "project_up",
+  stop = "project_stop",
+  restart = "project_restart",
+  kill = "project_kill",
+  delete = "project_down",
+}
+
+--- Every container of the group, regardless of the filter or fold state. A project operation
+--- must not miss a container just because it is hidden by a filter.
+---@param handle docker.ViewHandle
+---@param key string
+---@return table[]
+local function group_items(handle, key)
+  local items = {}
+  for _, item in ipairs(handle.state.items) do
+    if handle.def.group.key(item) == key then
+      table.insert(items, item)
+    end
+  end
+  return items
 end
 
 --- Run an action against the resource on the cursor line.
@@ -401,10 +526,43 @@ local function dispatch(handle, action)
 
   local lnum = vim.api.nvim_win_get_cursor(handle.window.winid)[1]
   handle.state = view.with_cursor(handle.state, lnum)
-  local visible = view.visible_items(handle.state, handle.def)
+  local entries = layout(handle)
+  local entry = list.entry_at(entries, lnum)
+
+  if action == "expand_group" or action == "collapse_group" then
+    local key, header_lnum = group_of_line(handle, entries, lnum, entry)
+    if not key or not header_lnum then
+      notify.warn("The cursor is not on a project row")
+      return
+    end
+
+    if action == "expand_group" then
+      if view.is_collapsed(handle.state, key) then
+        set_group_collapsed(handle, key, false)
+      end
+      return
+    end
+
+    if not view.is_collapsed(handle.state, key) then
+      set_group_collapsed(handle, key, true)
+      -- When the group actually folded, a cursor left on a child row would point at a different
+      -- line. Move it to the header. While a filter is active the group stays expanded, so the
+      -- cursor stays where it is.
+      if collapsed_groups(handle)[key] then
+        pcall(vim.api.nvim_win_set_cursor, handle.window.winid, { header_lnum, 0 })
+        handle.state = view.with_cursor(handle.state, header_lnum)
+      end
+    end
+    return
+  end
 
   if action == "inspect" then
-    local item = list.item_at(visible, lnum)
+    -- On a project row, <CR> folds or expands the group instead of opening the details.
+    if entry and entry.group then
+      toggle_group(handle, entry.group)
+      return
+    end
+    local item = entry and entry.item
     if not item then
       notify.warn("No target to show details for")
       return
@@ -423,9 +581,23 @@ local function dispatch(handle, action)
     return
   end
 
+  if entry and entry.group then
+    local project_action = PROJECT_ROW_ACTIONS[action]
+    if project_action and handle.def.group and handle.def.group.project then
+      actions.execute(project_action, {
+        def = handle.def,
+        project = entry.group,
+        items = group_items(handle, entry.group),
+      })
+      return
+    end
+    notify.warn(("Unsupported operation on the project row: %s"):format(tostring(action)))
+    return
+  end
+
   actions.execute(action, {
     def = handle.def,
-    item = list.item_at(visible, lnum),
+    item = entry and entry.item,
   })
 end
 

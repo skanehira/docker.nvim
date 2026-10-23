@@ -93,6 +93,11 @@ EOF
 setup() {
   docker run -d --name "${PREFIX}-standalone" "$IMAGE" sleep 600 >/dev/null &&
     docker run -d --name "${PREFIX}-doomed" "$IMAGE" sleep 600 >/dev/null &&
+    # A project label without compose service labels, as created by the Supabase CLI.
+    # `docker compose -p <project> stop` does not see it, so the project row must stop the
+    # container it groups directly.
+    docker run -d --name "${PREFIX}-labeled" \
+      --label "com.docker.compose.project=${PREFIX}-labeled-proj" "$IMAGE" sleep 600 >/dev/null &&
     docker volume create "${PREFIX}-vol" >/dev/null &&
     docker network create "${PREFIX}-net" >/dev/null &&
     (cd "$WORKDIR" && docker compose up -d web >/dev/null 2>&1) &&

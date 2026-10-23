@@ -30,6 +30,7 @@ local LINKS = {
   DockerStatusDead = "DiagnosticError",
   DockerStatusNone = "Comment",
   [UNKNOWN_GROUP] = "Normal",
+  DockerGroup = "Title",
 }
 
 --- Colors of the column header. Unlike the state groups there is no standard group that is
@@ -38,6 +39,9 @@ local LINKS = {
 --- termguicolors setup only the color takes effect; this matches that appearance).
 local HEADER_GROUP = "DockerHeader"
 local HEADER_HL = { fg = "#e2a478", ctermfg = 216 }
+
+--- The highlight of a group header row in a list.
+local GROUP_ROW = "DockerGroup"
 
 ---@return integer
 function M.namespace()
@@ -48,6 +52,12 @@ end
 ---@return string
 function M.header_group()
   return HEADER_GROUP
+end
+
+--- The name of the highlight group for a group header row.
+---@return string
+function M.group_row_group()
+  return GROUP_ROW
 end
 
 --- Define the highlight groups. Groups the user has already defined are not overwritten.

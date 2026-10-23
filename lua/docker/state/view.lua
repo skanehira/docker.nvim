@@ -10,6 +10,7 @@ local M = {}
 ---@field items table[]   the resources being displayed
 ---@field cursor integer  the cursor line (1-based)
 ---@field filter string   the filtering term (all items when empty)
+---@field collapsed table<string, boolean> group keys that are folded
 
 ---@param count integer
 ---@param cursor integer
@@ -21,10 +22,16 @@ local function clamp_cursor(count, cursor)
   return math.max(1, math.min(cursor, count))
 end
 
+---@param state docker.ViewState
+---@return table<string, boolean>
+local function copy_collapsed(state)
+  return vim.deepcopy(state.collapsed or {})
+end
+
 ---@param kind string
 ---@return docker.ViewState
 function M.new(kind)
-  return { kind = kind, items = {}, cursor = 1, filter = "" }
+  return { kind = kind, items = {}, cursor = 1, filter = "", collapsed = {} }
 end
 
 --- Swaps the resources being displayed. The cursor is kept, but clamped if it falls out of range.
@@ -37,6 +44,7 @@ function M.with_items(state, items)
     items = vim.deepcopy(items),
     cursor = clamp_cursor(#items, state.cursor),
     filter = state.filter or "",
+    collapsed = copy_collapsed(state),
   }
 end
 
@@ -50,6 +58,7 @@ function M.with_cursor(state, cursor)
     items = vim.deepcopy(state.items),
     cursor = clamp_cursor(#state.items, cursor),
     filter = state.filter or "",
+    collapsed = copy_collapsed(state),
   }
 end
 
@@ -63,7 +72,44 @@ function M.with_filter(state, filter)
     items = vim.deepcopy(state.items),
     cursor = 1,
     filter = filter or "",
+    collapsed = copy_collapsed(state),
   }
+end
+
+--- Swaps the folded groups. The keys that are present are folded.
+---@param state docker.ViewState
+---@param collapsed table<string, boolean>
+---@return docker.ViewState
+function M.with_collapsed(state, collapsed)
+  return {
+    kind = state.kind,
+    items = vim.deepcopy(state.items),
+    cursor = state.cursor,
+    filter = state.filter or "",
+    collapsed = vim.deepcopy(collapsed or {}),
+  }
+end
+
+--- Flips the fold state of a group.
+---@param state docker.ViewState
+---@param key string
+---@return docker.ViewState
+function M.toggle_collapsed(state, key)
+  local collapsed = copy_collapsed(state)
+  if collapsed[key] then
+    collapsed[key] = nil
+  else
+    collapsed[key] = true
+  end
+  return M.with_collapsed(state, collapsed)
+end
+
+--- Whether the group is folded.
+---@param state docker.ViewState
+---@param key string
+---@return boolean
+function M.is_collapsed(state, key)
+  return (state.collapsed or {})[key] == true
 end
 
 --- The items after the filtering has been applied.

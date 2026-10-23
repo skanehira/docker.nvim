@@ -34,11 +34,11 @@ describe("docker.views.help", function()
     end)
 
     it("reflects a key the user has changed", function()
-      config.setup({ keymaps = { container_list = { start = "s" } } })
+      config.setup({ keymaps = { container_list = { start = "n" } } })
 
       local joined = table.concat(help.build("container_list"), "\n")
 
-      assert.is_truthy(joined:match("s%s+start"), joined)
+      assert.is_truthy(joined:match("n%s+start"), joined)
     end)
 
     it("does not list an action that has been disabled", function()
