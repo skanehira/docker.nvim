@@ -65,7 +65,7 @@ jobs:
         with:
           luaVersion: "luajit-2.1"
 
-      - uses: leafo/gh-actions-luarocks@35d062def313a7699a0d513e996bcf4352f05389 # v6.1.0
+      - uses: leafo/gh-actions-luarocks@1c4a92caecc8f6850f673cbadfd57b3e555417ce # v6.1.1
         with:
           # The default changes with the action version, so state it explicitly.
           luaRocksVersion: "3.13.0"
